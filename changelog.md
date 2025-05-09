@@ -13,7 +13,9 @@
 
 # Changelog
 
-- TODO: Introduce versioning
+### 0.0.2
+
+- [92585ec](https://github.com/vaib/glesha/commit/92585ec) - Add logger, --verbose arg, introduce versioning with version.txt, and add github-release script
 
 ### 0.0.1
 
