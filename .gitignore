@@ -1,6 +1,6 @@
 # Ignore compiled binaries
-/glesha
-
+build/
+dist/
 # Ignore Go modules files
 /go.sum
 

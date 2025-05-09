@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
 printf "\n[BUILD]\n"
 set -xe
-go build -o glesha
+mkdir -p "./build"
+go mod tidy
+go build -o ./build/glesha

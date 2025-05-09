@@ -17,22 +17,24 @@
 ## Build Instructions
 
 ```bash
-git clone https://github.com/yourname/glesha.git
+git clone https://github.com/toxdes/glesha.git
 cd glesha
-go mod tidy
-go build -o glesha ./cmd/archive
+./build.sh
 ```
 
 ---
 
 ## Usage
 
-```bash
-./glesha -input /path/to/dir_or_file -config /path/to/config.json
-```
+Download [latest binary](https://github.com/toxdes/glesha/releases/latest) from releases, add it to your environment PATH.
 
-- `--dir`: Path to file or directory to archive (**required**)
-- `-config`: Path to `config.json` (**required**)
+```cmd
+$ glesha
+--config string
+        Path to config.json file (required)
+--dir string
+        Path to file or directory to archive (required)
+```
 
 ---
 
