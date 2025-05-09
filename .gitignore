@@ -1,0 +1,23 @@
+# Ignore compiled binaries
+/glesha
+
+# Ignore Go modules files
+/go.sum
+
+# Ignore local config files
+/config.json
+
+# Ignore IDE/editor settings
+.idea/
+.vscode/
+
+# Ignore any backup or temporary files
+*.bak
+*.tmp
+*.swp
+
+# Ignore logs
+*.log
+
+# Ignore SQLite3 database files
+*.db
