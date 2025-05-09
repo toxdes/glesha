@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 printf "[RUN]\n"
 set -xe
-./build/glesha --dir=./source --config=./config-sample.json
+./build/glesha --input=./source --config=./config-sample.json --verbose

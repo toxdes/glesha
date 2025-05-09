@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"glesha/cmd"
 	"glesha/config"
+	L "glesha/logger"
 	"os"
 )
 
 func init() {
+	L.SetLevel("error")
 	err := cmd.Configure()
 	if err != nil {
 		flag.Usage()
@@ -17,7 +19,7 @@ func init() {
 	err = config.Parse(cmd.Get().ConfigPath)
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%s\n", err.Error())
+		L.Error(fmt.Sprintf("%s\n", err.Error()))
 		os.Exit(1)
 	}
 
@@ -25,9 +27,13 @@ func init() {
 
 func main() {
 	fmt.Println("Flags: OK")
-	fmt.Printf("\tconfig: %s, input: %s\n", cmd.Get().ConfigPath, cmd.Get().InputPath)
+	if cmd.Get().Verbose {
+		L.SetLevel("debug")
+	}
+	L.Debug(fmt.Sprintf("\tconfig: %s, input: %s", cmd.Get().ConfigPath, cmd.Get().InputPath))
 	fmt.Println("Config File: OK")
-	fmt.Printf("\tconfig::AWSAccessKey %s\n", config.Get().AWSAccessKey)
-	fmt.Printf("\tconfig::AWSBucketName %s\n", config.Get().AWSBucketName)
-	fmt.Printf("\tconfig::AWSRegion %s\n", config.Get().AWSRegion)
+
+	L.Debug(fmt.Sprintf("\tconfig::AWSAccessKey %s", config.Get().AWSAccessKey))
+	L.Debug(fmt.Sprintf("\tconfig::AWSBucketName %s", config.Get().AWSBucketName))
+	L.Debug(fmt.Sprintf("\tconfig::AWSRegion %s", config.Get().AWSRegion))
 }
