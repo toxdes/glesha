@@ -3,4 +3,5 @@ printf "\n[BUILD]\n"
 set -xe
 mkdir -p "./build"
 go mod tidy
-go build -o ./build/glesha
+LD_FLAGS="-X 'glesha/cmd.version=$(cat version.txt)'"
+go build -o ./build/glesha -ldflags "$LD_FLAGS"

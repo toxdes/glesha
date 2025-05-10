@@ -7,7 +7,7 @@ VERSION=$(cat version.txt)
 TAG="v$VERSION"
 GH_API="https://api.github.com/repos/$REPO"
 GH_UPLOAD="https://uploads.github.com/repos/$REPO/releases"
-
+LD_FLAGS="-X 'glesha/cmd.version=$(cat version.txt)'"
 BIN_NAME="glesha"
 
 # BUILD
@@ -27,7 +27,7 @@ for target in "${targets[@]}"; do
 
   echo "Building $output..."
 
-  GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -ldflags="-s -w" -o "$output"
+  GOOS=$os GOARCH=$arch CGO_ENABLED=0 go build -ldflags="-s -w $LD_FLAGS" -o "$output"
 
   [[ "$os" == "linux" ]] && strip "$output"
 

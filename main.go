@@ -12,14 +12,23 @@ import (
 func init() {
 	L.SetLevel("error")
 	err := cmd.Configure()
+	args := cmd.Get()
+	if args.Verbose {
+		L.SetLevel("debug")
+	}
+	if args.Version {
+		cmd.PrintVersion()
+		os.Exit(0)
+	}
 	if err != nil {
+		L.Error(err)
 		flag.Usage()
 		os.Exit(1)
 	}
-	err = config.Parse(cmd.Get().ConfigPath)
+	err = config.Parse(args.ConfigPath)
 
 	if err != nil {
-		L.Error(fmt.Sprintf("%s\n", err.Error()))
+		L.Error(err)
 		os.Exit(1)
 	}
 
@@ -27,13 +36,12 @@ func init() {
 
 func main() {
 	fmt.Println("Flags: OK")
-	if cmd.Get().Verbose {
-		L.SetLevel("debug")
-	}
-	L.Debug(fmt.Sprintf("\tconfig: %s, input: %s", cmd.Get().ConfigPath, cmd.Get().InputPath))
-	fmt.Println("Config File: OK")
+	args := cmd.Get()
 
-	L.Debug(fmt.Sprintf("\tconfig::AWSAccessKey %s", config.Get().AWSAccessKey))
-	L.Debug(fmt.Sprintf("\tconfig::AWSBucketName %s", config.Get().AWSBucketName))
-	L.Debug(fmt.Sprintf("\tconfig::AWSRegion %s", config.Get().AWSRegion))
+	L.Debug(fmt.Sprintf("\tconfig: %s, input: %s", args.ConfigPath, args.InputPath))
+	fmt.Println("Config File: OK")
+	configs := config.Get()
+	L.Debug(fmt.Sprintf("\tconfig::AWSAccessKey %s", configs.AWSAccessKey))
+	L.Debug(fmt.Sprintf("\tconfig::AWSBucketName %s", configs.AWSBucketName))
+	L.Debug(fmt.Sprintf("\tconfig::AWSRegion %s", configs.AWSRegion))
 }
