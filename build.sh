@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-printf "\n[BUILD]\n"
+printf "[BUILD]\n"
 set -xe
 mkdir -p "./build"
 go mod tidy

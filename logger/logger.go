@@ -69,6 +69,9 @@ func Warn(v ...interface{}) {
 
 func Error(v ...interface{}) {
 	if level <= ERROR {
+		// _, file, line, _ := runtime.Caller(1)
+		// errorLogger.Printf("%s:%d", file, line)
+		errorLogger.Println(fmt.Sprint(v...))
 		errorLogger.Println(v...)
 	}
 }
