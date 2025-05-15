@@ -2,6 +2,7 @@ package archive
 
 import (
 	"archive/tar"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
@@ -92,13 +93,15 @@ func (tgz *TarGzArchive) Start() error {
 		// create tar file
 		if archiveProgress.TempFilePath == "" {
 			ts := time.Now().UnixMicro()
-			archiveProgress.TempFilePath = fmt.Sprintf("%s/glesha-ar-%d.tar", os.TempDir(), ts)
+			archiveProgress.TempFilePath = fmt.Sprintf("%s/glesha-ar-%d.tar.gz", os.TempDir(), ts)
 		}
 		tarFile, err := os.OpenFile(archiveProgress.TempFilePath, os.O_RDWR|os.O_CREATE, 0644)
 		if err != nil {
 			return err
 		}
 		defer tarFile.Close()
+		gzipWriter := gzip.NewWriter(tarFile)
+		defer gzipWriter.Close()
 		tarWriter := tar.NewWriter(tarFile)
 		defer tarWriter.Close()
 		return filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, err error) error {
