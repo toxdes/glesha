@@ -76,7 +76,7 @@ func Error(v ...interface{}) {
 	}
 }
 
-func Fatal(v ...interface{}) {
+func Panic(v ...interface{}) {
 	errorLogger.Println(v...)
 	os.Exit(1)
 }

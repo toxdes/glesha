@@ -4,7 +4,7 @@
 - [x] Accept directory/file as `input` from args
 - [x] Accept `config.json` from args
 - [ ] If `input` is file, archive it to `.tar.xz`
-- [ ] If `input` is dir, archive everything in that dir and create a single `.tar.xz`
+- [x] If `input` is dir, archive everything in that dir and create a single `.tar.xz`
 - [ ] Connect to encrypted SQLite DB via env-config
 - [ ] Design DB schema for metadata
 - [ ] Multipart concurrent upload to Glacier Deep Archive

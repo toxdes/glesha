@@ -1,0 +1,57 @@
+package archiver
+
+import (
+	"fmt"
+	"glesha/file_io"
+)
+
+type ArchiveStatus int
+
+const (
+	STATUS_IN_QUEUE ArchiveStatus = iota
+	STATUS_PLANNING
+	STATUS_PLANNED
+	STATUS_RUNNING
+	STATUS_PAUSED
+	STATUS_ABORTED
+	STATUS_COMPLETED
+)
+
+type Progress struct {
+	Done   uint64
+	Total  uint64
+	Status ArchiveStatus
+}
+
+type Archiver interface {
+	Plan() error
+	GetInfo() (*file_io.FilesInfo, error)
+	Start() error
+	UpdateStatus(ArchiveStatus) error
+	GetProgress() (*Progress, error)
+	GetStatusChannel() chan ArchiveStatus
+	CloseStatusChannel() error
+	HandleKillSignal() error
+	Pause() error
+	Abort() error
+}
+
+func StatusString(status ArchiveStatus) (string, error) {
+	switch status {
+	case STATUS_IN_QUEUE:
+		return "IN_QUEUE", nil
+	case STATUS_PLANNING:
+		return "PLANNING", nil
+	case STATUS_PLANNED:
+		return "PLANNED", nil
+	case STATUS_RUNNING:
+		return "RUNNING", nil
+	case STATUS_PAUSED:
+		return "PAUSED", nil
+	case STATUS_ABORTED:
+		return "ABORTED", nil
+	case STATUS_COMPLETED:
+		return "COMPLETE", nil
+	}
+	return "", fmt.Errorf("Unknown archive status : %v", status)
+}
