@@ -160,6 +160,8 @@ func (tgz *TarGzArchive) archive() error {
 	defer gzipWriter.Close()
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
+	var prevTextWidth int = 0
+	fmt.Println()
 	return filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, err error) error {
 		_, exists := archiveProgress.Files[path]
 		L.Debug(fmt.Sprintf("Processing: %s", path))
@@ -209,7 +211,10 @@ func (tgz *TarGzArchive) archive() error {
 			if tgz.Progress.Total > 0 {
 				progressPercentage = float32(tgz.Progress.Done) * 100.0 / float32(tgz.Progress.Total)
 			}
-			fmt.Printf("\rArchiving: %.2f%% (%d/%d)", progressPercentage, tgz.Progress.Done, tgz.Progress.Total)
+			outputLine := fmt.Sprintf("Archiving: %s [%.2f%% (%d/%d)]", info.Name(), progressPercentage, tgz.Progress.Done, tgz.Progress.Total)
+			fmt.Print("\r" + strings.Repeat(" ", prevTextWidth) + "\r")
+			fmt.Printf("%s", outputLine)
+			prevTextWidth = len(outputLine)
 			L.Debug(fmt.Sprintf("Processed: %s (%s)", path, archiveProgress.Files[path]))
 		}
 
