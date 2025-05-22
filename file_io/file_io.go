@@ -67,3 +67,19 @@ func IsWritable(inputPath string) (bool, error) {
 	defer file.Close()
 	return true, nil
 }
+
+func ExistsDir(inputPath string) bool {
+	info, err := os.Stat(inputPath)
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+func Exists(inputFilePath string) bool {
+	info, err := os.Stat(inputFilePath)
+	if err != nil {
+		return false
+	}
+	return !info.IsDir()
+}

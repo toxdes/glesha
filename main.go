@@ -88,10 +88,7 @@ func main() {
 			if err != nil {
 				L.Panic(err)
 			}
-			L.Debug(fmt.Sprintf("Readable Files: %d Total Files: %d, Total Size: %d B",
-				filesInfo.ReadableFileCount,
-				filesInfo.TotalFileCount,
-				filesInfo.SizeInBytes))
+			fmt.Printf("Total: %d files (%s)\n", filesInfo.ReadableFileCount, L.HumanReadableBytes(filesInfo.SizeInBytes))
 			go func() {
 				err = tgzArchive.Start()
 				if err != nil {

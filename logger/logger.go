@@ -32,6 +32,8 @@ var (
 	errorLogger = log.New(os.Stderr, colorRed+"[ERROR] "+colorReset, log.Lmsgprefix)
 )
 
+var printCallerLineNumbers bool = false
+
 func SetLevel(l string) {
 	switch l {
 	case "debug":
@@ -47,36 +49,54 @@ func SetLevel(l string) {
 	}
 }
 
-func Debug(v ...interface{}) {
+func Debug(v ...any) {
 	if level <= DEBUG {
-		_, file, line, _ := runtime.Caller(1)
-		debugLogger.Printf("%s:%d", file, line)
+		if printCallerLineNumbers {
+			_, file, line, _ := runtime.Caller(1)
+			debugLogger.Printf("%s:%d", file, line)
+		}
 		debugLogger.Println(fmt.Sprint(v...))
 	}
 }
 
-func Info(v ...interface{}) {
+func Info(v ...any) {
 	if level <= INFO {
 		infoLogger.Println(v...)
 	}
 }
 
-func Warn(v ...interface{}) {
+func Warn(v ...any) {
 	if level <= WARN {
 		warnLogger.Println(v...)
 	}
 }
 
-func Error(v ...interface{}) {
+func Error(v ...any) {
 	if level <= ERROR {
-		// _, file, line, _ := runtime.Caller(1)
-		// errorLogger.Printf("%s:%d", file, line)
-		errorLogger.Println(fmt.Sprint(v...))
+		if printCallerLineNumbers {
+			_, file, line, _ := runtime.Caller(1)
+			errorLogger.Printf("%s:%d", file, line)
+		}
 		errorLogger.Println(v...)
 	}
 }
 
-func Panic(v ...interface{}) {
+func Panic(v ...any) {
 	errorLogger.Println(v...)
 	os.Exit(1)
+}
+
+func HumanReadableBytes(bytes uint64) string {
+	if bytes == 0 {
+		return "0 B"
+	}
+	val := float64(bytes)
+	suffixes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
+	unit := float64(1024)
+	i := 0
+	for val >= unit && i < len(suffixes)-1 {
+		val /= unit
+		i += 1
+	}
+	return fmt.Sprintf("%.2f%s", val, suffixes[i])
 }
