@@ -45,7 +45,7 @@ func handleKillSignal(signalChannel chan os.Signal, arc archiver.Archiver) {
 	}()
 	select {
 	case <-signalChannelContext.Done():
-		L.Debug("Received kill signal, saving work")
+		fmt.Print("Received kill signal, saving work\n")
 		err := arc.HandleKillSignal()
 		if err != nil {
 			L.Panic(err)

@@ -42,10 +42,10 @@ func getExistingUUIDOrDefault(inputPath string, fallbackUUID string) string {
 		return fallbackUUID
 	}
 	metaFile, err := os.Open(metaFilePath)
-	defer metaFile.Close()
 	if err != nil {
 		return fallbackUUID
 	}
+	defer metaFile.Close()
 	decoder := json.NewDecoder(metaFile)
 	var metaProgress MetaProgress
 	err = decoder.Decode(&metaProgress)
@@ -54,7 +54,7 @@ func getExistingUUIDOrDefault(inputPath string, fallbackUUID string) string {
 	}
 	fmt.Println("Existing progress exists for same inputPath. Continue? (y/n) (default: yes)")
 	var answer string
-	fmt.Scanf("%s", answer)
+	fmt.Scanf("%s", &answer)
 	if strings.ToLower(answer) == "no" || strings.ToLower(answer) == "n" {
 		return fallbackUUID
 	}
@@ -213,7 +213,7 @@ func (tgz *TarGzArchive) archive() error {
 		}
 		_, exists := archiveProgress.Files[path]
 		if exists {
-			L.Debug(fmt.Printf("Skipping: %s\n", path))
+			L.Debug(fmt.Sprintf("Skipping: %s\n", path))
 			return nil
 		}
 		if err != nil {
