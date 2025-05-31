@@ -1,8 +1,11 @@
 package L
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
 	"runtime"
 )
@@ -99,4 +102,14 @@ func HumanReadableBytes(bytes uint64) string {
 		i += 1
 	}
 	return fmt.Sprintf("%.2f%s", val, suffixes[i])
+}
+
+func HttpResponseString(resp *http.Response) string {
+
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Sprintf("[%s] Status:%s\n\t\tContent: Cannot read response body %v", resp.Request.URL.String(), resp.Status, err)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	return fmt.Sprintf("[%s] Status: %s\n Content: %s", resp.Request.URL.String(), resp.Status, string(bodyBytes))
 }

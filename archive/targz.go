@@ -1,4 +1,4 @@
-package archiver
+package archive
 
 import (
 	"archive/tar"
@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"glesha/cmd"
 	"glesha/file_io"
 	L "glesha/logger"
 	"io"
@@ -52,11 +53,14 @@ func getExistingUUIDOrDefault(inputPath string, fallbackUUID string) string {
 	if err != nil || metaProgress.InputFilePath != inputPath {
 		return fallbackUUID
 	}
-	fmt.Println("Existing progress exists for same inputPath. Continue? (y/n) (default: yes)")
-	var answer string
-	fmt.Scanf("%s", &answer)
-	if strings.ToLower(answer) == "no" || strings.ToLower(answer) == "n" {
-		return fallbackUUID
+	args := cmd.Get()
+	if !args.AssumeYes {
+		fmt.Println("Existing progress exists for same inputPath. Continue? (y/n) (default: yes)")
+		var answer string
+		fmt.Scanf("%s", &answer)
+		if strings.ToLower(answer) == "no" || strings.ToLower(answer) == "n" {
+			return fallbackUUID
+		}
 	}
 	return metaProgress.ID
 }
@@ -266,13 +270,8 @@ func (tgz *TarGzArchive) archive() error {
 			prevTextWidth = len(outputLine)
 			L.Debug(fmt.Sprintf("Processed: %s (%s)", path, archiveProgress.Files[path]))
 		}
-
-		var progressPercentage float32 = 100.0
-		if tgz.Progress.Total > 0 {
-			progressPercentage = float32(tgz.Progress.Done) * 100.0 / float32(tgz.Progress.Total)
-		}
 		fmt.Print("\r" + strings.Repeat(" ", prevTextWidth) + "\r")
-		fmt.Printf("Archiving: [%.2f%% (%d,%d)] Done", progressPercentage, tgz.Progress.Done, tgz.Progress.Total)
+		fmt.Printf("Archiving: Done (%d/%d)", tgz.Progress.Done, tgz.Progress.Total)
 		return nil
 	})
 }
@@ -327,7 +326,7 @@ func (tgz *TarGzArchive) compress() error {
 }
 
 func (tgz *TarGzArchive) copyArchiveToOutputDir() error {
-	tarFilePath := filepath.Join(tgz.OutputPath, filepath.Base(archiveProgress.TempFilePath)+".gz")
+	tarFilePath := tgz.GetArchiveFilePath()
 	tarFile, err := os.OpenFile(tarFilePath, os.O_CREATE|os.O_RDWR, 0644)
 	if err != nil {
 		return err
@@ -433,4 +432,8 @@ func (tgz *TarGzArchive) CloseStatusChannel() error {
 		close(tgz.GetStatusChannel())
 	})
 	return nil
+}
+
+func (tgz *TarGzArchive) GetArchiveFilePath() string {
+	return filepath.Join(tgz.OutputPath, filepath.Base(archiveProgress.TempFilePath)+".gz")
 }

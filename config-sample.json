@@ -1,6 +1,9 @@
 {
-    "aws_access_key": "YOUR_ACCESS_KEY",
-    "aws_secret_key": "YOUR_SECRET_KEY",
-    "region": "ap-south-1",
-    "bucket_name": "your-bucket-name"
+	"archive_type": "targz",
+	"aws": {
+		"access_key": "YOUR_ACCESS_KEY",
+		"secret_key": "YOUR_SECRET_KEY",
+		"region": "ap-south-1",
+		"bucket_name": "glesha-backup"
+	}
 }
