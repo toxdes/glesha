@@ -124,5 +124,9 @@ func main() {
 			L.Panic(err)
 		}
 		fmt.Println("Plan Upload: OK")
+		err = uploader.Start()
+		if err != nil {
+			L.Panic(err)
+		}
 	}
 }

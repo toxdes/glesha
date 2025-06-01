@@ -5,9 +5,11 @@ import (
 	"encoding/xml"
 	"fmt"
 	"glesha/config"
+	"glesha/file_io"
 	L "glesha/logger"
 	"io"
 	"net/http"
+	"strings"
 )
 
 type AwsBackend struct {
@@ -16,6 +18,8 @@ type AwsBackend struct {
 	accessKey  string
 	secretKey  string
 	region     string
+	host       string
+	protocol   string
 }
 
 func NewAwsBackend() (*AwsBackend, error) {
@@ -35,12 +39,16 @@ func NewAwsBackend() (*AwsBackend, error) {
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
 	L.Debug(fmt.Sprintf("config::Aws::Region %s", configs.Aws.Region))
 	client := &http.Client{}
+	host := fmt.Sprintf("%s.s3.%s.amazonaws.com", configs.Aws.BucketName, configs.Aws.Region)
+	protocol := "https://"
 	a := AwsBackend{
 		client:     client,
 		bucketName: configs.Aws.BucketName,
 		accessKey:  configs.Aws.AccessKey,
 		secretKey:  configs.Aws.SecretKey,
 		region:     configs.Aws.Region,
+		host:       host,
+		protocol:   protocol,
 	}
 	return &a, nil
 }
@@ -53,9 +61,7 @@ type AwsError struct {
 
 func (aws *AwsBackend) CreateResourceContainer() error {
 	// TODO: handle 307 redirects if region is not us-east-1
-	host := fmt.Sprintf("%s.s3.%s.amazonaws.com", aws.bucketName, aws.region)
-	protocol := "https://"
-	url := fmt.Sprintf("%s%s", protocol, host)
+	url := fmt.Sprintf("%s%s", aws.protocol, aws.host)
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <CreateBucketConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
    <LocationConstraint>%s</LocationConstraint>
@@ -66,7 +72,7 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 	}
 
 	req, err := http.NewRequest("PUT", url, bytes.NewBufferString(body))
-	req.Header.Set("host", host)
+	req.Header.Set("host", aws.host)
 	req.Header.Set("content-type", "application/xml")
 	req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
 	if err != nil {
@@ -118,5 +124,50 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 }
 
 func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
-	return fmt.Errorf("AWS: UploadResource() not implmeneted")
+	size, err := file_io.FileSizeInBytes(resourceFilePath)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("Aws: initiating upload: %s (%s)\n", resourceFilePath, L.HumanReadableBytes(size))
+
+	cost, err := aws.EstimateCost(size, "INR")
+	if err != nil {
+		L.Error(err)
+	} else {
+		fmt.Print(cost)
+	}
+	return nil
+}
+
+func getExchangeRate(c1 string, c2 string) (float64, error) {
+
+	if c1 == "USD" && c2 == "INR" {
+		return float64(85.56), nil
+	}
+
+	return -1, fmt.Errorf("getExchangeRate() does not support: %s-%s rate yet", c1, c2)
+}
+
+func (aws *AwsBackend) EstimateCost(size uint64, currency string) (string, error) {
+	exchangeRate, err := getExchangeRate("USD", currency)
+	if err != nil {
+		return "", err
+	}
+	awsStorageCostPerYear := map[string]float64{
+		"StandardFrequent":   12 * float64(size) * float64(0.023) * exchangeRate * float64(1e-9),
+		"StandardInfrequent": 12 * float64(size) * float64(0.0125) * exchangeRate * float64(1e-9),
+		"Express":            12 * float64(size) * float64(0.11) * exchangeRate * float64(1e-9),
+		"GlacierFlexible":    12 * float64(size) * float64(0.0037) * exchangeRate * float64(1e-9),
+		"GlacierDeepArchive": 12 * float64(size) * float64(0.00099) * exchangeRate * float64(1e-9),
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("    S3 Storage Class               Cost for %s (per year)\n", L.HumanReadableBytes(size)))
+	sb.WriteString(fmt.Sprintf("Standard (Frequent Retrieval)   :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardFrequent"], currency))
+	sb.WriteString(fmt.Sprintf("Standard (Infrequent Retrieval) :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardInfrequent"], currency))
+	sb.WriteString(fmt.Sprintf("Express (High Performance)      :   %*.2f %s\n", 10, awsStorageCostPerYear["Express"], currency))
+	sb.WriteString(fmt.Sprintf("Glacier (Flexible Retrieval)    :   %*.2f %s\n", 10, awsStorageCostPerYear["GlacierFlexible"], currency))
+	sb.WriteString(fmt.Sprintf("Glacier (Deep Archive)          :   %*.2f %s\n", 10, awsStorageCostPerYear["GlacierDeepArchive"], currency))
+	sb.WriteString("Note: Above storage costs are an approximation based on storage costs for us-east-1 region, it does not include retrieval/deletion costs.\n")
+	return sb.String(), nil
 }

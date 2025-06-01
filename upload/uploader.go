@@ -24,7 +24,7 @@ func (u *Uploader) Plan() error {
 }
 
 func (u *Uploader) Start() error {
-	return fmt.Errorf("Not implemented yet")
+	return u.backend.UploadResource(u.archiveFilePath)
 }
 
 func (u *Uploader) Pause() error {

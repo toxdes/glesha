@@ -1,6 +1,7 @@
 package file_io
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -82,4 +83,15 @@ func Exists(inputFilePath string) bool {
 		return false
 	}
 	return !info.IsDir()
+}
+
+func FileSizeInBytes(inputFilePath string) (uint64, error) {
+	info, err := os.Stat(inputFilePath)
+	if err != nil {
+		return 0, err
+	}
+	if info.IsDir() {
+		return 0, fmt.Errorf("Cannot find size: %s is a directory.", inputFilePath)
+	}
+	return uint64(info.Size()), nil
 }
