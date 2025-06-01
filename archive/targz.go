@@ -202,7 +202,7 @@ func (tgz *TarGzArchive) archive() error {
 	tarWriter := tar.NewWriter(tarFile)
 	defer tarWriter.Close()
 	var prevTextWidth int = 0
-	return filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, err error) error {
+	err = filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, err error) error {
 		select {
 		case <-tgz.pauseChannel:
 			{
@@ -270,10 +270,14 @@ func (tgz *TarGzArchive) archive() error {
 			prevTextWidth = len(outputLine)
 			L.Debug(fmt.Sprintf("Processed: %s (%s)", path, archiveProgress.Files[path]))
 		}
-		fmt.Print("\r" + strings.Repeat(" ", prevTextWidth) + "\r")
-		fmt.Printf("Archiving: Done (%d/%d)", tgz.Progress.Done, tgz.Progress.Total)
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	fmt.Print("\r" + strings.Repeat(" ", prevTextWidth) + "\r")
+	fmt.Printf("Archiving: Done (%d/%d)", tgz.Progress.Done, tgz.Progress.Total)
+	return nil
 }
 
 func (tgz *TarGzArchive) compress() error {
@@ -348,6 +352,7 @@ func (tgz *TarGzArchive) copyArchiveToOutputDir() error {
 }
 
 func (tgz *TarGzArchive) Start() error {
+	// TODO: we are bound by file_size < available_memory, add support for file_size > available_memory
 	tgz.UpdateStatus(STATUS_RUNNING)
 	err := tgz.populateArchiveProgress()
 	if err != nil {
