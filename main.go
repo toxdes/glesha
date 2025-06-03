@@ -50,12 +50,11 @@ func handleKillSignal(signalChannel chan os.Signal, arc archive.Archiver) {
 	}()
 	select {
 	case <-signalChannelContext.Done():
-		fmt.Print("Received kill signal, saving work\n")
+		fmt.Print("\nReceived kill signal, terminating gracefully...\n")
 		err := arc.HandleKillSignal()
 		if err != nil {
 			L.Panic(err)
 		}
-		os.Exit(0)
 	}
 }
 
@@ -100,6 +99,10 @@ func main() {
 		}
 		if archiveStatus == archive.STATUS_PAUSED {
 			fmt.Println("Pause Archive: OK")
+			os.Exit(0)
+		}
+		if archiveStatus == archive.STATUS_ABORTED {
+			fmt.Println("Archive: ABORTED")
 			os.Exit(0)
 		}
 		if archiveStatus == archive.STATUS_COMPLETED {

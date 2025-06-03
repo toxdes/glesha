@@ -2,6 +2,7 @@ package file_io
 
 import (
 	"fmt"
+	L "glesha/logger"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,12 +14,20 @@ type FilesInfo struct {
 	ReadableFileCount uint64
 }
 
-func ComputeFilesInfo(inputPath string) (*FilesInfo, error) {
+func ComputeFilesInfo(inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
 	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0}
 	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
+
 		if walkError != nil {
 			return walkError
 		}
+		_, exists := ignorePaths[path]
+
+		if exists {
+			L.Debug(fmt.Sprintf("ComputeFileInfo: Ignoring %s", path))
+			return fs.SkipDir
+		}
+
 		if d.Type().IsRegular() {
 			info, err := d.Info()
 			if err != nil {
@@ -26,13 +35,11 @@ func ComputeFilesInfo(inputPath string) (*FilesInfo, error) {
 			}
 			filesInfo.TotalFileCount++
 			filesInfo.SizeInBytes += uint64(info.Size())
-			readable, err := IsReadable(path)
+			err = IsReadable(path)
 			if err != nil {
 				return err
 			}
-			if readable {
-				filesInfo.ReadableFileCount++
-			}
+			filesInfo.ReadableFileCount++
 		} else {
 			// account for directory sizes as well
 			info, err := d.Info()
@@ -49,24 +56,24 @@ func ComputeFilesInfo(inputPath string) (*FilesInfo, error) {
 	return filesInfo, nil
 }
 
-func IsReadable(filePath string) (bool, error) {
+func IsReadable(filePath string) error {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer file.Close()
-	return true, nil
+	return nil
 }
 
-func IsWritable(inputPath string) (bool, error) {
+func IsWritable(inputPath string) error {
 	tempFile := "tempFile-123"
 	file, err := os.CreateTemp(inputPath, tempFile)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer os.Remove(file.Name())
 	defer file.Close()
-	return true, nil
+	return nil
 }
 
 func ExistsDir(inputPath string) bool {

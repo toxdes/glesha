@@ -151,6 +151,6 @@ func Configure() error {
 	return nil
 }
 
-func Get() Cmd {
-	return cmd
+func Get() *Cmd {
+	return &cmd
 }

@@ -132,10 +132,11 @@ func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
 
 	cost, err := aws.EstimateCost(size, "INR")
 	if err != nil {
-		L.Error(err)
-	} else {
-		fmt.Print(cost)
+		return err
 	}
+
+	fmt.Print(cost)
+
 	return nil
 }
 

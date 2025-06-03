@@ -2,6 +2,7 @@ package archive
 
 import (
 	"archive/tar"
+	"bufio"
 	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
@@ -15,20 +16,23 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/google/uuid"
 )
 
 type TarGzArchive struct {
-	ID            string
-	InputPath     string
-	OutputPath    string
-	Info          *file_io.FilesInfo
-	Progress      *Progress
-	StatusChannel chan ArchiveStatus
-	closeOnce     sync.Once
-	pauseChannel  chan struct{}
+	ID                   string
+	InputPath            string
+	OutputPath           string
+	Info                 *file_io.FilesInfo
+	Progress             *Progress
+	StatusChannel        chan ArchiveStatus
+	closeOnce            sync.Once
+	abortReq             chan struct{}
+	abortDone            chan struct{}
+	GleshaWorkDir        string
+	IgnoredDirs          map[string]bool
+	archiveAlreadyExists bool
 }
 
 type MetaProgress struct {
@@ -36,8 +40,8 @@ type MetaProgress struct {
 	InputFilePath string
 }
 
-func getExistingUUIDOrDefault(inputPath string, fallbackUUID string) string {
-	metaFilePath := getMetaProgressFilePath()
+func getExistingUUIDOrDefault(inputPath string, gleshaWorkDir string, fallbackUUID string) string {
+	metaFilePath := getMetaProgressFilePath(gleshaWorkDir)
 	exists := file_io.Exists(metaFilePath)
 	if !exists {
 		return fallbackUUID
@@ -55,7 +59,7 @@ func getExistingUUIDOrDefault(inputPath string, fallbackUUID string) string {
 	}
 	args := cmd.Get()
 	if !args.AssumeYes {
-		fmt.Println("Existing progress exists for same inputPath. Continue? (y/n) (default: yes)")
+		fmt.Printf("Existing archive exists for input path: %s  Use that instead? (y/n) (default: yes)", inputPath)
 		var answer string
 		fmt.Scanf("%s", &answer)
 		if strings.ToLower(answer) == "no" || strings.ToLower(answer) == "n" {
@@ -66,24 +70,50 @@ func getExistingUUIDOrDefault(inputPath string, fallbackUUID string) string {
 }
 
 func NewTarGzArchiver(inputPath string, outputPath string, statusChannel chan ArchiveStatus) (*TarGzArchive, error) {
-	ok, err := file_io.IsReadable(inputPath)
+	err := file_io.IsReadable(inputPath)
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, fmt.Errorf("inputPath not readable: %s", inputPath)
-	}
-	ok, err = file_io.IsWritable(outputPath)
+
+	err = file_io.IsWritable(outputPath)
+
 	if err != nil {
 		return nil, err
 	}
-	if !ok {
-		return nil, fmt.Errorf("output path is not writable: %s", outputPath)
+
+	GleshaWorkDir := filepath.Join(outputPath, ".glesha-cache")
+
+	err = os.MkdirAll(GleshaWorkDir, os.ModePerm)
+	if err != nil {
+		return nil, err
 	}
+
 	progress := &Progress{0, 0, STATUS_IN_QUEUE}
-	id := getExistingUUIDOrDefault(inputPath, uuid.NewString())
-	pauseChannel := make(chan struct{})
-	return &TarGzArchive{ID: id, InputPath: inputPath, OutputPath: outputPath, Info: nil, Progress: progress, StatusChannel: statusChannel, pauseChannel: pauseChannel}, nil
+	newUUID := uuid.NewString()
+	id := getExistingUUIDOrDefault(inputPath, GleshaWorkDir, newUUID)
+	archiveAlreadyExists := id != newUUID
+
+	abortReq := make(chan struct{})
+	abortDone := make(chan struct{})
+	absGleshaWorkDir, err := filepath.Abs(GleshaWorkDir)
+	if err != nil {
+		return nil, err
+	}
+	ignoredDirs := map[string]bool{
+		absGleshaWorkDir: true,
+	}
+	return &TarGzArchive{
+		ID:                   id,
+		InputPath:            inputPath,
+		OutputPath:           outputPath,
+		Info:                 nil,
+		Progress:             progress,
+		StatusChannel:        statusChannel,
+		abortReq:             abortReq,
+		abortDone:            abortDone,
+		GleshaWorkDir:        GleshaWorkDir,
+		archiveAlreadyExists: archiveAlreadyExists,
+		IgnoredDirs:          ignoredDirs}, nil
 }
 
 func (tgz *TarGzArchive) UpdateStatus(newStatus ArchiveStatus) error {
@@ -95,7 +125,7 @@ func (tgz *TarGzArchive) UpdateStatus(newStatus ArchiveStatus) error {
 func (tgz *TarGzArchive) Plan() error {
 	L.Info("Computing files info")
 	tgz.UpdateStatus(STATUS_PLANNING)
-	fileInfo, err := file_io.ComputeFilesInfo(tgz.InputPath)
+	fileInfo, err := file_io.ComputeFilesInfo(tgz.InputPath, tgz.IgnoredDirs)
 	if err != nil {
 		return err
 	}
@@ -110,115 +140,47 @@ func (tgz *TarGzArchive) GetInfo() (*file_io.FilesInfo, error) {
 	return tgz.Info, nil
 }
 
-type ArchiveProgress struct {
-	Files            map[string]string
-	TotalFileCount   uint64
-	TempFilePath     string
-	ProgressFilePath string
+func getMetaProgressFilePath(gleshaWorkDir string) string {
+	return filepath.Join(gleshaWorkDir, ".progress.meta")
 }
 
-var archiveProgress ArchiveProgress
-
-func (tgz *TarGzArchive) populateArchiveProgress() error {
-	progressFilePath := filepath.Join(os.TempDir(), tgz.ID+".progress")
-	progressFile, err := os.OpenFile(progressFilePath, os.O_RDWR|os.O_CREATE, 0644)
-	defer progressFile.Close()
-	if err != nil {
-		return err
-	}
-	decoder := json.NewDecoder(progressFile)
-	archiveProgress = ArchiveProgress{
-		Files:            map[string]string{},
-		TotalFileCount:   tgz.Progress.Total,
-		TempFilePath:     "",
-		ProgressFilePath: progressFilePath,
-	}
-	var probablySavedProgress ArchiveProgress
-	err = decoder.Decode(&probablySavedProgress)
-	if err == nil {
-		if len(probablySavedProgress.Files) > 0 {
-			archiveProgress.Files = probablySavedProgress.Files
-			archiveProgress.TotalFileCount = probablySavedProgress.TotalFileCount
-			archiveProgress.TempFilePath = probablySavedProgress.TempFilePath
-			archiveProgress.ProgressFilePath = probablySavedProgress.ProgressFilePath
-		}
-	}
-	return nil
-}
-
-func getMetaProgressFilePath() string {
-	return filepath.Join(os.TempDir(), ".progress.meta")
-}
-
-func removeTarMarker(tarFile *os.File) error {
-	tarFileInfo, err := tarFile.Stat()
-	if err != nil {
-		return fmt.Errorf("Couldn't pause(): %w", err)
-	}
-	tarFileSize := tarFileInfo.Size()
-	tarMarkerSize := int64(512 * 512)
-	if tarFileSize < tarMarkerSize {
-		return fmt.Errorf("Couldn't pause(): archive size(%d) is smaller than marker size(%d)", tarFileSize, tarMarkerSize)
-	}
-	newTarFileSize := tarFileSize - tarMarkerSize
-	buf := make([]byte, tarMarkerSize)
-	tarFile.ReadAt(buf, newTarFileSize)
-	_, err = tarFile.ReadAt(buf, newTarFileSize)
-	if err != nil {
-		return fmt.Errorf("Couldn't pause(): %w", err)
-	}
-	allZeroes := true
-	var res string = ""
-	for _, b := range buf {
-		res = fmt.Sprintf("%s, %d", res, b)
-		if b != 0 {
-			allZeroes = false
-		}
-	}
-	L.Error(res)
-	if !allZeroes {
-		return fmt.Errorf("Couldn't pause(): archive isn't tar archive, file doesn't end with tar-end markers")
-	}
-	err = tarFile.Truncate(newTarFileSize)
-	if err != nil {
-		return fmt.Errorf("Couldn't pause(): %w", err)
-	}
-	_, err = tarFile.Seek(0, io.SeekEnd)
-	return err
+func (tgz *TarGzArchive) getTarFile() string {
+	return filepath.Join(tgz.GleshaWorkDir, fmt.Sprintf("glesha-%s.tar.gz", tgz.ID))
 }
 
 func (tgz *TarGzArchive) archive() error {
-	if archiveProgress.TempFilePath == "" {
-		ts := time.Now().UnixMicro()
-		archiveName := fmt.Sprintf("glesha-ar-%d.tar", ts)
-		archiveProgress.TempFilePath = filepath.Join(os.TempDir(), archiveName)
+	if tgz.archiveAlreadyExists {
+		fmt.Printf("Archive already exists for path %s: %s\n", tgz.InputPath, tgz.getTarFile())
+		tgz.StatusChannel <- STATUS_COMPLETED
+		tgz.CloseStatusChannel()
+		return nil
 	}
-	tarFile, err := os.OpenFile(archiveProgress.TempFilePath, os.O_RDWR|os.O_CREATE, 0644)
+	tgz.UpdateStatus(STATUS_RUNNING)
+	tarFile, err := os.OpenFile(tgz.getTarFile(), os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return err
 	}
-	tarFile.Seek(0, io.SeekEnd)
-	defer tarFile.Close()
-	tarWriter := tar.NewWriter(tarFile)
-	defer tarWriter.Close()
-	var prevTextWidth int = 0
+	var prevText string
+	var completedBytes uint64 = 0
+	var shouldAbort bool = false
+	gzipWriter := gzip.NewWriter(tarFile)
+	tarGzWriter := tar.NewWriter(gzipWriter)
+	verbose := cmd.Get().Verbose
 	err = filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, err error) error {
 		select {
-		case <-tgz.pauseChannel:
+		case <-tgz.abortReq:
 			{
-				tarWriter.Close()
-				err = removeTarMarker(tarFile)
-				if err != nil {
-					L.Panic(err)
-				}
-				return filepath.SkipAll
+				L.Debug("Received abort signal inside filepath.Walk")
+				shouldAbort = true
+				return fs.SkipAll
 			}
 		default:
 		}
-		_, exists := archiveProgress.Files[path]
-		if exists {
-			L.Debug(fmt.Sprintf("Skipping: %s\n", path))
-			return nil
+
+		_, ignore := tgz.IgnoredDirs[path]
+
+		if ignore {
+			return fs.SkipDir
 		}
 		if err != nil {
 			return err
@@ -241,138 +203,76 @@ func (tgz *TarGzArchive) archive() error {
 			return err
 		}
 		header.Name = relPath
-		err = tarWriter.WriteHeader(header)
+		err = tarGzWriter.WriteHeader(header)
 		if err != nil {
 			return err
 		}
 
 		if info.Mode().IsRegular() {
 			file, err := os.Open(path)
-			hash := sha256.New()
-			teeReader := io.TeeReader(file, hash)
 			if err != nil {
-				return err
+				// skip files that are not readable
+				return nil
 			}
 			defer file.Close()
-			_, err = io.Copy(tarWriter, teeReader)
+			bufferedFileReader := bufio.NewReader(file)
+			hash := sha256.New()
+			teeReader := io.TeeReader(bufferedFileReader, hash)
+			var progressPercentage float64 = 100.0
+			if tgz.Progress.Total > 0 {
+				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
+			}
+			if !verbose {
+				fmt.Print("\r" + strings.Repeat(" ", len(prevText)) + "\r")
+			}
+			prevText = fmt.Sprintf("Archiving: %.2f%% (%d/%d) [%s - %s]", progressPercentage, tgz.Progress.Done, tgz.Progress.Total, info.Name(), L.HumanReadableBytes(uint64(info.Size())))
+			fmt.Printf("%s", prevText)
+			_, err = io.Copy(tarGzWriter, teeReader)
 			if err != nil {
 				return err
 			}
-			archiveProgress.Files[path] = fmt.Sprintf("%x", hash.Sum(nil))
 			tgz.Progress.Done++
-			var progressPercentage float32 = 100.0
-			if tgz.Progress.Total > 0 {
-				progressPercentage = float32(tgz.Progress.Done) * 100.0 / float32(tgz.Progress.Total)
-			}
-			outputLine := fmt.Sprintf("Archiving: %s [%.2f%% (%d/%d)]", info.Name(), progressPercentage, tgz.Progress.Done, tgz.Progress.Total)
-			fmt.Print("\r" + strings.Repeat(" ", prevTextWidth) + "\r")
-			fmt.Printf("%s", outputLine)
-			prevTextWidth = len(outputLine)
-			L.Debug(fmt.Sprintf("Processed: %s (%s)", path, archiveProgress.Files[path]))
+			completedBytes += uint64(info.Size())
+			L.Debug(fmt.Sprintf("Processed: %s (%s)", path, L.HumanReadableBytes(uint64(bufferedFileReader.Size()))))
 		}
 		return nil
 	})
+
+	if err != nil {
+		tarGzWriter.Close()
+		gzipWriter.Close()
+		tarFile.Close()
+		return err
+	}
+
+	if shouldAbort {
+		tarGzWriter.Close()
+		gzipWriter.Close()
+		tarFile.Close()
+		os.RemoveAll(tgz.GleshaWorkDir)
+		tgz.abortDone <- struct{}{}
+		return err
+	}
+	if !verbose {
+		fmt.Print("\r" + strings.Repeat(" ", len(prevText)) + "\r")
+	}
+
+	size, err := file_io.FileSizeInBytes(tgz.getTarFile())
 	if err != nil {
 		return err
 	}
-	fmt.Print("\r" + strings.Repeat(" ", prevTextWidth) + "\r")
-	fmt.Printf("Archiving: Done (%d/%d)", tgz.Progress.Done, tgz.Progress.Total)
-	return nil
-}
-
-func (tgz *TarGzArchive) compress() error {
-	tarFile, err := os.Open(archiveProgress.TempFilePath)
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	gzipFile, err := os.OpenFile(archiveProgress.TempFilePath+".gz", os.O_RDWR|os.O_CREATE, 0644)
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	gzipWriter := gzip.NewWriter(gzipFile)
-	outputLine := fmt.Sprintf("%s", "\nCompressing: (This may take a while...)")
-	fmt.Print(outputLine)
-	_, err = io.Copy(gzipWriter, tarFile)
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	tarFileInfo, err := tarFile.Stat()
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	gzipFileInfo, err := gzipFile.Stat()
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	tarFileSize := uint64(tarFileInfo.Size())
-	gzipFileSize := uint64(gzipFileInfo.Size())
-	fmt.Print("\r" + strings.Repeat(" ", len(outputLine)) + "\r")
-	outputLine = fmt.Sprintf("Compressing: Done (%s -> %s)\n", L.HumanReadableBytes(tarFileSize), L.HumanReadableBytes(gzipFileSize))
-	fmt.Print(outputLine)
+	fmt.Printf("Archiving: Done (%d/%d) (%s -> %s)\n", tgz.Progress.Done, tgz.Progress.Total, L.HumanReadableBytes(tgz.Info.SizeInBytes), L.HumanReadableBytes(size))
+	tarGzWriter.Close()
 	gzipWriter.Close()
-	gzipFile.Close()
 	tarFile.Close()
-	err = os.Remove(archiveProgress.ProgressFilePath)
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	err = os.Remove(archiveProgress.TempFilePath)
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	if file_io.Exists(getMetaProgressFilePath()) {
-		err = os.Remove(getMetaProgressFilePath())
-	}
-	if err != nil {
-		return fmt.Errorf("Cannot compress(): %w", err)
-	}
-	return nil
-}
-
-func (tgz *TarGzArchive) copyArchiveToOutputDir() error {
-	tarFilePath := tgz.GetArchiveFilePath()
-	tarFile, err := os.OpenFile(tarFilePath, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-	tempFile, err := os.Open(archiveProgress.TempFilePath + ".gz")
-	if err != nil {
-		return err
-	}
-	io.Copy(tarFile, tempFile)
-	tgz.UpdateStatus(STATUS_COMPLETED)
-	tarFile.Close()
-	tempFile.Close()
-	err = os.Remove(archiveProgress.TempFilePath + ".gz")
-	if err != nil {
-		return err
-	}
+	tgz.saveProgress()
+	tgz.StatusChannel <- STATUS_COMPLETED
 	tgz.CloseStatusChannel()
-	return err
+	return nil
 }
 
 func (tgz *TarGzArchive) Start() error {
-	// TODO: we are bound by file_size < available_memory, add support for file_size > available_memory
-	tgz.UpdateStatus(STATUS_RUNNING)
-	err := tgz.populateArchiveProgress()
-	if err != nil {
-		return err
-	}
-	if uint64(len(archiveProgress.Files)) <= uint64(archiveProgress.TotalFileCount) {
-		err = tgz.archive()
-	}
-	if err != nil {
-		return err
-	}
-	err = tgz.compress()
-	if err != nil {
-		return err
-	}
-	err = tgz.copyArchiveToOutputDir()
-	if err != nil {
-		return err
-	}
-	return nil
+	return tgz.archive()
 }
 
 func (tgz *TarGzArchive) GetProgress() (*Progress, error) {
@@ -387,33 +287,26 @@ func (tgz *TarGzArchive) saveProgress() error {
 		ID: tgz.ID, InputFilePath: tgz.InputPath,
 	}
 	metaProgressData, err := json.MarshalIndent(metaProgress, "", "  ")
-	err = os.WriteFile(getMetaProgressFilePath(), metaProgressData, 0644)
 	if err != nil {
 		return err
 	}
-	archiveProgressData, err := json.MarshalIndent(archiveProgress, "", "  ")
-	err = os.WriteFile(archiveProgress.ProgressFilePath, archiveProgressData, 0644)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (tgz *TarGzArchive) Pause() error {
-	tgz.pauseChannel <- struct{}{}
-	if tgz.Progress.Status != STATUS_RUNNING {
-		return fmt.Errorf("Pause() called when archiver is not running")
-	}
-	err := tgz.saveProgress()
-	if err != nil {
-		return err
-	}
-	L.Debug("Saved progress.")
-	tgz.UpdateStatus(STATUS_PAUSED)
-	return nil
+	err = os.WriteFile(getMetaProgressFilePath(tgz.GleshaWorkDir), metaProgressData, 0644)
+	return err
 }
 
 func (tgz *TarGzArchive) Abort() error {
+	if tgz.Progress.Status != STATUS_RUNNING {
+		return fmt.Errorf("Abort() called when archiver is not running")
+	}
+	tgz.abortReq <- struct{}{}
+	select {
+	case <-tgz.abortDone:
+		tgz.StatusChannel <- STATUS_ABORTED
+		return nil
+	}
+}
+
+func (tgz *TarGzArchive) Pause() error {
 	return fmt.Errorf("Unimplmented")
 }
 
@@ -422,12 +315,9 @@ func (tgz *TarGzArchive) GetStatusChannel() chan ArchiveStatus {
 }
 
 func (tgz *TarGzArchive) HandleKillSignal() error {
-	defer tgz.CloseStatusChannel()
-	if tgz.Progress.Status == STATUS_RUNNING {
-		err := tgz.Pause()
-		if err != nil {
-			L.Error(err)
-		}
+	err := tgz.Abort()
+	if err != nil {
+		L.Error(err)
 	}
 	return nil
 }
@@ -440,5 +330,5 @@ func (tgz *TarGzArchive) CloseStatusChannel() error {
 }
 
 func (tgz *TarGzArchive) GetArchiveFilePath() string {
-	return filepath.Join(tgz.OutputPath, filepath.Base(archiveProgress.TempFilePath)+".gz")
+	return filepath.Join(tgz.OutputPath, tgz.getTarFile())
 }
