@@ -233,7 +233,10 @@ func (tgz *TarGzArchive) archive() error {
 			}
 			tgz.Progress.Done++
 			completedBytes += uint64(info.Size())
-			L.Debug(fmt.Sprintf("Processed: %s (%s)", path, L.HumanReadableBytes(uint64(bufferedFileReader.Size()))))
+			if verbose {
+				fmt.Println()
+				L.Debug(fmt.Sprintf("Processed: %s (%s)", path, L.HumanReadableBytes(uint64(bufferedFileReader.Size()))))
+			}
 		}
 		return nil
 	})

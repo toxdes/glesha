@@ -35,7 +35,6 @@ func NewAwsBackend() (*AwsBackend, error) {
 		return nil, fmt.Errorf("AWS: region is invalid")
 	}
 	L.Debug(fmt.Sprintf("config::ArchiveType %s", configs.ArchiveType))
-	L.Debug(fmt.Sprintf("config::Aws::AccessKey %s", configs.Aws.AccessKey))
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
 	L.Debug(fmt.Sprintf("config::Aws::Region %s", configs.Aws.Region))
 	client := &http.Client{}
@@ -134,10 +133,14 @@ func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
 	if err != nil {
 		return err
 	}
-
+	fmt.Println("AWS: Estimating costs...")
 	fmt.Print(cost)
+	err = file_io.IsReadable(resourceFilePath)
+	if err != nil {
+		return err
+	}
 
-	return nil
+	return fmt.Errorf("AWS: upload not implemented yet")
 }
 
 func getExchangeRate(c1 string, c2 string) (float64, error) {
