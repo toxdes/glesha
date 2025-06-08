@@ -8,12 +8,37 @@ import (
 	"glesha/backend"
 	"glesha/cmd"
 	"glesha/config"
+	"glesha/database"
+	"glesha/file_io"
 	L "glesha/logger"
 	"glesha/upload"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 )
+
+type GleshaEnv struct {
+	cmd           *cmd.Cmd
+	config        *config.Config
+	db            *database.DB
+	globalWorkDir string
+	configPath    string
+}
+
+var gleshaEnv *GleshaEnv
+
+func getGleshaWorkDir() (string, error) {
+	homeDir, homeDirError := os.UserHomeDir()
+	configDir, configDirError := os.UserConfigDir()
+	if homeDirError != nil && configDirError != nil {
+		return "", fmt.Errorf("Couldn't find a place for work directory")
+	}
+	if len(configDir) > 0 {
+		return filepath.Abs(filepath.Join(configDir, "glesha"))
+	}
+	return filepath.Abs(filepath.Join(homeDir, "glesha"))
+}
 
 func init() {
 	L.SetLevel("error")
@@ -33,12 +58,66 @@ func init() {
 		flag.Usage()
 		L.Panic(err)
 	}
-	err = config.Parse(args.ConfigPath)
+	var gleshaConfigPath string
+	workDir, err := getGleshaWorkDir()
+	if err != nil {
+		L.Panic(err)
+	}
+	if len(args.ConfigPath) > 0 {
+		gleshaConfigPath = args.ConfigPath
+	} else {
+		L.Debug("Config wasn't provided, will use default config")
+		configPath := config.GetDefaultConfigPath(workDir)
+		if err != nil {
+			L.Panic(err)
+		}
+		configExistsAtPath := file_io.Exists(configPath)
+		if !configExistsAtPath {
+			L.Info("Config doesn't exist at default path, creating one. Please edit afterwards.")
+			configStr := config.DumpDefaultConfig()
+			L.Debug(configStr)
+			_, err = file_io.WriteToFile(configPath, []byte(configStr), file_io.WRITE_OVERWRITE)
+			if err != nil {
+				L.Panic(err)
+			}
+			L.Info(fmt.Sprintf("Config created at: %s", configPath))
+		}
+		gleshaConfigPath = configPath
+	}
+	fmt.Printf("Using config at: %s\n", gleshaConfigPath)
+
+	err = config.Parse(gleshaConfigPath)
 
 	if err != nil {
 		L.Panic(err)
 	}
-
+	dbCtx, _ := context.WithCancel(context.Background())
+	if err != nil {
+		L.Panic(err)
+	}
+	if err != nil {
+		L.Panic(err)
+	}
+	err = os.MkdirAll(workDir, os.ModePerm)
+	if err != nil {
+		L.Panic(err)
+	}
+	dbPath := filepath.Join(workDir, "glesha-db.db")
+	db, err := database.NewDB(dbPath, dbCtx)
+	if err != nil {
+		L.Panic(err)
+	}
+	err = db.Init()
+	if err != nil {
+		L.Panic(err)
+	}
+	gleshaEnv = &GleshaEnv{
+		cmd:           args,
+		config:        config.Get(),
+		db:            db,
+		globalWorkDir: workDir,
+		configPath:    gleshaConfigPath,
+	}
 }
 
 func handleKillSignal(signalChannel chan os.Signal, arc archive.Archiver) {
@@ -59,6 +138,9 @@ func handleKillSignal(signalChannel chan os.Signal, arc archive.Archiver) {
 }
 
 func main() {
+	if gleshaEnv == nil {
+		L.Panic("Couldn't setup glesha. Exiting")
+	}
 	fmt.Println("Flags: OK")
 	args := cmd.Get()
 	signalChannel := make(chan os.Signal, 1)
@@ -117,7 +199,7 @@ func main() {
 	for _, p := range args.Providers {
 		b, err := backend.GetBackendForProvider(p)
 		if err != nil {
-			L.Panic(fmt.Errorf("Cannot get backend for provider %s : %w", p.String(), err))
+			L.Panic(fmt.Errorf("Cannot get backend for provider %s : %w\nMake sure your configuration is correct at: %s", p.String(), err, gleshaEnv.configPath))
 			continue
 		}
 		uploader := upload.NewUploader(archiver.GetArchiveFilePath(), b)

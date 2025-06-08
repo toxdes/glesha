@@ -102,3 +102,31 @@ func FileSizeInBytes(inputFilePath string) (uint64, error) {
 	}
 	return uint64(info.Size()), nil
 }
+
+type WriteMode uint8
+
+const (
+	WRITE_APPEND WriteMode = iota
+	WRITE_OVERWRITE
+)
+
+func WriteToFile(filePath string, data []byte, mode WriteMode) (int, error) {
+	var flags int
+	switch mode {
+	case WRITE_APPEND:
+		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	case WRITE_OVERWRITE:
+		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	}
+	parent := filepath.Dir(filePath)
+	err := os.MkdirAll(parent, os.ModePerm)
+	if err != nil {
+		return 0, err
+	}
+	file, err := os.OpenFile(filePath, flags, 0644)
+	if err != nil {
+		return 0, err
+	}
+	defer file.Close()
+	return file.Write(data)
+}

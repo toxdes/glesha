@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 )
 
 type ArchiveType string
@@ -70,6 +71,35 @@ func Parse(configPath string) error {
 	return nil
 }
 
-func Get() Config {
-	return config
+func Get() *Config {
+	return &config
+}
+
+func GetDefaultConfigPath(gleshaWorkDir string) string {
+	return filepath.Join(gleshaWorkDir, "config.json")
+}
+
+func (c *Config) ToJson() (string, error) {
+	data, err := json.Marshal(c)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func DumpDefaultConfig() string {
+	defaultConfig := Config{
+		ArchiveType: TarGz,
+		Aws: &Aws{
+			AccessKey:  "aws-access-key",
+			SecretKey:  "aws-secret-key",
+			Region:     "aws-region-name",
+			BucketName: "aws-s3-bucket-name",
+		},
+	}
+	configStr, err := defaultConfig.ToJson()
+	if err != nil {
+		return ""
+	}
+	return configStr
 }
