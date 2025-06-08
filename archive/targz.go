@@ -212,6 +212,7 @@ func (tgz *TarGzArchive) archive() error {
 			file, err := os.Open(path)
 			if err != nil {
 				// skip files that are not readable
+				L.Error(fmt.Errorf("Archive: couldn't open %s - %w", path, err))
 				return nil
 			}
 			defer file.Close()
@@ -252,7 +253,8 @@ func (tgz *TarGzArchive) archive() error {
 		tarGzWriter.Close()
 		gzipWriter.Close()
 		tarFile.Close()
-		os.RemoveAll(tgz.GleshaWorkDir)
+		os.Remove(tgz.getTarFile())
+		os.Remove(getMetaProgressFilePath(tgz.GleshaWorkDir))
 		tgz.abortDone <- struct{}{}
 		return err
 	}
