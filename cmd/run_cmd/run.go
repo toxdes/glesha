@@ -1,0 +1,169 @@
+package run_cmd
+
+import (
+	"context"
+	"flag"
+	"fmt"
+	"glesha/archive"
+	"glesha/backend"
+	"glesha/config"
+	"glesha/database"
+	L "glesha/logger"
+	"glesha/upload"
+	"strconv"
+	"strings"
+)
+
+type RunCmdEnv struct {
+	DB     *database.DB
+	TaskID int64
+	Task   *database.GleshaTask
+}
+
+var runCmdEnv *RunCmdEnv
+
+func Execute(ctx context.Context, args []string) error {
+	// parse cli args
+	err := parseFlags(args)
+	if err != nil {
+		return err
+	}
+	if runCmdEnv == nil {
+		return fmt.Errorf("Couldn't initialize env, this shouldn't happen")
+	}
+
+	// initialize db connection
+	dbPath, err := database.GetDBFilePath()
+	if err != nil {
+		return err
+	}
+	db, err := database.NewDB(dbPath, ctx)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+	L.Debug(fmt.Sprintf("Found database at: %s", dbPath))
+	runCmdEnv.DB = db
+	runCmdEnv.Task, err = runCmdEnv.DB.GetTaskById(ctx, runCmdEnv.TaskID)
+	if err != nil && err == database.ErrNoExistingTask {
+		if err == database.ErrNoExistingTask {
+			return fmt.Errorf("Task %d does not exist, for more information see 'glesha help add'", runCmdEnv.TaskID)
+		}
+		return err
+	}
+	fmt.Printf("%s", runCmdEnv.Task)
+	err = config.Parse(runCmdEnv.Task.ConfigPath)
+	if err != nil {
+		return err
+	}
+	err = runTask(ctx)
+	return err
+}
+
+func parseFlags(args []string) error {
+	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
+	logLevel := runCmd.String("log-level", "error", "Set log level: debug info warn error panic")
+	runCmd.StringVar(logLevel, "L", "error", "Set log level: debug info warn error panic")
+	runCmd.Usage = func() {
+		PrintUsage()
+	}
+	err := runCmd.Parse(args)
+
+	nArgs := len(runCmd.Args())
+
+	if nArgs < 1 {
+		return fmt.Errorf("ID not provided. For more information check 'glesha help run'")
+	}
+	if nArgs > 1 {
+		return fmt.Errorf("Too many arguments. For more information, check 'glesha help run'")
+	}
+	taskId, err := strconv.ParseInt(runCmd.Arg(0), 10, 64)
+	if err != nil {
+		return err
+	}
+	if logLevel != nil {
+		err = L.SetLevel(*logLevel)
+		if err != nil {
+			return err
+		}
+		L.Info(fmt.Sprintf("log level set to: %s\n", strings.ToUpper(*logLevel)))
+	}
+	runCmdEnv = &RunCmdEnv{
+		TaskID: taskId,
+		Task:   nil,
+		DB:     nil,
+	}
+
+	return err
+}
+
+func runTask(ctx context.Context) error {
+	t := runCmdEnv.Task
+	if t == nil {
+		return fmt.Errorf("No task to run")
+	}
+	mustRearchive := false
+	switch t.Status {
+	case database.STATUS_QUEUED,
+		database.STATUS_ARCHIVE_RUNNING,
+		database.STATUS_ARCHIVE_ABORTED,
+		database.STATUS_ARCHIVE_PAUSED:
+		mustRearchive = true
+	}
+
+	var archiver archive.Archiver
+	var err error
+	switch t.ArchiveFormat {
+	case config.AF_TARGZ:
+		archiver, err = archive.NewTarGzArchiver(ctx, t)
+		if err != nil {
+			return err
+		}
+		archivePath := archiver.GetArchiveFilePath()
+		err = archive.IsValidTarGz(archivePath)
+		if err != nil {
+			mustRearchive = true
+			L.Debug(err)
+			L.Debug(fmt.Sprintf("Existing archive %s is not valid, starting fresh", archivePath))
+		}
+	default:
+		return fmt.Errorf("archive format %s is not supported yet", t.ArchiveFormat.String())
+	}
+
+	if mustRearchive {
+		fmt.Println("Cannot continue from previous state, starting fresh")
+		err = archiver.Plan()
+		if err != nil {
+			return err
+		}
+		fmt.Println("Plan Archive: OK")
+		err = archiver.Start()
+		if err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			fmt.Println()
+			return fmt.Errorf("Kill signal received, Exiting...")
+		default:
+		}
+		err = runCmdEnv.DB.UpdateTaskStatus(ctx, runCmdEnv.TaskID, database.STATUS_ARCHIVE_COMPLETED)
+		if err != nil {
+			return err
+		}
+		fmt.Println("Create Archive: OK")
+	}
+	archivePath := archiver.GetArchiveFilePath()
+	fmt.Printf("Archive: %s\n", archivePath)
+	backend, err := backend.GetBackendForProvider(runCmdEnv.Task.Provider)
+	if err != nil {
+		return err
+	}
+	uploader := upload.NewUploader(archivePath, backend)
+	err = uploader.Plan()
+	if err != nil {
+		return err
+	}
+	err = uploader.Start()
+	return err
+}

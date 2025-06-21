@@ -3,7 +3,7 @@ package backend
 import (
 	"fmt"
 	"glesha/backend/aws"
-	"glesha/cmd"
+	"glesha/config"
 )
 
 type Backend interface {
@@ -11,9 +11,9 @@ type Backend interface {
 	UploadResource(resourceFilePath string) error
 }
 
-func GetBackendForProvider(p cmd.Provider) (Backend, error) {
+func GetBackendForProvider(p config.Provider) (Backend, error) {
 	switch p {
-	case cmd.ProviderAws:
+	case config.PROVIDER_AWS:
 		return aws.NewAwsBackend()
 	default:
 		return nil, fmt.Errorf("No backend found for provider: %s", p.String())

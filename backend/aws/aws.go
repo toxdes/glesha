@@ -34,7 +34,7 @@ func NewAwsBackend() (*AwsBackend, error) {
 	if !validator.ValidateRegion(configs.Aws.Region) {
 		return nil, fmt.Errorf("AWS: region is invalid")
 	}
-	L.Debug(fmt.Sprintf("config::ArchiveType %s", configs.ArchiveType))
+	L.Debug(fmt.Sprintf("config::ArchiveFormat %s", configs.ArchiveFormat))
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
 	L.Debug(fmt.Sprintf("config::Aws::Region %s", configs.Aws.Region))
 	client := &http.Client{}
@@ -135,9 +135,8 @@ func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
 	}
 	fmt.Println("AWS: Estimating costs...")
 	fmt.Print(cost)
-	err = file_io.IsReadable(resourceFilePath)
-	if err != nil {
-		return err
+	if !file_io.IsReadable(resourceFilePath) {
+		return fmt.Errorf("Cannot read resource: %s", resourceFilePath)
 	}
 
 	return fmt.Errorf("AWS: upload not implemented yet")

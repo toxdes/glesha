@@ -3,45 +3,11 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"glesha/file_io"
+	L "glesha/logger"
 	"os"
 	"path/filepath"
 )
-
-type ArchiveType string
-
-const (
-	TarGz ArchiveType = "targz"
-	Zip   ArchiveType = "zip"
-)
-
-func (archiveType *ArchiveType) String() string {
-	switch *archiveType {
-	case TarGz:
-		return ".tar.gz"
-	case Zip:
-		return ".zip"
-	default:
-		return "Unknown"
-	}
-}
-
-func (archiveType *ArchiveType) UnmarshalJSON(data []byte) error {
-	var maybeType string
-	err := json.Unmarshal(data, &maybeType)
-	if err != nil {
-		return err
-	}
-	t := ArchiveType(maybeType)
-	switch t {
-	case TarGz, Zip:
-		{
-			*archiveType = t
-			return nil
-		}
-	default:
-		return fmt.Errorf("unknown archive_type: %s. supported archive types: %s", maybeType, TarGz)
-	}
-}
 
 type Aws struct {
 	AccessKey  string `json:"access_key"`
@@ -51,14 +17,16 @@ type Aws struct {
 }
 
 type Config struct {
-	ArchiveType ArchiveType `json:"archive_type"`
-	Aws         *Aws        `json:"aws,omitempty"`
+	ArchiveFormat ArchiveFormat `json:"archive_format"`
+	Provider      Provider      `json:"provider"`
+	Aws           *Aws          `json:"aws,omitempty"`
 }
 
 var config Config
+var configPath string
 
-func Parse(configPath string) error {
-	file, err := os.Open(configPath)
+func Parse(configPathArg string) error {
+	file, err := os.Open(configPathArg)
 	if err != nil {
 		return fmt.Errorf("couldn't open open config file for reading")
 	}
@@ -66,7 +34,11 @@ func Parse(configPath string) error {
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
 	if err != nil {
-		return fmt.Errorf("malformed config %s: %w", configPath, err)
+		return fmt.Errorf("malformed config %s: %w", configPathArg, err)
+	}
+	configPath, err = filepath.Abs(configPath)
+	if err != nil {
+		return err
 	}
 	return nil
 }
@@ -75,8 +47,47 @@ func Get() *Config {
 	return &config
 }
 
-func GetDefaultConfigPath(gleshaWorkDir string) string {
-	return filepath.Join(gleshaWorkDir, "config.json")
+func GetDefaultConfigDir() (string, error) {
+	configDir, configDirError := os.UserConfigDir()
+	homeDir, homeDirError := os.UserHomeDir()
+	if configDirError != nil && homeDirError != nil {
+		return "", fmt.Errorf("Cannot find config dir: Config: %w, Home: %w", configDirError, homeDirError)
+	}
+	var dir string
+	if configDirError == nil {
+		dir = configDir
+	} else {
+		dir = homeDir
+	}
+	dir, err := filepath.Abs(filepath.Join(dir, "glesha"))
+	if err != nil {
+		return "", err
+	}
+	L.Debug(fmt.Sprintf("Using config directory: %s", dir))
+	err = os.MkdirAll(dir, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+func GetDefaultConfigPath() (string, error) {
+	configDir, err := GetDefaultConfigDir()
+	if err != nil {
+		return "", err
+	}
+	configFilePath := filepath.Join(configDir, "config.json")
+	if !file_io.Exists(configFilePath) {
+		_, err = file_io.WriteToFile(configFilePath, []byte(DumpDefaultConfig()), file_io.WRITE_OVERWRITE)
+	}
+	if err != nil {
+		return "", err
+	}
+	return configFilePath, err
+}
+
+func GetConfigPath() string {
+	return configPath
 }
 
 func (c *Config) ToJson() (string, error) {
@@ -89,7 +100,8 @@ func (c *Config) ToJson() (string, error) {
 
 func DumpDefaultConfig() string {
 	defaultConfig := Config{
-		ArchiveType: TarGz,
+		ArchiveFormat: AF_TARGZ,
+		Provider:      PROVIDER_AWS,
 		Aws: &Aws{
 			AccessKey:  "aws-access-key",
 			SecretKey:  "aws-secret-key",

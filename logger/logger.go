@@ -28,32 +28,33 @@ const (
 )
 
 var (
-	level       = INFO
+	Level       = INFO
 	debugLogger = log.New(os.Stdout, colorBlue+"[DEBUG] "+colorReset, log.Lmsgprefix)
 	infoLogger  = log.New(os.Stdout, colorGreen+"[INFO]  "+colorReset, log.Lmsgprefix)
 	warnLogger  = log.New(os.Stdout, colorYellow+"[WARN]  "+colorReset, log.Lmsgprefix)
 	errorLogger = log.New(os.Stderr, colorRed+"[ERROR] "+colorReset, log.Lmsgprefix)
 )
 
-var printCallerLineNumbers bool = false
+var printCallerLineNumbers bool = true
 
-func SetLevel(l string) {
+func SetLevel(l string) error {
 	switch l {
 	case "debug":
-		level = DEBUG
+		Level = DEBUG
 	case "info":
-		level = INFO
+		Level = INFO
 	case "warn":
-		level = WARN
+		Level = WARN
 	case "error":
-		level = ERROR
+		Level = ERROR
 	default:
-		level = INFO
+		return fmt.Errorf("Unsupported log level: %s", l)
 	}
+	return nil
 }
 
 func Debug(v ...any) {
-	if level <= DEBUG {
+	if Level <= DEBUG {
 		if printCallerLineNumbers {
 			_, file, line, _ := runtime.Caller(1)
 			debugLogger.Printf("%s:%d", file, line)
@@ -63,19 +64,19 @@ func Debug(v ...any) {
 }
 
 func Info(v ...any) {
-	if level <= INFO {
+	if Level <= INFO {
 		infoLogger.Println(v...)
 	}
 }
 
 func Warn(v ...any) {
-	if level <= WARN {
+	if Level <= WARN {
 		warnLogger.Println(v...)
 	}
 }
 
 func Error(v ...any) {
-	if level <= ERROR {
+	if Level <= ERROR {
 		if printCallerLineNumbers {
 			_, file, line, _ := runtime.Caller(1)
 			errorLogger.Printf("%s:%d", file, line)
@@ -112,4 +113,8 @@ func HttpResponseString(resp *http.Response) string {
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	return fmt.Sprintf("[%s] Status: %s\n Content: %s", resp.Request.URL.String(), resp.Status, string(bodyBytes))
+}
+
+func IsVerbose() bool {
+	return Level == DEBUG || Level == INFO
 }

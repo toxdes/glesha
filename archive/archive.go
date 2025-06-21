@@ -1,8 +1,6 @@
 package archive
 
 import (
-	"fmt"
-	"glesha/config"
 	"glesha/file_io"
 )
 
@@ -32,10 +30,7 @@ type Archiver interface {
 	UpdateStatus(ArchiveStatus) error
 	GetInfo() (*file_io.FilesInfo, error)
 	GetProgress() (*Progress, error)
-	GetStatusChannel() chan ArchiveStatus
 	GetArchiveFilePath() string
-	CloseStatusChannel() error
-	HandleKillSignal() error
 }
 
 func (status ArchiveStatus) String() string {
@@ -56,18 +51,5 @@ func (status ArchiveStatus) String() string {
 		return "COMPLETE"
 	default:
 		return "UNKNOWN"
-	}
-}
-
-func GetArchiver(archiveType config.ArchiveType, inputPath string, outputPath string, statusChannel chan ArchiveStatus) (Archiver, error) {
-	switch archiveType {
-	case config.TarGz:
-		a, err := NewTarGzArchiver(inputPath, outputPath, statusChannel)
-		if err != nil {
-			return nil, err
-		}
-		return a, nil
-	default:
-		return nil, fmt.Errorf("No archiver for type %s", archiveType.String())
 	}
 }

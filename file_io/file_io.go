@@ -1,25 +1,31 @@
 package file_io
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	L "glesha/logger"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 type FilesInfo struct {
 	TotalFileCount    uint64
 	SizeInBytes       uint64
 	ReadableFileCount uint64
+	ContentHash       string
 }
 
 func ComputeFilesInfo(inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
-	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0}
+	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0, ContentHash: ""}
+	contentHashWriter := sha256.New()
+	fmt.Println("Computing files info")
 	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
 
 		if walkError != nil {
-			return walkError
+			return fs.SkipDir
 		}
 		_, exists := ignorePaths[path]
 
@@ -28,68 +34,64 @@ func ComputeFilesInfo(inputPath string, ignorePaths map[string]bool) (*FilesInfo
 			return fs.SkipDir
 		}
 
-		if d.Type().IsRegular() {
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			filesInfo.TotalFileCount++
-			filesInfo.SizeInBytes += uint64(info.Size())
-			err = IsReadable(path)
-			if err != nil {
-				return err
-			}
-			filesInfo.ReadableFileCount++
-		} else {
-			// account for directory sizes as well
-			info, err := d.Info()
-			if err != nil {
-				return err
-			}
-			filesInfo.SizeInBytes += uint64(info.Size())
+		info, err := d.Info()
+		if err != nil {
+			return nil
 		}
+		if d.Type().IsRegular() {
+			filesInfo.TotalFileCount++
+			if !IsReadable(path) {
+				L.Debug(fmt.Errorf("Cannot read: %s", path))
+				return nil
+			}
+			filesInfo.SizeInBytes += uint64(info.Size())
+			filesInfo.ReadableFileCount++
+		}
+		contentHashWriter.Write([]byte(path))
+		contentHashWriter.Write([]byte(strconv.FormatInt(info.Size(), 10)))
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
+	filesInfo.ContentHash = hex.EncodeToString(contentHashWriter.Sum([]byte{}))
 	return filesInfo, nil
 }
 
-func IsReadable(filePath string) error {
+func IsReadable(filePath string) bool {
 	file, err := os.Open(filePath)
-	if err != nil {
-		return err
-	}
 	defer file.Close()
-	return nil
+	return err == nil
 }
 
-func IsWritable(inputPath string) error {
+func IsWritable(inputPath string) bool {
 	tempFile := "tempFile-123"
-	file, err := os.CreateTemp(inputPath, tempFile)
-	if err != nil {
-		return err
+	if ExistsDir(inputPath) {
+		file, err := os.CreateTemp(inputPath, tempFile)
+		defer os.Remove(file.Name())
+		defer file.Close()
+		return err == nil
 	}
-	defer os.Remove(file.Name())
-	defer file.Close()
-	return nil
+	if Exists(inputPath) {
+		info, err := os.Stat(inputPath)
+		if err != nil {
+			return false
+		}
+		perm := info.Mode().Perm()
+		writePermMask := (perm & 0200) | (perm & 0020) | (perm & 0002)
+		return writePermMask > 0
+	}
+	return false
 }
 
 func ExistsDir(inputPath string) bool {
 	info, err := os.Stat(inputPath)
-	if err != nil {
-		return false
-	}
-	return info.IsDir()
+	return err == nil && info.IsDir()
 }
 
 func Exists(inputFilePath string) bool {
 	info, err := os.Stat(inputFilePath)
-	if err != nil {
-		return false
-	}
-	return !info.IsDir()
+	return err == nil && !info.IsDir()
 }
 
 func FileSizeInBytes(inputFilePath string) (uint64, error) {
@@ -129,4 +131,29 @@ func WriteToFile(filePath string, data []byte, mode WriteMode) (int, error) {
 	}
 	defer file.Close()
 	return file.Write(data)
+}
+
+func GetGlobalWorkDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	absPath, err := filepath.Abs(filepath.Join(homeDir, ".glesha-cache"))
+	if err != nil {
+		return "", err
+	}
+	err = os.MkdirAll(absPath, os.ModePerm)
+	if err != nil {
+		return "", err
+	}
+	return absPath, nil
+}
+
+func ArePathsEqual(pathA string, pathB string) bool {
+	absPathA, errA := filepath.Abs(pathA)
+	absPathB, errB := filepath.Abs(pathB)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return absPathA == absPathB
 }

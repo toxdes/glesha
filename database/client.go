@@ -4,13 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"glesha/config"
+	"glesha/file_io"
 	L "glesha/logger"
+	"path/filepath"
 
 	_ "modernc.org/sqlite"
 )
 
 type DB struct {
-	db            *sql.DB
+	D             *sql.DB
 	connectionUri string
 	ctx           context.Context
 }
@@ -21,29 +24,32 @@ func NewDB(dbPath string, ctx context.Context) (*DB, error) {
 		return nil, err
 	}
 	return &DB{
-		db:            d,
+		D:             d,
 		connectionUri: dbPath,
 		ctx:           ctx,
 	}, nil
 }
 
+var DateTimeFormat string = "20060102T150405Z"
+
 func (d *DB) createTables() error {
-	res, err := d.db.ExecContext(d.ctx, `
-CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    archive_id STRING NOT NULL,
-    archive_path STRING NOT NULL,
-    input_directory_path STRING NOT_NULL,
-		status TEXT NOT NULL
-						CHECK(status in ('archive_pending','archive_running', 'archive_paused', 'archive_aborted',
-										'archive_complete', 'upload_pending', 'upload_running', 'upload_paused', 'upload_aborted',
-										 'upload_complete')),
-   created_at TEXT NOT NULL,
-   updated_at TEXT NOT NULL,
-   content_hash TEXT NOT NULL
-);
-`)
-	L.Debug(fmt.Sprintf("TABLE CREATED: %!v", res))
+	_, err := d.D.ExecContext(d.ctx,
+		`CREATE TABLE IF NOT EXISTS tasks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        input_path STRING NOT_NULL,
+        output_path STRING NOT NULL,
+        config_path STRING NOT NULL,
+        provider STRING NOT NULL,
+        archive_format STRING NOT NULL,
+        status TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        file_count INTEGER NOT NULL
+);`)
+
+	L.Debug(fmt.Sprintf("tasks table created"))
 	if err != nil {
 		return err
 	}
@@ -56,5 +62,17 @@ func (d *DB) Init() error {
 
 func (d *DB) Close() error {
 	d.ctx.Done()
-	return d.db.Close()
+	return d.D.Close()
+}
+
+func GetDBFilePath() (string, error) {
+	configDir, err := config.GetDefaultConfigDir()
+	if err != nil {
+		return "", err
+	}
+	dbPath := filepath.Join(configDir, "glesha-db.db")
+	if !file_io.IsWritable(configDir) {
+		return "", fmt.Errorf("No write permissions to %s", dbPath)
+	}
+	return dbPath, nil
 }
