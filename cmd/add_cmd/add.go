@@ -117,7 +117,7 @@ func parseFlags(args []string) error {
 	configPath := addCmd.String("config", "", "Path to file or directory to archive (required)")
 	provider := addCmd.String("provider", "", "Which provider to use for uploading")
 	archiveFormat := addCmd.String("archive-format", "", "Which archive format to use for archiving")
-	logLevel := addCmd.String("log-level", "error", "Set log level: debug info warn error panic")
+	logLevel := addCmd.String("log-level", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
 
 	var assumeYes bool
 
@@ -125,7 +125,7 @@ func parseFlags(args []string) error {
 	addCmd.StringVar(configPath, "c", "", "alias to -config")
 	addCmd.StringVar(provider, "p", "", "alias to -provider")
 	addCmd.StringVar(archiveFormat, "a", "", "alias to -archive-format")
-	addCmd.StringVar(logLevel, "L", "error", "Set log level: debug info warn error panic")
+	addCmd.StringVar(logLevel, "L", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
 	addCmd.BoolVar(&assumeYes, "assume-yes", false, "Assume yes to all yes/no prompts")
 	addCmd.Usage = func() {
 		PrintUsage()
@@ -144,7 +144,7 @@ func parseFlags(args []string) error {
 	inputPathArg := addCmd.Arg(0)
 
 	if logLevel != nil {
-		err = L.SetLevel(*logLevel)
+		err = L.SetLevelFromString(*logLevel)
 		if err != nil {
 			return err
 		}

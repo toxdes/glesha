@@ -9,11 +9,6 @@ import (
 	"syscall"
 )
 
-func init() {
-	// will be overriden by subcommands
-	L.SetLevel("error")
-}
-
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

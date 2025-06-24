@@ -28,7 +28,7 @@ type Archiver interface {
 	Pause() error
 	Abort() error
 	UpdateStatus(ArchiveStatus) error
-	GetInfo() (*file_io.FilesInfo, error)
+	GetInfo() *file_io.FilesInfo
 	GetProgress() (*Progress, error)
 	GetArchiveFilePath() string
 }

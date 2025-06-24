@@ -21,7 +21,7 @@ type FilesInfo struct {
 func ComputeFilesInfo(inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
 	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0, ContentHash: ""}
 	contentHashWriter := sha256.New()
-	fmt.Println("Computing files info")
+	L.Info("Computing files info")
 	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
 
 		if walkError != nil {

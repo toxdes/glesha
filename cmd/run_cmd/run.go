@@ -62,8 +62,8 @@ func Execute(ctx context.Context, args []string) error {
 
 func parseFlags(args []string) error {
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
-	logLevel := runCmd.String("log-level", "error", "Set log level: debug info warn error panic")
-	runCmd.StringVar(logLevel, "L", "error", "Set log level: debug info warn error panic")
+	logLevel := runCmd.String("log-level", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
+	runCmd.StringVar(logLevel, "L", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
 	runCmd.Usage = func() {
 		PrintUsage()
 	}
@@ -82,7 +82,7 @@ func parseFlags(args []string) error {
 		return err
 	}
 	if logLevel != nil {
-		err = L.SetLevel(*logLevel)
+		err = L.SetLevelFromString(*logLevel)
 		if err != nil {
 			return err
 		}
@@ -120,23 +120,29 @@ func runTask(ctx context.Context) error {
 			return err
 		}
 		archivePath := archiver.GetArchiveFilePath()
+		L.Info("Archive: Planning archive")
+		err = archiver.Plan()
+		if err != nil {
+			return err
+		}
+		fmt.Println("Plan Archive: OK")
 		err = archive.IsValidTarGz(archivePath)
 		if err != nil {
 			mustRearchive = true
 			L.Debug(err)
 			L.Debug(fmt.Sprintf("Existing archive %s is not valid, starting fresh", archivePath))
 		}
+		info := archiver.GetInfo()
+		if int64(info.SizeInBytes) != t.TotalSize {
+			L.Info("Rearchiving because input_path contents have changed since last run")
+			mustRearchive = true
+		}
 	default:
 		return fmt.Errorf("archive format %s is not supported yet", t.ArchiveFormat.String())
 	}
 
 	if mustRearchive {
-		fmt.Println("Cannot continue from previous state, starting fresh")
-		err = archiver.Plan()
-		if err != nil {
-			return err
-		}
-		fmt.Println("Plan Archive: OK")
+		L.Info("Starting fresh because cannot continue from previous state")
 		err = archiver.Start()
 		if err != nil {
 			return err
@@ -151,7 +157,13 @@ func runTask(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		err = runCmdEnv.DB.UpdateTaskContentInfo(ctx, runCmdEnv.TaskID, archiver.GetInfo())
+		if err != nil {
+			return err
+		}
 		fmt.Println("Create Archive: OK")
+	} else {
+		L.Info("Skipping Archiving because input_path contents have not changed since last run")
 	}
 	archivePath := archiver.GetArchiveFilePath()
 	fmt.Printf("Archive: %s\n", archivePath)

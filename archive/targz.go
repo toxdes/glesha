@@ -79,7 +79,6 @@ func (tgz *TarGzArchive) UpdateStatus(newStatus ArchiveStatus) error {
 }
 
 func (tgz *TarGzArchive) Plan() error {
-	L.Info("Computing files info")
 	tgz.UpdateStatus(STATUS_PLANNING)
 	fileInfo, err := file_io.ComputeFilesInfo(tgz.InputPath, tgz.IgnoredDirs)
 	if err != nil {
@@ -92,8 +91,8 @@ func (tgz *TarGzArchive) Plan() error {
 	return nil
 }
 
-func (tgz *TarGzArchive) GetInfo() (*file_io.FilesInfo, error) {
-	return tgz.Info, nil
+func (tgz *TarGzArchive) GetInfo() *file_io.FilesInfo {
+	return tgz.Info
 }
 
 func (tgz *TarGzArchive) getTarFile() string {
@@ -131,35 +130,40 @@ func (tgz *TarGzArchive) archive() error {
 		_, ignore := tgz.IgnoredDirs[path]
 
 		if ignore {
+			L.Warn(fmt.Sprintf("Archive: potentially conflicting file: %s", path))
 			return fs.SkipDir
 		}
+
 		if walkErr != nil {
 			return fs.SkipDir
 		}
+
 		L.Debug(fmt.Sprintf("Processing: %s", path))
+
 		var link string
 		relPath, err := filepath.Rel(filepath.Dir(tgz.InputPath), path)
 		if err != nil {
-			L.Info(err)
+			L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
 			return nil
 		}
+
 		// Skip special file types like sockets, devices, FIFOs
 		if info.Mode()&os.ModeSocket != 0 ||
 			info.Mode()&os.ModeDevice != 0 ||
 			info.Mode()&os.ModeNamedPipe != 0 {
-			L.Debug(fmt.Sprintf("Archive: skipping special file type: %s (mode: %s)\n", path, info.Mode().String()))
+			L.Warn(fmt.Sprintf("Archive: skipping special file type: %s (mode: %s)\n", path, info.Mode().String()))
 			return nil
 		}
 		if info.Mode()&os.ModeSymlink == os.ModeSymlink {
 			link, err = os.Readlink(path)
 		}
 		if err != nil {
-			L.Info(err)
+			L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
 			return nil
 		}
 		header, err := tar.FileInfoHeader(info, link)
 		if err != nil {
-			L.Info(err)
+			L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
 			return nil
 		}
 		header.Name = relPath
@@ -168,7 +172,7 @@ func (tgz *TarGzArchive) archive() error {
 			file, err := os.Open(path)
 			if err != nil {
 				// skip files that are not readable
-				L.Debug(fmt.Errorf("Archive: couldn't open %s - %w", path, err))
+				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
 				return nil
 			}
 			defer file.Close()
@@ -189,12 +193,13 @@ func (tgz *TarGzArchive) archive() error {
 			fmt.Printf("%s", prevText)
 			err = tarGzWriter.WriteHeader(header)
 			if err != nil {
-				L.Info(err)
+				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
 				return nil
 			}
 			_, err = io.Copy(tarGzWriter, bufferedFileReader)
 			if err != nil {
-				L.Info(err)
+				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+				return nil
 			}
 			tgz.Progress.Done++
 			completedBytes += uint64(info.Size())

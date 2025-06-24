@@ -40,7 +40,7 @@ type GleshaTask struct {
 }
 
 func (t GleshaTask) String() string {
-	return fmt.Sprintf("\nTask:\n\tID: %d\n\tInputPath: %s\n\tOutputPath: %s\n\tConfigPath: %s\n\tProvider: %s\n\tArchiveFormat: %s\n\tSize: %s\n\tTotalFileCount: %d\n",
+	return fmt.Sprintf("Task:\n\tID: %d\n\tInputPath: %s\n\tOutputPath: %s\n\tConfigPath: %s\n\tProvider: %s\n\tArchiveFormat: %s\n\tSize: %s\n\tTotalFileCount: %d\n",
 		t.ID,
 		t.InputPath,
 		t.OutputPath,
@@ -182,7 +182,12 @@ func (db *DB) GetTaskById(ctx context.Context, id int64) (*GleshaTask, error) {
 }
 
 func (db *DB) UpdateTaskStatus(ctx context.Context, id int64, status GleshaTaskStatus) error {
-	res, err := db.D.ExecContext(ctx, "UPDATE tasks SET status=? WHERE id=?", status, id)
+	res, err := db.D.ExecContext(ctx,
+		"UPDATE tasks SET status=?, updated_at=? WHERE id=?",
+		status,
+		ToTimeStr(time.Now()),
+		id)
+
 	if err != nil {
 		return fmt.Errorf("Couldn't update status %s for task %d: %w", status, id, err)
 	}
@@ -194,5 +199,25 @@ func (db *DB) UpdateTaskStatus(ctx context.Context, id int64, status GleshaTaskS
 		return fmt.Errorf("Was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
 	}
 	L.Debug(fmt.Sprintf("Updated task(%d) status to: %s", id, status))
+	return err
+}
+
+func (db *DB) UpdateTaskContentInfo(ctx context.Context, id int64, info *file_io.FilesInfo) error {
+	res, err := db.D.ExecContext(ctx,
+		"UPDATE tasks SET size = ?, content_hash = ?, file_count = ?, updated_at = ? WHERE id = ?",
+		info.SizeInBytes,
+		info.ContentHash,
+		info.TotalFileCount,
+		ToTimeStr(time.Now()),
+		id,
+	)
+	if err != nil {
+		return fmt.Errorf("Couldn't update content info for task %d: %w", id, err)
+	}
+	rowsAffected, err := res.RowsAffected()
+	if rowsAffected != 1 {
+		return fmt.Errorf("Was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
+	}
+	L.Debug(fmt.Sprintf("Updated task(%d) contents: content_hash, file_count", id))
 	return err
 }

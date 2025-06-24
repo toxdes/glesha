@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"runtime"
+	"strings"
 )
 
 type LogLevel int
@@ -28,65 +29,77 @@ const (
 )
 
 var (
-	Level       = INFO
-	debugLogger = log.New(os.Stdout, colorBlue+"[DEBUG] "+colorReset, log.Lmsgprefix)
-	infoLogger  = log.New(os.Stdout, colorGreen+"[INFO]  "+colorReset, log.Lmsgprefix)
-	warnLogger  = log.New(os.Stdout, colorYellow+"[WARN]  "+colorReset, log.Lmsgprefix)
-	errorLogger = log.New(os.Stderr, colorRed+"[ERROR] "+colorReset, log.Lmsgprefix)
+	level       = INFO
+	debugLogger = log.New(os.Stdout, colorBlue+"[DEBUG] ", log.Lmsgprefix)
+	infoLogger  = log.New(os.Stdout, colorGreen+"[INFO]  ", log.Lmsgprefix)
+	warnLogger  = log.New(os.Stdout, colorYellow+"[WARN]  ", log.Lmsgprefix)
+	errorLogger = log.New(os.Stderr, colorRed+"[ERROR] ", log.Lmsgprefix)
 )
 
-var printCallerLineNumbers bool = true
+var printCallerLocation bool = true
 
-func SetLevel(l string) error {
-	switch l {
+func SetLevelFromString(l string) error {
+	switch strings.ToLower(l) {
 	case "debug":
-		Level = DEBUG
+		level = DEBUG
 	case "info":
-		Level = INFO
+		level = INFO
 	case "warn":
-		Level = WARN
+		level = WARN
 	case "error":
-		Level = ERROR
+		level = ERROR
 	default:
 		return fmt.Errorf("Unsupported log level: %s", l)
 	}
 	return nil
 }
 
+func SetLevel(l LogLevel) error {
+	switch l {
+	case DEBUG, INFO, WARN, ERROR:
+		level = l
+	default:
+		fmt.Errorf("Unsupported log level: %d", l)
+	}
+	return nil
+}
+
 func Debug(v ...any) {
-	if Level <= DEBUG {
-		if printCallerLineNumbers {
+	if level <= DEBUG {
+		if printCallerLocation {
 			_, file, line, _ := runtime.Caller(1)
-			debugLogger.Printf("%s:%d", file, line)
+			debugLogger.Printf("%s:%d: %s%s", file, line, fmt.Sprint(v...), colorReset)
+		} else {
+			debugLogger.Print(fmt.Sprint(v...), colorReset)
 		}
-		debugLogger.Println(fmt.Sprint(v...))
 	}
 }
 
 func Info(v ...any) {
-	if Level <= INFO {
-		infoLogger.Println(v...)
+	if level <= INFO {
+		infoLogger.Print(fmt.Sprint(v...), colorReset)
 	}
 }
 
 func Warn(v ...any) {
-	if Level <= WARN {
-		warnLogger.Println(v...)
+	if level <= WARN {
+		warnLogger.Print(fmt.Sprint(v...), colorReset)
 	}
 }
 
 func Error(v ...any) {
-	if Level <= ERROR {
-		if printCallerLineNumbers {
+	if level <= ERROR {
+		if printCallerLocation {
 			_, file, line, _ := runtime.Caller(1)
-			errorLogger.Printf("%s:%d", file, line)
+			errorLogger.Printf("%s:%d: - %s%s", file, line, fmt.Sprint(v...), colorReset)
+		} else {
+			errorLogger.Print(fmt.Sprint(v...), colorReset)
 		}
-		errorLogger.Println(v...)
 	}
 }
 
 func Panic(v ...any) {
-	errorLogger.Println(v...)
+	errorLogger.Print(fmt.Sprint(v...), colorReset)
 	os.Exit(1)
 }
 
@@ -116,5 +129,24 @@ func HttpResponseString(resp *http.Response) string {
 }
 
 func IsVerbose() bool {
-	return Level == DEBUG || Level == INFO
+	return level == DEBUG
+}
+
+func GetLogLevel() LogLevel {
+	return level
+}
+
+func (l LogLevel) String() string {
+	switch l {
+	case DEBUG:
+		return "default"
+	case INFO:
+		return "info"
+	case WARN:
+		return "warn"
+	case ERROR:
+		return "error"
+	default:
+		return "Unknown log level, indicates a bug. Please report"
+	}
 }

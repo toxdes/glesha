@@ -82,6 +82,7 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 	if err != nil {
 		return err
 	}
+	L.Info(fmt.Sprintf("Creating AWS bucket: %s", aws.bucketName))
 	resp, err := aws.client.Do(req)
 	if err != nil {
 		return err
@@ -127,13 +128,13 @@ func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Aws: initiating upload: %s (%s)\n", resourceFilePath, L.HumanReadableBytes(size))
+	L.Info(fmt.Sprintf("Aws: initiating upload: %s (%s)\n", resourceFilePath, L.HumanReadableBytes(size)))
 
 	cost, err := aws.EstimateCost(size, "INR")
 	if err != nil {
 		return err
 	}
-	fmt.Println("AWS: Estimating costs...")
+	L.Info("AWS: Estimating costs")
 	fmt.Print(cost)
 	if !file_io.IsReadable(resourceFilePath) {
 		return fmt.Errorf("Cannot read resource: %s", resourceFilePath)
