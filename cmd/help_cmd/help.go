@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"glesha/cmd/add_cmd"
+	"glesha/cmd/run_cmd"
 )
 
 func Execute(ctx context.Context, args []string) error {
@@ -15,6 +16,8 @@ func Execute(ctx context.Context, args []string) error {
 	switch args[0] {
 	case "add":
 		add_cmd.PrintUsage()
+	case "run":
+		run_cmd.PrintUsage()
 	case "help":
 		PrintUsage()
 	case "config":
