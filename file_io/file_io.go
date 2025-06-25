@@ -1,6 +1,7 @@
 package file_io
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -18,11 +19,16 @@ type FilesInfo struct {
 	ContentHash       string
 }
 
-func ComputeFilesInfo(inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
+func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
 	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0, ContentHash: ""}
 	contentHashWriter := sha256.New()
 	L.Info("Computing files info")
 	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
+		select {
+		case <-ctx.Done():
+			return fs.SkipAll
+		default:
+		}
 
 		if walkError != nil {
 			return fs.SkipDir

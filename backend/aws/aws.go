@@ -25,14 +25,14 @@ type AwsBackend struct {
 func NewAwsBackend() (*AwsBackend, error) {
 	configs := config.Get()
 	if configs.Aws == nil {
-		return nil, fmt.Errorf("AWS: could not find aws configuration")
+		return nil, fmt.Errorf("Aws: could not find aws configuration")
 	}
 	validator := AwsValidator{}
 	if !validator.ValidateBucketName(configs.Aws.BucketName) {
-		return nil, fmt.Errorf("AWS: bucket name is invalid")
+		return nil, fmt.Errorf("Aws: bucket name is invalid")
 	}
 	if !validator.ValidateRegion(configs.Aws.Region) {
-		return nil, fmt.Errorf("AWS: region is invalid")
+		return nil, fmt.Errorf("Aws: region is invalid")
 	}
 	L.Debug(fmt.Sprintf("config::ArchiveFormat %s", configs.ArchiveFormat))
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
@@ -82,7 +82,7 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 	if err != nil {
 		return err
 	}
-	L.Info(fmt.Sprintf("Creating AWS bucket: %s", aws.bucketName))
+	L.Info(fmt.Sprintf("Creating Aws bucket: %s", aws.bucketName))
 	resp, err := aws.client.Do(req)
 	if err != nil {
 		return err
@@ -110,14 +110,14 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 			return err
 		}
 		if awsError.Code == "BucketAlreadyOwnedByYou" && resp.StatusCode == 409 {
-			fmt.Printf("AWS: Bucket already exists: %s\n", aws.bucketName)
+			L.Printf("Aws: Bucket already exists: %s\n", aws.bucketName)
 			return nil
 		}
 		if awsError.Code == "BucketAlreadyExists" && resp.StatusCode == 409 {
-			return fmt.Errorf("AWS: Bucket name not available: %s (%s)", aws.bucketName, awsError.Message)
+			return fmt.Errorf("Aws: Bucket name not available: %s (%s)", aws.bucketName, awsError.Message)
 		}
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("AWS: Cannot create bucket %s (%s)", aws.bucketName, awsError.Message)
+			return fmt.Errorf("Aws: Cannot create bucket %s (%s)", aws.bucketName, awsError.Message)
 		}
 	}
 	return nil
@@ -128,19 +128,19 @@ func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
 	if err != nil {
 		return err
 	}
-	L.Info(fmt.Sprintf("Aws: initiating upload: %s (%s)\n", resourceFilePath, L.HumanReadableBytes(size)))
+	L.Info(fmt.Sprintf("Aws: initiating upload: %s (%s)", resourceFilePath, L.HumanReadableBytes(size)))
 
 	cost, err := aws.EstimateCost(size, "INR")
 	if err != nil {
 		return err
 	}
-	L.Info("AWS: Estimating costs")
-	fmt.Print(cost)
+	L.Info("Aws: Estimating costs")
+	L.Print(cost)
 	if !file_io.IsReadable(resourceFilePath) {
 		return fmt.Errorf("Cannot read resource: %s", resourceFilePath)
 	}
 
-	return fmt.Errorf("AWS: upload not implemented yet")
+	return fmt.Errorf("Aws: upload not implemented yet")
 }
 
 func getExchangeRate(c1 string, c2 string) (float64, error) {

@@ -1,6 +1,6 @@
 package run_cmd
 
-import "fmt"
+import L "glesha/logger"
 
 const usageStr string = `
 USAGE
@@ -12,10 +12,16 @@ DESCRIPTION
         2. Uploads the generated archive to the specified storage provider
 
 OPTIONS
+    --log-level, -L <log-level>                                                                       
+        Specify log output level
+        Default: debug
+        Accepted values (in order of increasing amount of output) - 
+            debug, info, warn, error, silent
+        
+
     -L <log-level>
         Control output logs level, default log level is 'error'.
         Accepted values: debug, info, warn, error
-
 ID
     ID of the task that you want to run.
 
@@ -35,5 +41,5 @@ func Usage() string {
 }
 
 func PrintUsage() {
-	fmt.Print(usageStr)
+	L.Print(usageStr)
 }

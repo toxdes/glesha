@@ -13,7 +13,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -80,7 +79,7 @@ func (tgz *TarGzArchive) UpdateStatus(newStatus ArchiveStatus) error {
 
 func (tgz *TarGzArchive) Plan() error {
 	tgz.UpdateStatus(STATUS_PLANNING)
-	fileInfo, err := file_io.ComputeFilesInfo(tgz.InputPath, tgz.IgnoredDirs)
+	fileInfo, err := file_io.ComputeFilesInfo(tgz.ctx, tgz.InputPath, tgz.IgnoredDirs)
 	if err != nil {
 		return err
 	}
@@ -102,7 +101,7 @@ func (tgz *TarGzArchive) getTarFile() string {
 
 func (tgz *TarGzArchive) archive() error {
 	if tgz.archiveAlreadyExists {
-		fmt.Printf("Archive already exists for path %s: %s\n",
+		L.Printf("Archive already exists for path %s: %s\n",
 			tgz.InputPath, tgz.getTarFile())
 		return nil
 	}
@@ -111,7 +110,6 @@ func (tgz *TarGzArchive) archive() error {
 	if err != nil {
 		return err
 	}
-	var prevText string
 	var completedBytes uint64 = 0
 	var shouldAbort bool = false
 	gzipWriter := gzip.NewWriter(tarFile)
@@ -151,7 +149,7 @@ func (tgz *TarGzArchive) archive() error {
 		if info.Mode()&os.ModeSocket != 0 ||
 			info.Mode()&os.ModeDevice != 0 ||
 			info.Mode()&os.ModeNamedPipe != 0 {
-			L.Warn(fmt.Sprintf("Archive: skipping special file type: %s (mode: %s)\n", path, info.Mode().String()))
+			L.Warn(fmt.Sprintf("Archive: skipping special file type: %s (mode: %s)", path, info.Mode().String()))
 			return nil
 		}
 		if info.Mode()&os.ModeSymlink == os.ModeSymlink {
@@ -181,16 +179,15 @@ func (tgz *TarGzArchive) archive() error {
 			if tgz.Progress.Total > 0 {
 				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
 			}
-			if !L.IsVerbose() {
-				fmt.Print("\r" + strings.Repeat(" ", len(prevText)) + "\r")
-			}
-			prevText = fmt.Sprintf("Archiving: %.2f%% (%d/%d) [%s - %s]",
+			L.Print(L.C_SAVE)
+			L.Printf("%sArchiving: %.2f%% (%d/%d) [%s - %s]",
+				L.C_CLEAR_LINE,
 				progressPercentage,
 				tgz.Progress.Done,
 				tgz.Progress.Total,
 				info.Name(),
 				L.HumanReadableBytes(uint64(info.Size())))
-			fmt.Printf("%s", prevText)
+			L.Print(L.C_RESTORE)
 			err = tarGzWriter.WriteHeader(header)
 			if err != nil {
 				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
@@ -204,7 +201,7 @@ func (tgz *TarGzArchive) archive() error {
 			tgz.Progress.Done++
 			completedBytes += uint64(info.Size())
 			if L.IsVerbose() {
-				fmt.Println()
+				L.Println()
 				L.Debug(fmt.Sprintf("Processed: %s (%s)",
 					path,
 					L.HumanReadableBytes(uint64(bufferedFileReader.Size()))))
@@ -227,15 +224,13 @@ func (tgz *TarGzArchive) archive() error {
 		os.Remove(tgz.getTarFile())
 		return err
 	}
-	if !L.IsVerbose() {
-		fmt.Print("\r" + strings.Repeat(" ", len(prevText)) + "\r")
-	}
 
 	size, err := file_io.FileSizeInBytes(tgz.getTarFile())
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Archiving: Done (%d/%d) (%s -> %s)\n",
+	L.Printf("%sArchiving: Done (%d/%d) (%s -> %s)\n",
+		L.C_CLEAR_LINE,
 		tgz.Progress.Done,
 		tgz.Progress.Total,
 		L.HumanReadableBytes(tgz.Info.SizeInBytes),

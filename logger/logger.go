@@ -18,22 +18,36 @@ const (
 	INFO
 	WARN
 	ERROR
+	SILENT
 )
 
+// cursor sequences
 const (
-	colorReset  = "\033[0m"
-	colorRed    = "\033[31m"
-	colorGreen  = "\033[32m"
-	colorYellow = "\033[33m"
-	colorBlue   = "\033[34m"
+	C_ESCAPE     = "\x1B"
+	C_SAVE       = C_ESCAPE + "7"
+	C_RESTORE    = C_ESCAPE + "8"
+	C_CLEAR_LINE = C_ESCAPE + "[2K"
+	C_UP         = C_ESCAPE + "[1A"
+	C_DOWN       = C_ESCAPE + "[1B"
+	C_RIGHT      = C_ESCAPE + "[1C"
+	C_LEFT       = C_ESCAPE + "[1D"
+)
+
+// colors
+const (
+	colorReset  = C_ESCAPE + "[0m"
+	colorRed    = C_ESCAPE + "[31m"
+	colorGreen  = C_ESCAPE + "[32m"
+	colorYellow = C_ESCAPE + "[33m"
+	colorBlue   = C_ESCAPE + "[34m"
 )
 
 var (
 	level       = INFO
-	debugLogger = log.New(os.Stdout, colorBlue+"[DEBUG] ", log.Lmsgprefix)
-	infoLogger  = log.New(os.Stdout, colorGreen+"[INFO]  ", log.Lmsgprefix)
-	warnLogger  = log.New(os.Stdout, colorYellow+"[WARN]  ", log.Lmsgprefix)
-	errorLogger = log.New(os.Stderr, colorRed+"[ERROR] ", log.Lmsgprefix)
+	debugLogger = log.New(os.Stdout, colorBlue+"=> ", log.Lmsgprefix)
+	infoLogger  = log.New(os.Stdout, colorGreen+"=> ", log.Lmsgprefix)
+	warnLogger  = log.New(os.Stdout, colorYellow+"=> ", log.Lmsgprefix)
+	errorLogger = log.New(os.Stderr, colorRed+"=> ", log.Lmsgprefix)
 )
 
 var printCallerLocation bool = true
@@ -48,6 +62,8 @@ func SetLevelFromString(l string) error {
 		level = WARN
 	case "error":
 		level = ERROR
+	case "silent":
+		level = SILENT
 	default:
 		return fmt.Errorf("Unsupported log level: %s", l)
 	}
@@ -56,7 +72,7 @@ func SetLevelFromString(l string) error {
 
 func SetLevel(l LogLevel) error {
 	switch l {
-	case DEBUG, INFO, WARN, ERROR:
+	case DEBUG, INFO, WARN, ERROR, SILENT:
 		level = l
 	default:
 		fmt.Errorf("Unsupported log level: %d", l)
@@ -139,7 +155,7 @@ func GetLogLevel() LogLevel {
 func (l LogLevel) String() string {
 	switch l {
 	case DEBUG:
-		return "default"
+		return "debug"
 	case INFO:
 		return "info"
 	case WARN:
@@ -149,4 +165,25 @@ func (l LogLevel) String() string {
 	default:
 		return "Unknown log level, indicates a bug. Please report"
 	}
+}
+
+func Printf(format string, v ...any) (int, error) {
+	if level < SILENT {
+		return fmt.Printf(format, v...)
+	}
+	return 0, nil
+}
+
+func Print(a ...any) (int, error) {
+	if level < SILENT {
+		return fmt.Print(a...)
+	}
+	return 0, nil
+}
+
+func Println(a ...any) (int, error) {
+	if level < SILENT {
+		return fmt.Println(a...)
+	}
+	return 0, nil
 }

@@ -1,6 +1,6 @@
 package add_cmd
 
-import "fmt"
+import L "glesha/logger"
 
 const usageStr string = `
 USAGE
@@ -36,8 +36,11 @@ OPTIONS
         Default is: ~/.config/glesha/config.json
         Use "glesha help config" for more information on configuring glesha.
 
-    --verbose                                                                       
-        Print more debug information
+    --log-level, -L <log-level>                                                                       
+        Specify log output level
+        Default: debug
+        Accepted values (in order of increasing amount of output) - 
+            debug, info, warn, error, silent
 
 PATH
     Directory path that should be archived
@@ -59,5 +62,5 @@ func Usage() string {
 }
 
 func PrintUsage() {
-	fmt.Print(usageStr)
+	L.Print(usageStr)
 }

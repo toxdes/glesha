@@ -1,6 +1,8 @@
 package help_cmd
 
-import "fmt"
+import (
+	L "glesha/logger"
+)
 
 const configUsageStr string = `
 CONFIGURATION
@@ -53,5 +55,5 @@ func ConfigUsage() string {
 }
 
 func ConfigPrintUsage() {
-	fmt.Print(configUsageStr)
+	L.Print(configUsageStr)
 }

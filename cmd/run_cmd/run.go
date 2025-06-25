@@ -51,7 +51,7 @@ func Execute(ctx context.Context, args []string) error {
 		}
 		return err
 	}
-	fmt.Printf("%s", runCmdEnv.Task)
+	L.Printf("%s", runCmdEnv.Task)
 	err = config.Parse(runCmdEnv.Task.ConfigPath)
 	if err != nil {
 		return err
@@ -86,7 +86,7 @@ func parseFlags(args []string) error {
 		if err != nil {
 			return err
 		}
-		L.Info(fmt.Sprintf("log level set to: %s\n", strings.ToUpper(*logLevel)))
+		L.Info(fmt.Sprintf("log level set to: %s", strings.ToUpper(*logLevel)))
 	}
 	runCmdEnv = &RunCmdEnv{
 		TaskID: taskId,
@@ -125,7 +125,7 @@ func runTask(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Plan Archive: OK")
+		L.Println("Plan Archive: OK")
 		err = archive.IsValidTarGz(archivePath)
 		if err != nil {
 			mustRearchive = true
@@ -149,7 +149,7 @@ func runTask(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
-			fmt.Println()
+			L.Println()
 			return fmt.Errorf("Kill signal received, Exiting...")
 		default:
 		}
@@ -161,12 +161,12 @@ func runTask(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		fmt.Println("Create Archive: OK")
+		L.Println("Create Archive: OK")
 	} else {
 		L.Info("Skipping Archiving because input_path contents have not changed since last run")
 	}
 	archivePath := archiver.GetArchiveFilePath()
-	fmt.Printf("Archive: %s\n", archivePath)
+	L.Printf("Archive: %s\n", archivePath)
 	backend, err := backend.GetBackendForProvider(runCmdEnv.Task.Provider)
 	if err != nil {
 		return err

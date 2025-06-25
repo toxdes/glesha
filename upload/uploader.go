@@ -3,6 +3,7 @@ package upload
 import (
 	"fmt"
 	"glesha/backend"
+	L "glesha/logger"
 )
 
 type Uploader struct {
@@ -19,7 +20,7 @@ func (u *Uploader) Plan() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("Create Bucket: OK")
+	L.Println("Create Bucket: OK")
 	return nil
 }
 

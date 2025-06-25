@@ -57,7 +57,7 @@ func Execute(ctx context.Context, args []string) error {
 	defer addCmdEnv.DB.Close()
 
 	// compute content hash
-	filesInfo, err := file_io.ComputeFilesInfo(addCmdEnv.InputPath, addCmdEnv.IgnoredDirs)
+	filesInfo, err := file_io.ComputeFilesInfo(ctx, addCmdEnv.InputPath, addCmdEnv.IgnoredDirs)
 	if err != nil {
 		return err
 	}
@@ -95,12 +95,12 @@ func queueTask(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Task created with id: %d\n", taskId)
+		L.Printf("Task created with id: %d\n", taskId)
 	} else {
-		fmt.Printf("Similar Task already exist with id: %d\n", taskId)
+		L.Printf("Similar Task already exist with id: %d\n", taskId)
 	}
-	fmt.Printf("Use 'glesha run <id>' to run the task.\n")
-	fmt.Printf("For more information, see 'glesha help add'.\n")
+	L.Printf("Use 'glesha run <id>' to run the task.\n")
+	L.Printf("For more information, see 'glesha help add'.\n")
 	return err
 }
 
