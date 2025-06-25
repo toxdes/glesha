@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 )
 
 type FilesInfo struct {
@@ -22,7 +23,6 @@ type FilesInfo struct {
 func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
 	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0, ContentHash: ""}
 	contentHashWriter := sha256.New()
-	L.Info("Computing files info")
 	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
 		select {
 		case <-ctx.Done():
@@ -38,6 +38,21 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 		if exists {
 			L.Debug(fmt.Sprintf("ComputeFileInfo: Ignoring %s", path))
 			return fs.SkipDir
+		}
+
+		isSpecialPath := strings.HasPrefix(path, "/proc") ||
+			strings.HasPrefix(path, "/dev") ||
+			strings.HasPrefix(path, "/sys")
+
+		if isSpecialPath {
+			info, _ := d.Info()
+			if info.IsDir() {
+				L.Debug(fmt.Sprintf("Archive: skipping potentially problematic dir: %s", path))
+				return fs.SkipDir
+			} else {
+				L.Debug(fmt.Sprintf("Archive: skipping potentially problematic file: %s", path))
+				return nil
+			}
 		}
 
 		info, err := d.Info()

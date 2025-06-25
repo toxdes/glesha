@@ -57,6 +57,7 @@ func Execute(ctx context.Context, args []string) error {
 	defer addCmdEnv.DB.Close()
 
 	// compute content hash
+	L.Info(fmt.Sprintf("Checking if files are changed in %s", addCmdEnv.InputPath))
 	filesInfo, err := file_io.ComputeFilesInfo(ctx, addCmdEnv.InputPath, addCmdEnv.IgnoredDirs)
 	if err != nil {
 		return err

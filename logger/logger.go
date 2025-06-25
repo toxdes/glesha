@@ -1,11 +1,8 @@
 package L
 
 import (
-	"bytes"
 	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"
@@ -13,12 +10,22 @@ import (
 
 type LogLevel int
 
+var printCallerLocation bool = true
+
 const (
 	DEBUG LogLevel = iota
 	INFO
 	WARN
 	ERROR
 	SILENT
+)
+
+var (
+	level       = INFO
+	debugLogger = log.New(os.Stdout, colorBlue+"=> ", log.Lmsgprefix)
+	infoLogger  = log.New(os.Stdout, colorGreen+"=> ", log.Lmsgprefix)
+	warnLogger  = log.New(os.Stdout, colorYellow+"=> ", log.Lmsgprefix)
+	errorLogger = log.New(os.Stderr, colorRed+"=> ", log.Lmsgprefix)
 )
 
 // cursor sequences
@@ -41,16 +48,6 @@ const (
 	colorYellow = C_ESCAPE + "[33m"
 	colorBlue   = C_ESCAPE + "[34m"
 )
-
-var (
-	level       = INFO
-	debugLogger = log.New(os.Stdout, colorBlue+"=> ", log.Lmsgprefix)
-	infoLogger  = log.New(os.Stdout, colorGreen+"=> ", log.Lmsgprefix)
-	warnLogger  = log.New(os.Stdout, colorYellow+"=> ", log.Lmsgprefix)
-	errorLogger = log.New(os.Stderr, colorRed+"=> ", log.Lmsgprefix)
-)
-
-var printCallerLocation bool = true
 
 func SetLevelFromString(l string) error {
 	switch strings.ToLower(l) {
@@ -75,7 +72,7 @@ func SetLevel(l LogLevel) error {
 	case DEBUG, INFO, WARN, ERROR, SILENT:
 		level = l
 	default:
-		fmt.Errorf("Unsupported log level: %d", l)
+		return fmt.Errorf("Unsupported log level: %d", l)
 	}
 	return nil
 }
@@ -119,37 +116,12 @@ func Panic(v ...any) {
 	os.Exit(1)
 }
 
-func HumanReadableBytes(bytes uint64) string {
-	if bytes == 0 {
-		return "0 B"
-	}
-	val := float64(bytes)
-	suffixes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
-	unit := float64(1024)
-	i := 0
-	for val >= unit && i < len(suffixes)-1 {
-		val /= unit
-		i += 1
-	}
-	return fmt.Sprintf("%.2f%s", val, suffixes[i])
-}
-
-func HttpResponseString(resp *http.Response) string {
-
-	bodyBytes, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Sprintf("[%s] Status:%s\n\t\tContent: Cannot read response body %v", resp.Request.URL.String(), resp.Status, err)
-	}
-	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	return fmt.Sprintf("[%s] Status: %s\n Content: %s", resp.Request.URL.String(), resp.Status, string(bodyBytes))
+func GetLogLevel() LogLevel {
+	return level
 }
 
 func IsVerbose() bool {
 	return level == DEBUG
-}
-
-func GetLogLevel() LogLevel {
-	return level
 }
 
 func (l LogLevel) String() string {
@@ -165,25 +137,4 @@ func (l LogLevel) String() string {
 	default:
 		return "Unknown log level, indicates a bug. Please report"
 	}
-}
-
-func Printf(format string, v ...any) (int, error) {
-	if level < SILENT {
-		return fmt.Printf(format, v...)
-	}
-	return 0, nil
-}
-
-func Print(a ...any) (int, error) {
-	if level < SILENT {
-		return fmt.Print(a...)
-	}
-	return 0, nil
-}
-
-func Println(a ...any) (int, error) {
-	if level < SILENT {
-		return fmt.Println(a...)
-	}
-	return 0, nil
 }

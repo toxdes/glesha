@@ -13,7 +13,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
+	"time"
 )
 
 type TarGzArchive struct {
@@ -79,6 +81,7 @@ func (tgz *TarGzArchive) UpdateStatus(newStatus ArchiveStatus) error {
 
 func (tgz *TarGzArchive) Plan() error {
 	tgz.UpdateStatus(STATUS_PLANNING)
+	L.Info(fmt.Sprintf("Checking if files are changed in %s", tgz.InputPath))
 	fileInfo, err := file_io.ComputeFilesInfo(tgz.ctx, tgz.InputPath, tgz.IgnoredDirs)
 	if err != nil {
 		return err
@@ -114,6 +117,7 @@ func (tgz *TarGzArchive) archive() error {
 	var shouldAbort bool = false
 	gzipWriter := gzip.NewWriter(tarFile)
 	tarGzWriter := tar.NewWriter(gzipWriter)
+	startTime := time.Now()
 	err = filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, walkErr error) error {
 		select {
 		case <-tgz.ctx.Done():
@@ -124,6 +128,7 @@ func (tgz *TarGzArchive) archive() error {
 			}
 		default:
 		}
+		L.Print(L.C_CLEAR_LINE)
 
 		_, ignore := tgz.IgnoredDirs[path]
 
@@ -134,6 +139,20 @@ func (tgz *TarGzArchive) archive() error {
 
 		if walkErr != nil {
 			return fs.SkipDir
+		}
+
+		isSpecialPath := strings.HasPrefix(path, "/proc") ||
+			strings.HasPrefix(path, "/dev") ||
+			strings.HasPrefix(path, "/sys")
+
+		if isSpecialPath {
+			if info.IsDir() {
+				L.Warn(fmt.Sprintf("Archive: skipping potentially problematic dir: %s", path))
+				return fs.SkipDir
+			} else {
+				L.Warn(fmt.Sprintf("Archive: skipping potentially problematic file: %s", path))
+				return nil
+			}
 		}
 
 		L.Debug(fmt.Sprintf("Processing: %s", path))
@@ -180,12 +199,13 @@ func (tgz *TarGzArchive) archive() error {
 				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
 			}
 			L.Print(L.C_SAVE)
-			L.Printf("%sArchiving: %.2f%% (%d/%d) [%s - %s]",
+			L.Printf("%sArchiving: %.2f%% %s (%d/%d) [%s - %s]",
 				L.C_CLEAR_LINE,
 				progressPercentage,
+				L.ProgressBar(progressPercentage),
 				tgz.Progress.Done,
 				tgz.Progress.Total,
-				info.Name(),
+				L.TruncateString(filepath.Base(path), 24, L.TRUNC_CENTER),
 				L.HumanReadableBytes(uint64(info.Size())))
 			L.Print(L.C_RESTORE)
 			err = tarGzWriter.WriteHeader(header)
@@ -201,7 +221,6 @@ func (tgz *TarGzArchive) archive() error {
 			tgz.Progress.Done++
 			completedBytes += uint64(info.Size())
 			if L.IsVerbose() {
-				L.Println()
 				L.Debug(fmt.Sprintf("Processed: %s (%s)",
 					path,
 					L.HumanReadableBytes(uint64(bufferedFileReader.Size()))))
@@ -235,9 +254,11 @@ func (tgz *TarGzArchive) archive() error {
 		tgz.Progress.Total,
 		L.HumanReadableBytes(tgz.Info.SizeInBytes),
 		L.HumanReadableBytes(size))
+	L.Info(fmt.Sprintf("Took: %s", L.HumanReadableTime(time.Now().UnixMilli()-startTime.UnixMilli())))
 	tarGzWriter.Close()
 	gzipWriter.Close()
 	tarFile.Close()
+
 	return nil
 }
 
