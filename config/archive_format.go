@@ -30,7 +30,7 @@ func ParseArchiveFormat(archiveFormatStr string) (ArchiveFormat, error) {
 	case AF_TARGZ:
 		return AF_TARGZ, nil
 	default:
-		return "", fmt.Errorf("Invalid archive format: %s", archiveFormatStr)
+		return "", fmt.Errorf("invalid archive format: %s", archiveFormatStr)
 	}
 }
 

@@ -29,25 +29,25 @@ func Execute(ctx context.Context, args []string) error {
 		return err
 	}
 	if runCmdEnv == nil {
-		return fmt.Errorf("Couldn't initialize env, this shouldn't happen")
+		return fmt.Errorf("could not initialize env, this shouldn't happen")
 	}
 
 	// initialize db connection
-	dbPath, err := database.GetDBFilePath()
+	dbPath, err := database.GetDBFilePath(ctx)
 	if err != nil {
 		return err
 	}
-	db, err := database.NewDB(dbPath, ctx)
+	db, err := database.NewDB(dbPath)
 	if err != nil {
 		return err
 	}
-	defer db.Close()
+	defer db.Close(ctx)
 	L.Debug(fmt.Sprintf("Found database at: %s", dbPath))
 	runCmdEnv.DB = db
 	runCmdEnv.Task, err = runCmdEnv.DB.GetTaskById(ctx, runCmdEnv.TaskID)
 	if err != nil && err == database.ErrNoExistingTask {
 		if err == database.ErrNoExistingTask {
-			return fmt.Errorf("Task %d does not exist, for more information see 'glesha help add'", runCmdEnv.TaskID)
+			return fmt.Errorf("task %d does not exist, for more information see 'glesha help add'", runCmdEnv.TaskID)
 		}
 		return err
 	}
@@ -69,13 +69,17 @@ func parseFlags(args []string) error {
 	}
 	err := runCmd.Parse(args)
 
+	if err != nil {
+		return err
+	}
+
 	nArgs := len(runCmd.Args())
 
 	if nArgs < 1 {
 		return fmt.Errorf("ID not provided. For more information check 'glesha help run'")
 	}
 	if nArgs > 1 {
-		return fmt.Errorf("Too many arguments. For more information, check 'glesha help run'")
+		return fmt.Errorf("too many arguments. For more information, check 'glesha help run'")
 	}
 	taskId, err := strconv.ParseInt(runCmd.Arg(0), 10, 64)
 	if err != nil {
@@ -100,7 +104,7 @@ func parseFlags(args []string) error {
 func runTask(ctx context.Context) error {
 	t := runCmdEnv.Task
 	if t == nil {
-		return fmt.Errorf("No task to run")
+		return fmt.Errorf("no task to run")
 	}
 	mustRearchive := false
 	switch t.Status {
@@ -115,13 +119,13 @@ func runTask(ctx context.Context) error {
 	var err error
 	switch t.ArchiveFormat {
 	case config.AF_TARGZ:
-		archiver, err = archive.NewTarGzArchiver(ctx, t)
+		archiver, err = archive.NewTarGzArchiver(t)
 		if err != nil {
 			return err
 		}
-		archivePath := archiver.GetArchiveFilePath()
+		archivePath := archiver.GetArchiveFilePath(ctx)
 		L.Info("Archive: Planning archive")
-		err = archiver.Plan()
+		err = archiver.Plan(ctx)
 		if err != nil {
 			return err
 		}
@@ -132,7 +136,7 @@ func runTask(ctx context.Context) error {
 			L.Debug(err)
 			L.Debug(fmt.Sprintf("Existing archive %s is not valid, starting fresh", archivePath))
 		}
-		info := archiver.GetInfo()
+		info := archiver.GetInfo(ctx)
 		if int64(info.SizeInBytes) != t.TotalSize {
 			L.Info("Rearchiving because input_path contents have changed since last run")
 			mustRearchive = true
@@ -143,21 +147,21 @@ func runTask(ctx context.Context) error {
 
 	if mustRearchive {
 		L.Info("Starting fresh because cannot continue from previous state")
-		err = archiver.Start()
+		err = archiver.Start(ctx)
 		if err != nil {
 			return err
 		}
 		select {
 		case <-ctx.Done():
 			L.Println()
-			return fmt.Errorf("Kill signal received, Exiting...")
+			return fmt.Errorf("kill signal received, exiting")
 		default:
 		}
 		err = runCmdEnv.DB.UpdateTaskStatus(ctx, runCmdEnv.TaskID, database.STATUS_ARCHIVE_COMPLETED)
 		if err != nil {
 			return err
 		}
-		err = runCmdEnv.DB.UpdateTaskContentInfo(ctx, runCmdEnv.TaskID, archiver.GetInfo())
+		err = runCmdEnv.DB.UpdateTaskContentInfo(ctx, runCmdEnv.TaskID, archiver.GetInfo(ctx))
 		if err != nil {
 			return err
 		}
@@ -165,17 +169,17 @@ func runTask(ctx context.Context) error {
 	} else {
 		L.Info("Skipping Archiving because input_path contents have not changed since last run")
 	}
-	archivePath := archiver.GetArchiveFilePath()
+	archivePath := archiver.GetArchiveFilePath(ctx)
 	L.Printf("Archive: %s\n", archivePath)
 	backend, err := backend.GetBackendForProvider(runCmdEnv.Task.Provider)
 	if err != nil {
 		return err
 	}
 	uploader := upload.NewUploader(archivePath, backend)
-	err = uploader.Plan()
+	err = uploader.Plan(ctx)
 	if err != nil {
 		return err
 	}
-	err = uploader.Start()
+	err = uploader.Start(ctx)
 	return err
 }

@@ -14,7 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -24,25 +23,23 @@ type TarGzArchive struct {
 	OutputPath           string
 	Info                 *file_io.FilesInfo
 	Progress             *Progress
-	closeOnce            sync.Once
 	abortReq             chan struct{}
 	abortDone            chan struct{}
-	ctx                  context.Context
 	GleshaWorkDir        string
 	IgnoredDirs          map[string]bool
 	archiveAlreadyExists bool
 }
 
-func NewTarGzArchiver(ctx context.Context, t *database.GleshaTask) (*TarGzArchive, error) {
+func NewTarGzArchiver(t *database.GleshaTask) (*TarGzArchive, error) {
 	if !file_io.IsReadable(t.InputPath) {
-		return nil, fmt.Errorf("No read permission on input path: %s", t.InputPath)
+		return nil, fmt.Errorf("no read permission on input path: %s", t.InputPath)
 	}
 	err := os.MkdirAll(t.OutputPath, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
 	if !file_io.IsWritable(t.OutputPath) {
-		return nil, fmt.Errorf("No write permission on output path: %s", t.OutputPath)
+		return nil, fmt.Errorf("no write permission on output path: %s", t.OutputPath)
 	}
 
 	GleshaWorkDir := t.OutputPath
@@ -70,30 +67,29 @@ func NewTarGzArchiver(ctx context.Context, t *database.GleshaTask) (*TarGzArchiv
 		abortReq:      abortReq,
 		abortDone:     abortDone,
 		GleshaWorkDir: absGleshaWorkDir,
-		ctx:           ctx,
 		IgnoredDirs:   ignoredDirs}, nil
 }
 
-func (tgz *TarGzArchive) UpdateStatus(newStatus ArchiveStatus) error {
+func (tgz *TarGzArchive) UpdateStatus(ctx context.Context, newStatus ArchiveStatus) error {
 	tgz.Progress.Status = newStatus
 	return nil
 }
 
-func (tgz *TarGzArchive) Plan() error {
-	tgz.UpdateStatus(STATUS_PLANNING)
+func (tgz *TarGzArchive) Plan(ctx context.Context) error {
+	tgz.UpdateStatus(ctx, STATUS_PLANNING)
 	L.Info(fmt.Sprintf("Checking if files are changed in %s", tgz.InputPath))
-	fileInfo, err := file_io.ComputeFilesInfo(tgz.ctx, tgz.InputPath, tgz.IgnoredDirs)
+	fileInfo, err := file_io.ComputeFilesInfo(ctx, tgz.InputPath, tgz.IgnoredDirs)
 	if err != nil {
 		return err
 	}
 	tgz.Info = fileInfo
 	tgz.Progress.Done = 0
 	tgz.Progress.Total = fileInfo.TotalFileCount
-	tgz.UpdateStatus(STATUS_PLANNED)
+	tgz.UpdateStatus(ctx, STATUS_PLANNED)
 	return nil
 }
 
-func (tgz *TarGzArchive) GetInfo() *file_io.FilesInfo {
+func (tgz *TarGzArchive) GetInfo(ctx context.Context) *file_io.FilesInfo {
 	return tgz.Info
 }
 
@@ -102,13 +98,13 @@ func (tgz *TarGzArchive) getTarFile() string {
 		fmt.Sprintf("glesha-%d.tar.gz", tgz.ID))
 }
 
-func (tgz *TarGzArchive) archive() error {
+func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	if tgz.archiveAlreadyExists {
 		L.Printf("Archive already exists for path %s: %s\n",
 			tgz.InputPath, tgz.getTarFile())
 		return nil
 	}
-	tgz.UpdateStatus(STATUS_RUNNING)
+	tgz.UpdateStatus(ctx, STATUS_RUNNING)
 	tarFile, err := os.OpenFile(tgz.getTarFile(), os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		return err
@@ -120,7 +116,7 @@ func (tgz *TarGzArchive) archive() error {
 	startTime := time.Now()
 	err = filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, walkErr error) error {
 		select {
-		case <-tgz.ctx.Done():
+		case <-ctx.Done():
 			{
 				L.Debug("Received abort signal inside filepath.Walk")
 				shouldAbort = true
@@ -160,7 +156,7 @@ func (tgz *TarGzArchive) archive() error {
 		var link string
 		relPath, err := filepath.Rel(filepath.Dir(tgz.InputPath), path)
 		if err != nil {
-			L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+			L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
 			return nil
 		}
 
@@ -168,19 +164,19 @@ func (tgz *TarGzArchive) archive() error {
 		if info.Mode()&os.ModeSocket != 0 ||
 			info.Mode()&os.ModeDevice != 0 ||
 			info.Mode()&os.ModeNamedPipe != 0 {
-			L.Warn(fmt.Sprintf("Archive: skipping special file type: %s (mode: %s)", path, info.Mode().String()))
+			L.Warn(fmt.Sprintf("archive: skipping special file type: %s (mode: %s)", path, info.Mode().String()))
 			return nil
 		}
 		if info.Mode()&os.ModeSymlink == os.ModeSymlink {
 			link, err = os.Readlink(path)
 		}
 		if err != nil {
-			L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+			L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
 			return nil
 		}
 		header, err := tar.FileInfoHeader(info, link)
 		if err != nil {
-			L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+			L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
 			return nil
 		}
 		header.Name = relPath
@@ -189,7 +185,7 @@ func (tgz *TarGzArchive) archive() error {
 			file, err := os.Open(path)
 			if err != nil {
 				// skip files that are not readable
-				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+				L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
 				return nil
 			}
 			defer file.Close()
@@ -210,12 +206,12 @@ func (tgz *TarGzArchive) archive() error {
 			L.Print(L.C_RESTORE)
 			err = tarGzWriter.WriteHeader(header)
 			if err != nil {
-				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+				L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
 				return nil
 			}
 			_, err = io.Copy(tarGzWriter, bufferedFileReader)
 			if err != nil {
-				L.Warn(fmt.Errorf("Archive: skipping %s due to error: %w", path, err))
+				L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
 				return nil
 			}
 			tgz.Progress.Done++
@@ -262,33 +258,31 @@ func (tgz *TarGzArchive) archive() error {
 	return nil
 }
 
-func (tgz *TarGzArchive) Start() error {
-	return tgz.archive()
+func (tgz *TarGzArchive) Start(ctx context.Context) error {
+	return tgz.archive(ctx)
 }
 
-func (tgz *TarGzArchive) GetProgress() (*Progress, error) {
+func (tgz *TarGzArchive) GetProgress(ctx context.Context) (*Progress, error) {
 	if tgz.Progress == nil {
 		return nil, fmt.Errorf("progress is nil, this should be unreachable")
 	}
 	return tgz.Progress, nil
 }
 
-func (tgz *TarGzArchive) Abort() error {
+func (tgz *TarGzArchive) Abort(ctx context.Context) error {
 	if tgz.Progress.Status != STATUS_RUNNING {
 		return fmt.Errorf("Abort() called when archiver is not running")
 	}
 	tgz.abortReq <- struct{}{}
-	select {
-	case <-tgz.abortDone:
-		return nil
-	}
+	<-tgz.abortDone
+	return nil
 }
 
-func (tgz *TarGzArchive) Pause() error {
+func (tgz *TarGzArchive) Pause(ctx context.Context) error {
 	return fmt.Errorf("Unimplmented")
 }
 
-func (tgz *TarGzArchive) GetArchiveFilePath() string {
+func (tgz *TarGzArchive) GetArchiveFilePath(ctx context.Context) string {
 	return filepath.Join(tgz.OutputPath, filepath.Base(tgz.getTarFile()))
 }
 

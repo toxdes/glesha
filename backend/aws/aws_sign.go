@@ -2,6 +2,7 @@ package aws
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -113,7 +114,7 @@ func hmacSha256(key []byte, data []byte) []byte {
 	return h.Sum(nil)
 }
 
-func (aws *AwsBackend) SignRequest(req *http.Request) error {
+func (aws *AwsBackend) SignRequest(ctx context.Context, req *http.Request) error {
 
 	payloadHash, err := getHashedPayload(req)
 

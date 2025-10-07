@@ -2,6 +2,7 @@ package aws
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"glesha/config"
@@ -25,14 +26,14 @@ type AwsBackend struct {
 func NewAwsBackend() (*AwsBackend, error) {
 	configs := config.Get()
 	if configs.Aws == nil {
-		return nil, fmt.Errorf("Aws: could not find aws configuration")
+		return nil, fmt.Errorf("aws: could not find aws configuration")
 	}
 	validator := AwsValidator{}
 	if !validator.ValidateBucketName(configs.Aws.BucketName) {
-		return nil, fmt.Errorf("Aws: bucket name is invalid")
+		return nil, fmt.Errorf("aws: bucket name is invalid")
 	}
 	if !validator.ValidateRegion(configs.Aws.Region) {
-		return nil, fmt.Errorf("Aws: region is invalid")
+		return nil, fmt.Errorf("aws: region is invalid")
 	}
 	L.Debug(fmt.Sprintf("config::ArchiveFormat %s", configs.ArchiveFormat))
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
@@ -58,7 +59,7 @@ type AwsError struct {
 	Message string   `xml:"Message"`
 }
 
-func (aws *AwsBackend) CreateResourceContainer() error {
+func (aws *AwsBackend) CreateResourceContainer(ctx context.Context) error {
 	// TODO: handle 307 redirects if region is not us-east-1
 	url := fmt.Sprintf("%s%s", aws.protocol, aws.host)
 	body := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -70,7 +71,7 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 		body = ""
 	}
 
-	req, err := http.NewRequest("PUT", url, bytes.NewBufferString(body))
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewBufferString(body))
 	req.Header.Set("host", aws.host)
 	req.Header.Set("content-type", "application/xml")
 	req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
@@ -78,7 +79,7 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 		return err
 	}
 
-	err = aws.SignRequest(req)
+	err = aws.SignRequest(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -110,37 +111,37 @@ func (aws *AwsBackend) CreateResourceContainer() error {
 			return err
 		}
 		if awsError.Code == "BucketAlreadyOwnedByYou" && resp.StatusCode == 409 {
-			L.Printf("Aws: Bucket already exists: %s\n", aws.bucketName)
+			L.Printf("aws: Bucket already exists: %s\n", aws.bucketName)
 			return nil
 		}
 		if awsError.Code == "BucketAlreadyExists" && resp.StatusCode == 409 {
-			return fmt.Errorf("Aws: Bucket name not available: %s (%s)", aws.bucketName, awsError.Message)
+			return fmt.Errorf("aws: Bucket name not available: %s (%s)", aws.bucketName, awsError.Message)
 		}
 		if resp.StatusCode >= 400 {
-			return fmt.Errorf("Aws: Cannot create bucket %s (%s)", aws.bucketName, awsError.Message)
+			return fmt.Errorf("aws: Cannot create bucket %s (%s)", aws.bucketName, awsError.Message)
 		}
 	}
 	return nil
 }
 
-func (aws *AwsBackend) UploadResource(resourceFilePath string) error {
+func (aws *AwsBackend) UploadResource(ctx context.Context, resourceFilePath string) error {
 	size, err := file_io.FileSizeInBytes(resourceFilePath)
 	if err != nil {
 		return err
 	}
-	L.Info(fmt.Sprintf("Aws: initiating upload: %s (%s)", resourceFilePath, L.HumanReadableBytes(size)))
+	L.Info(fmt.Sprintf("aws: initiating upload: %s (%s)", resourceFilePath, L.HumanReadableBytes(size)))
 
-	cost, err := aws.EstimateCost(size, "INR")
+	cost, err := aws.EstimateCost(ctx, size, "INR")
 	if err != nil {
 		return err
 	}
-	L.Info("Aws: Estimating costs")
+	L.Info("aws: Estimating costs")
 	L.Print(cost)
 	if !file_io.IsReadable(resourceFilePath) {
-		return fmt.Errorf("Cannot read resource: %s", resourceFilePath)
+		return fmt.Errorf("could not read resource: %s", resourceFilePath)
 	}
 
-	return fmt.Errorf("Aws: upload not implemented yet")
+	return fmt.Errorf("aws: upload not implemented yet")
 }
 
 func getExchangeRate(c1 string, c2 string) (float64, error) {
@@ -152,7 +153,7 @@ func getExchangeRate(c1 string, c2 string) (float64, error) {
 	return -1, fmt.Errorf("getExchangeRate() does not support: %s-%s rate yet", c1, c2)
 }
 
-func (aws *AwsBackend) EstimateCost(size uint64, currency string) (string, error) {
+func (aws *AwsBackend) EstimateCost(ctx context.Context, size uint64, currency string) (string, error) {
 	exchangeRate, err := getExchangeRate("USD", currency)
 	if err != nil {
 		return "", err
@@ -166,12 +167,16 @@ func (aws *AwsBackend) EstimateCost(size uint64, currency string) (string, error
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("    S3 Storage Class               Cost for %s (per year)\n", L.HumanReadableBytes(size)))
+	headerLine := fmt.Sprintf("    S3 Storage Class               Cost for %s (per year)", L.HumanReadableBytes(size))
+	sb.WriteString(fmt.Sprintf("%s\n", strings.Repeat("-", len(headerLine))))
+	sb.WriteString(headerLine)
+	sb.WriteString(fmt.Sprintf("\n%s\n", strings.Repeat("-", len(headerLine))))
 	sb.WriteString(fmt.Sprintf("Standard (Frequent Retrieval)   :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardFrequent"], currency))
 	sb.WriteString(fmt.Sprintf("Standard (Infrequent Retrieval) :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardInfrequent"], currency))
 	sb.WriteString(fmt.Sprintf("Express (High Performance)      :   %*.2f %s\n", 10, awsStorageCostPerYear["Express"], currency))
 	sb.WriteString(fmt.Sprintf("Glacier (Flexible Retrieval)    :   %*.2f %s\n", 10, awsStorageCostPerYear["GlacierFlexible"], currency))
-	sb.WriteString(fmt.Sprintf("Glacier (Deep Archive)          :   %*.2f %s\n", 10, awsStorageCostPerYear["GlacierDeepArchive"], currency))
+	sb.WriteString(fmt.Sprintf("Glacier (Deep Archive)          :   %*.2f %s", 10, awsStorageCostPerYear["GlacierDeepArchive"], currency))
+	sb.WriteString(fmt.Sprintf("\n%s\n", strings.Repeat("-", len(headerLine))))
 	sb.WriteString("Note: Above storage costs are an approximation based on storage costs for us-east-1 region, it does not include retrieval/deletion costs.\n")
 	return sb.String(), nil
 }

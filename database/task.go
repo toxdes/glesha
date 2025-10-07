@@ -14,14 +14,14 @@ type GleshaTaskStatus string
 
 const (
 	STATUS_QUEUED            GleshaTaskStatus = "QUEUED"
-	STATUS_ARCHIVE_RUNNING                    = "ARCHIVING"
-	STATUS_ARCHIVE_PAUSED                     = "ARCHIVE_PAUSED"
-	STATUS_ARCHIVE_ABORTED                    = "ARCHIVE_ABORTED"
-	STATUS_ARCHIVE_COMPLETED                  = "ARCHIVE_COMPLETED"
-	STATUS_UPLOAD_RUNNING                     = "UPLOADING"
-	STATUS_UPLOAD_PAUSED                      = "UPLOAD_PAUSED"
-	STATUS_UPLOAD_ABORTED                     = "UPLOAD_ABORTED"
-	STATUS_UPLOAD_COMPLETED                   = "UPLOAD_COMPLETED"
+	STATUS_ARCHIVE_RUNNING   GleshaTaskStatus = "ARCHIVING"
+	STATUS_ARCHIVE_PAUSED    GleshaTaskStatus = "ARCHIVE_PAUSED"
+	STATUS_ARCHIVE_ABORTED   GleshaTaskStatus = "ARCHIVE_ABORTED"
+	STATUS_ARCHIVE_COMPLETED GleshaTaskStatus = "ARCHIVE_COMPLETED"
+	STATUS_UPLOAD_RUNNING    GleshaTaskStatus = "UPLOADING"
+	STATUS_UPLOAD_PAUSED     GleshaTaskStatus = "UPLOAD_PAUSED"
+	STATUS_UPLOAD_ABORTED    GleshaTaskStatus = "UPLOAD_ABORTED"
+	STATUS_UPLOAD_COMPLETED  GleshaTaskStatus = "UPLOAD_COMPLETED"
 )
 
 type GleshaTask struct {
@@ -51,7 +51,7 @@ func (t GleshaTask) String() string {
 		t.TotalFileCount)
 }
 
-var ErrNoExistingTask error = errors.New("No similar task exists in the database")
+var ErrNoExistingTask error = errors.New("no similar task exists in the database")
 
 func (db *DB) FindSimilarTask(
 	ctx context.Context,
@@ -174,6 +174,9 @@ func (db *DB) GetTaskById(ctx context.Context, id int64) (*GleshaTask, error) {
 	task.CreatedAt = FromTimeStr(createdAtStr)
 	task.UpdatedAt = FromTimeStr(updatedAtStr)
 	task.Provider, err = config.ParseProvider(providerStr)
+	if err != nil {
+		return nil, err
+	}
 	task.ArchiveFormat, err = config.ParseArchiveFormat(archiveFormatStr)
 	if err != nil {
 		return nil, err
@@ -189,14 +192,14 @@ func (db *DB) UpdateTaskStatus(ctx context.Context, id int64, status GleshaTaskS
 		id)
 
 	if err != nil {
-		return fmt.Errorf("Couldn't update status %s for task %d: %w", status, id, err)
+		return fmt.Errorf("could not update status %s for task %d: %w", status, id, err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if err != nil {
 		return err
 	}
 	if rowsAffected != 1 {
-		return fmt.Errorf("Was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
+		return fmt.Errorf("was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
 	}
 	L.Debug(fmt.Sprintf("Updated task(%d) status to: %s", id, status))
 	return err
@@ -212,11 +215,11 @@ func (db *DB) UpdateTaskContentInfo(ctx context.Context, id int64, info *file_io
 		id,
 	)
 	if err != nil {
-		return fmt.Errorf("Couldn't update content info for task %d: %w", id, err)
+		return fmt.Errorf("could not update content info for task %d: %w", id, err)
 	}
 	rowsAffected, err := res.RowsAffected()
 	if rowsAffected != 1 {
-		return fmt.Errorf("Was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
+		return fmt.Errorf("was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
 	}
 	L.Debug(fmt.Sprintf("Updated task(%d) contents: content_hash, file_count", id))
 	return err

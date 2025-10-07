@@ -28,7 +28,7 @@ var configPath string
 func Parse(configPathArg string) error {
 	file, err := os.Open(configPathArg)
 	if err != nil {
-		return fmt.Errorf("couldn't open open config file for reading")
+		return fmt.Errorf("could not open open config file for reading")
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)
@@ -51,7 +51,7 @@ func GetDefaultConfigDir() (string, error) {
 	configDir, configDirError := os.UserConfigDir()
 	homeDir, homeDirError := os.UserHomeDir()
 	if configDirError != nil && homeDirError != nil {
-		return "", fmt.Errorf("Cannot find config dir: Config: %w, Home: %w", configDirError, homeDirError)
+		return "", fmt.Errorf("cannot find config dir: Config: %w, Home: %w", configDirError, homeDirError)
 	}
 	var dir string
 	if configDirError == nil {

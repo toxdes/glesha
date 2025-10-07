@@ -15,10 +15,9 @@ import (
 type DB struct {
 	D             *sql.DB
 	connectionUri string
-	ctx           context.Context
 }
 
-func NewDB(dbPath string, ctx context.Context) (*DB, error) {
+func NewDB(dbPath string) (*DB, error) {
 	d, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return nil, err
@@ -26,14 +25,13 @@ func NewDB(dbPath string, ctx context.Context) (*DB, error) {
 	return &DB{
 		D:             d,
 		connectionUri: dbPath,
-		ctx:           ctx,
 	}, nil
 }
 
 var DateTimeFormat string = "20060102T150405Z"
 
-func (d *DB) createTables() error {
-	_, err := d.D.ExecContext(d.ctx,
+func (d *DB) createTables(ctx context.Context) error {
+	_, err := d.D.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         input_path STRING NOT_NULL,
@@ -49,30 +47,30 @@ func (d *DB) createTables() error {
         file_count INTEGER NOT NULL
 );`)
 
-	L.Debug(fmt.Sprintf("tasks table created"))
+	L.Debug("tasks table created")
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (d *DB) Init() error {
-	return d.createTables()
+func (d *DB) Init(ctx context.Context) error {
+	return d.createTables(ctx)
 }
 
-func (d *DB) Close() error {
-	d.ctx.Done()
+func (d *DB) Close(ctx context.Context) error {
+	ctx.Done()
 	return d.D.Close()
 }
 
-func GetDBFilePath() (string, error) {
+func GetDBFilePath(ctx context.Context) (string, error) {
 	configDir, err := config.GetDefaultConfigDir()
 	if err != nil {
 		return "", err
 	}
 	dbPath := filepath.Join(configDir, "glesha-db.db")
 	if !file_io.IsWritable(configDir) {
-		return "", fmt.Errorf("No write permissions to %s", dbPath)
+		return "", fmt.Errorf("no write permissions to %s", dbPath)
 	}
 	return dbPath, nil
 }

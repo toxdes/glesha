@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"context"
 	"glesha/file_io"
 )
 
@@ -23,14 +24,14 @@ type Progress struct {
 }
 
 type Archiver interface {
-	Plan() error
-	Start() error
-	Pause() error
-	Abort() error
-	UpdateStatus(ArchiveStatus) error
-	GetInfo() *file_io.FilesInfo
-	GetProgress() (*Progress, error)
-	GetArchiveFilePath() string
+	Plan(context.Context) error
+	Start(context.Context) error
+	Pause(context.Context) error
+	Abort(context.Context) error
+	UpdateStatus(context.Context, ArchiveStatus) error
+	GetInfo(context.Context) *file_io.FilesInfo
+	GetProgress(context.Context) (*Progress, error)
+	GetArchiveFilePath(context.Context) string
 }
 
 func (status ArchiveStatus) String() string {

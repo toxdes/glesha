@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"context"
 	"fmt"
 	"glesha/backend"
 	L "glesha/logger"
@@ -15,8 +16,8 @@ func NewUploader(archiveFilePath string, b backend.Backend) *Uploader {
 	return &Uploader{archiveFilePath: archiveFilePath, backend: b}
 }
 
-func (u *Uploader) Plan() error {
-	err := u.backend.CreateResourceContainer()
+func (u *Uploader) Plan(ctx context.Context) error {
+	err := u.backend.CreateResourceContainer(ctx)
 	if err != nil {
 		return err
 	}
@@ -24,14 +25,14 @@ func (u *Uploader) Plan() error {
 	return nil
 }
 
-func (u *Uploader) Start() error {
-	return u.backend.UploadResource(u.archiveFilePath)
+func (u *Uploader) Start(ctx context.Context) error {
+	return u.backend.UploadResource(ctx, u.archiveFilePath)
 }
 
-func (u *Uploader) Pause() error {
+func (u *Uploader) Pause(ctx context.Context) error {
 	return fmt.Errorf("Not implemented yet")
 }
 
-func (u *Uploader) Abort() error {
+func (u *Uploader) Abort(ctx context.Context) error {
 	return fmt.Errorf("Not implemented yet")
 }

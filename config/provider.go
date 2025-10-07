@@ -27,7 +27,7 @@ func ParseProvider(providerStr string) (Provider, error) {
 	case PROVIDER_AWS:
 		return PROVIDER_AWS, nil
 	default:
-		return "", fmt.Errorf("Invalid provider: %s", providerStr)
+		return "", fmt.Errorf("invalid provider: %s", providerStr)
 	}
 }
 

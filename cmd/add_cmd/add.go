@@ -41,20 +41,20 @@ func Execute(ctx context.Context, args []string) error {
 	}
 
 	// initialize db connection
-	dbPath, err := database.GetDBFilePath()
+	dbPath, err := database.GetDBFilePath(ctx)
 	if err != nil {
 		return err
 	}
-	db, err := database.NewDB(dbPath, ctx)
+	db, err := database.NewDB(dbPath)
 	if err != nil {
 		return err
 	}
 	addCmdEnv.DB = db
-	err = addCmdEnv.DB.Init()
+	err = addCmdEnv.DB.Init(ctx)
 	if err != nil {
 		return err
 	}
-	defer addCmdEnv.DB.Close()
+	defer addCmdEnv.DB.Close(ctx)
 
 	// compute content hash
 	L.Info(fmt.Sprintf("Checking if files are changed in %s", addCmdEnv.InputPath))
@@ -133,13 +133,19 @@ func parseFlags(args []string) error {
 	}
 
 	err = addCmd.Parse(args)
+
+	if err != nil {
+		return fmt.Errorf("could not parse args for 'add' command")
+	}
+
 	nArgs := len(addCmd.Args())
+
 	if nArgs < 1 {
 		return fmt.Errorf("PATH not provided. For more information check 'glesha help add'")
 	}
 
 	if nArgs > 1 {
-		return fmt.Errorf("Too many arguments. For more information check 'glesha help add'")
+		return fmt.Errorf("too many arguments. For more information check 'glesha help add'")
 	}
 
 	inputPathArg := addCmd.Arg(0)
@@ -152,7 +158,7 @@ func parseFlags(args []string) error {
 	}
 
 	if len(inputPathArg) == 0 {
-		return fmt.Errorf("PATH is not provided")
+		return fmt.Errorf("PATH is not valid")
 	}
 	inputPath := &inputPathArg
 	inputPathAbs, err := filepath.Abs(inputPathArg)
@@ -181,25 +187,23 @@ func parseFlags(args []string) error {
 	if strings.HasPrefix(*inputPath, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("Cannot expand ~ for inputPath: %w", err)
+			return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
 		}
-		expandedInputPath := filepath.Join(homeDir, (*inputPath)[2:])
-		inputPath = &expandedInputPath
+		*inputPath = filepath.Join(homeDir, (*inputPath)[2:])
 	}
 
 	if strings.HasPrefix(*outputPath, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("Cannot expand ~ for inputPath: %w", err)
+			return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
 		}
-		expandedOutputPath := filepath.Join(homeDir, (*outputPath)[2:])
-		outputPath = &expandedOutputPath
+		*outputPath = filepath.Join(homeDir, (*outputPath)[2:])
 	}
 
 	if strings.HasPrefix(*configPath, "~/") {
 		homeDir, err := os.UserHomeDir()
 		if err != nil {
-			return fmt.Errorf("Cannot expand ~ for inputPath: %w", err)
+			return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
 		}
 		expandedConfigPath := filepath.Join(homeDir, (*configPath)[2:])
 		configPath = &expandedConfigPath
@@ -207,7 +211,7 @@ func parseFlags(args []string) error {
 
 	if configPath != nil && *configPath != "" {
 		if !file_io.IsReadable(*configPath) {
-			return fmt.Errorf("Config is not readable: %s", *configPath)
+			return fmt.Errorf("config is not readable: %s", *configPath)
 		}
 	} else {
 		defaultConfigPath, err := config.GetDefaultConfigPath()

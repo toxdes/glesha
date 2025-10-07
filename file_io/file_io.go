@@ -62,7 +62,7 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 		if d.Type().IsRegular() {
 			filesInfo.TotalFileCount++
 			if !IsReadable(path) {
-				L.Debug(fmt.Errorf("Cannot read: %s", path))
+				L.Debug(fmt.Errorf("could not read: %s", path))
 				return nil
 			}
 			filesInfo.SizeInBytes += uint64(info.Size())
@@ -81,6 +81,9 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 
 func IsReadable(filePath string) bool {
 	file, err := os.Open(filePath)
+	if err != nil {
+		return true
+	}
 	defer file.Close()
 	return err == nil
 }
@@ -121,7 +124,7 @@ func FileSizeInBytes(inputFilePath string) (uint64, error) {
 		return 0, err
 	}
 	if info.IsDir() {
-		return 0, fmt.Errorf("Cannot find size: %s is a directory.", inputFilePath)
+		return 0, fmt.Errorf("could not find size: %s is a directory", inputFilePath)
 	}
 	return uint64(info.Size()), nil
 }
