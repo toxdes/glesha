@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type FilesInfo struct {
@@ -118,15 +119,20 @@ func Exists(inputFilePath string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func FileSizeInBytes(inputFilePath string) (uint64, error) {
-	info, err := os.Stat(inputFilePath)
+type FileInfo struct {
+	Size       uint64
+	ModifiedAt time.Time
+}
+
+func GetFileInfo(inputFilePath string) (*FileInfo, error) {
+	stat, err := os.Stat(inputFilePath)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	if info.IsDir() {
-		return 0, fmt.Errorf("could not find size: %s is a directory", inputFilePath)
+	if stat.IsDir() {
+		return nil, fmt.Errorf("could not find size: %s is a directory", inputFilePath)
 	}
-	return uint64(info.Size()), nil
+	return &FileInfo{Size: uint64(stat.Size()), ModifiedAt: stat.ModTime()}, nil
 }
 
 type WriteMode uint8

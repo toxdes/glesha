@@ -240,7 +240,7 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 		return err
 	}
 
-	size, err := file_io.FileSizeInBytes(tgz.getTarFile())
+	tarFileInfo, err := file_io.GetFileInfo(tgz.getTarFile())
 	if err != nil {
 		return err
 	}
@@ -249,7 +249,7 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 		tgz.Progress.Done,
 		tgz.Progress.Total,
 		L.HumanReadableBytes(tgz.Info.SizeInBytes),
-		L.HumanReadableBytes(size))
+		L.HumanReadableBytes(tarFileInfo.Size))
 	L.Info(fmt.Sprintf("Took: %s", L.HumanReadableTime(time.Now().UnixMilli()-startTime.UnixMilli())))
 	tarGzWriter.Close()
 	gzipWriter.Close()

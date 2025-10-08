@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"glesha/archive"
 	"glesha/backend"
+	"glesha/backend/aws"
 	"glesha/config"
 	"glesha/database"
+	"glesha/file_io"
 	L "glesha/logger"
-	"glesha/upload"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type RunCmdEnv struct {
@@ -44,6 +46,10 @@ func Execute(ctx context.Context, args []string) error {
 	defer db.Close(ctx)
 	L.Debug(fmt.Sprintf("Found database at: %s", dbPath))
 	runCmdEnv.DB = db
+	err = runCmdEnv.DB.Init(ctx)
+	if err != nil {
+		return err
+	}
 	runCmdEnv.Task, err = runCmdEnv.DB.GetTaskById(ctx, runCmdEnv.TaskID)
 	if err != nil && err == database.ErrNoExistingTask {
 		if err == database.ErrNoExistingTask {
@@ -161,7 +167,8 @@ func runTask(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		err = runCmdEnv.DB.UpdateTaskContentInfo(ctx, runCmdEnv.TaskID, archiver.GetInfo(ctx))
+		err = runCmdEnv.DB.UpdateTaskContentInfo(ctx,
+			runCmdEnv.TaskID, archiver.GetInfo(ctx))
 		if err != nil {
 			return err
 		}
@@ -171,15 +178,51 @@ func runTask(ctx context.Context) error {
 	}
 	archivePath := archiver.GetArchiveFilePath(ctx)
 	L.Printf("Archive: %s\n", archivePath)
-	backend, err := backend.GetBackendForProvider(runCmdEnv.Task.Provider)
+
+	if runCmdEnv.Task.Provider != config.PROVIDER_AWS {
+		return fmt.Errorf("unsupported provider: %v", runCmdEnv.Task.Provider.String())
+	}
+
+	var storageBackendFactory backend.StorageFactory = &aws.AWSFactory{}
+	storageBackend, err := storageBackendFactory.NewStorageBackend()
 	if err != nil {
 		return err
 	}
-	uploader := upload.NewUploader(archivePath, backend)
-	err = uploader.Plan(ctx)
+
+	err = storageBackend.CreateResourceContainer(ctx)
 	if err != nil {
 		return err
 	}
-	err = uploader.Start(ctx)
-	return err
+	L.Info("Upload::CreateResourceContainer OK")
+
+	uploadRes, err := storageBackend.CreateUploadResource(ctx,
+		runCmdEnv.Task.Key(), archivePath)
+
+	if err != nil {
+		return err
+	}
+	L.Info("Upload::CreateUploadResource OK")
+	archiveFileInfo, err := file_io.GetFileInfo(archivePath)
+	if err != nil {
+		return err
+	}
+	cfg := config.Get()
+	blockSizeInBytes := cfg.BlockSizeMB * int64(1024*1024)
+	var totalBlocks int64 = 1
+	if blockSizeInBytes > 0 {
+		totalBlocks = (int64(archiveFileInfo.Size) + blockSizeInBytes - 1) / blockSizeInBytes
+	}
+
+	uploadId, err := runCmdEnv.DB.CreateUpload(ctx, runCmdEnv.TaskID,
+		uploadRes.StorageBackendMetadataJson, archivePath,
+		int64(archiveFileInfo.Size), archiveFileInfo.ModifiedAt,
+		totalBlocks, blockSizeInBytes, time.Now(), time.Now())
+
+	if err != nil {
+		return fmt.Errorf("failed to save upload information: %w", err)
+	}
+	L.Info(fmt.Sprintf("Upload::Task created with id: %d\n", uploadId))
+
+	// TODO: call UploadPart for each part, and call CompleteMultipartUpload after
+	return fmt.Errorf("upload: UploadParts() not implemented yet")
 }

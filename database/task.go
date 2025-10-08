@@ -39,7 +39,7 @@ type GleshaTask struct {
 	TotalFileCount int64
 }
 
-func (t GleshaTask) String() string {
+func (t *GleshaTask) String() string {
 	return fmt.Sprintf("Task:\n\tID: %d\n\tInputPath: %s\n\tOutputPath: %s\n\tConfigPath: %s\n\tProvider: %s\n\tArchiveFormat: %s\n\tSize: %s\n\tTotalFileCount: %d\n",
 		t.ID,
 		t.InputPath,
@@ -49,6 +49,10 @@ func (t GleshaTask) String() string {
 		t.ArchiveFormat.String(),
 		L.HumanReadableBytes(uint64(t.TotalSize)),
 		t.TotalFileCount)
+}
+
+func (t *GleshaTask) Key() string {
+	return fmt.Sprintf("%d-%s-%d", t.ID, t.ContentHash, t.CreatedAt.UnixMilli())
 }
 
 var ErrNoExistingTask error = errors.New("no similar task exists in the database")

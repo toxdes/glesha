@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	L "glesha/logger"
 	"io"
 	"net/http"
 	"net/url"
@@ -23,8 +24,15 @@ func getCanonicalURI(req *http.Request) string {
 	if !strings.HasPrefix("/", path) {
 		path = "/" + path
 	}
-
-	return url.PathEscape(path)
+	segments := strings.Split(path, "/")
+	var fixedSegments []string
+	for _, segment := range segments {
+		if segment != "" {
+			fixedSegments = append(fixedSegments, url.PathEscape(segment))
+		}
+	}
+	L.Debug(fixedSegments)
+	return "/" + strings.Join(fixedSegments, "/")
 }
 
 func getCanonicalQueryString(req *http.Request) string {
@@ -114,23 +122,26 @@ func hmacSha256(key []byte, data []byte) []byte {
 	return h.Sum(nil)
 }
 
-func (aws *AwsBackend) SignRequest(ctx context.Context, req *http.Request) error {
-
-	payloadHash, err := getHashedPayload(req)
+func (aws *AwsBackend) SignRequest(ctx context.Context, req *http.Request, isSignedPayload bool) error {
 
 	RequestDateTimeFormat := "20060102T150405Z"
 	DateFormat := "20060102"
 	now := time.Now().UTC()
-
-	if err != nil {
-		return err
+	var payloadHash string
+	if isSignedPayload {
+		maybePayloadHash, err := getHashedPayload(req)
+		if err != nil {
+			return err
+		}
+		payloadHash = maybePayloadHash
+	} else {
+		payloadHash = "UNSIGNED-PAYLOAD"
 	}
 
 	req.Header.Set("x-amz-content-sha256", payloadHash)
 	req.Header.Set("x-amz-date", now.Format(RequestDateTimeFormat))
 
 	signedHeaders := getSignedHeaders(req)
-
 	canonicalReq := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
 		req.Method,
 		getCanonicalURI(req),

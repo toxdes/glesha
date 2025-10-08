@@ -3,8 +3,10 @@ package aws
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"glesha/backend"
 	"glesha/config"
 	"glesha/file_io"
 	L "glesha/logger"
@@ -14,16 +16,18 @@ import (
 )
 
 type AwsBackend struct {
-	client     *http.Client
-	bucketName string
-	accessKey  string
-	secretKey  string
-	region     string
-	host       string
-	protocol   string
+	client       *http.Client
+	bucketName   string
+	accessKey    string
+	secretKey    string
+	accountID    uint64
+	region       string
+	storageClass string
+	host         string
+	protocol     string
 }
 
-func NewAwsBackend() (*AwsBackend, error) {
+func new() (*AwsBackend, error) {
 	configs := config.Get()
 	if configs.Aws == nil {
 		return nil, fmt.Errorf("aws: could not find aws configuration")
@@ -35,22 +39,37 @@ func NewAwsBackend() (*AwsBackend, error) {
 	if !validator.ValidateRegion(configs.Aws.Region) {
 		return nil, fmt.Errorf("aws: region is invalid")
 	}
+	if !validator.ValidateStorageClass(configs.Aws.StorageClass) {
+		return nil, fmt.Errorf("aws: storage class is invalid")
+	}
+	if !validator.ValidateAccountID(configs.Aws.AccountID) {
+		return nil, fmt.Errorf("aws: account id is invalid")
+	}
 	L.Debug(fmt.Sprintf("config::ArchiveFormat %s", configs.ArchiveFormat))
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
 	L.Debug(fmt.Sprintf("config::Aws::Region %s", configs.Aws.Region))
+	L.Debug(fmt.Sprintf("config::Aws::StorageClass %s", configs.Aws.StorageClass))
 	client := &http.Client{}
 	host := fmt.Sprintf("%s.s3.%s.amazonaws.com", configs.Aws.BucketName, configs.Aws.Region)
 	protocol := "https://"
 	a := AwsBackend{
-		client:     client,
-		bucketName: configs.Aws.BucketName,
-		accessKey:  configs.Aws.AccessKey,
-		secretKey:  configs.Aws.SecretKey,
-		region:     configs.Aws.Region,
-		host:       host,
-		protocol:   protocol,
+		client:       client,
+		bucketName:   configs.Aws.BucketName,
+		accessKey:    configs.Aws.AccessKey,
+		secretKey:    configs.Aws.SecretKey,
+		region:       configs.Aws.Region,
+		storageClass: configs.Aws.StorageClass,
+		accountID:    configs.Aws.AccountID,
+		host:         host,
+		protocol:     protocol,
 	}
 	return &a, nil
+}
+
+type AWSFactory struct{}
+
+func (af *AWSFactory) NewStorageBackend() (backend.StorageBackend, error) {
+	return new()
 }
 
 type AwsError struct {
@@ -72,14 +91,16 @@ func (aws *AwsBackend) CreateResourceContainer(ctx context.Context) error {
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "PUT", url, bytes.NewBufferString(body))
+
+	if err != nil {
+		return fmt.Errorf("aws: could not create storage bucket: %w", err)
+	}
+
 	req.Header.Set("host", aws.host)
 	req.Header.Set("content-type", "application/xml")
 	req.Header.Set("x-amz-bucket-object-lock-enabled", "true")
-	if err != nil {
-		return err
-	}
 
-	err = aws.SignRequest(ctx, req)
+	err = aws.SignRequest(ctx, req, true)
 	if err != nil {
 		return err
 	}
@@ -124,24 +145,32 @@ func (aws *AwsBackend) CreateResourceContainer(ctx context.Context) error {
 	return nil
 }
 
-func (aws *AwsBackend) UploadResource(ctx context.Context, resourceFilePath string) error {
-	size, err := file_io.FileSizeInBytes(resourceFilePath)
+func (aws *AwsBackend) CreateUploadResource(ctx context.Context, taskKey string, resourceFilePath string) (*backend.CreateUploadResult, error) {
+	resourceFileInfo, err := file_io.GetFileInfo(resourceFilePath)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	L.Info(fmt.Sprintf("aws: initiating upload: %s (%s)", resourceFilePath, L.HumanReadableBytes(size)))
+	L.Info(fmt.Sprintf("aws: initiating upload: %s (%s)", resourceFilePath, L.HumanReadableBytes(info.Size)))
 
-	cost, err := aws.EstimateCost(ctx, size, "INR")
+	cost, err := aws.EstimateCost(ctx, resourceFileInfo.Size, "INR")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	L.Info("aws: Estimating costs")
 	L.Print(cost)
 	if !file_io.IsReadable(resourceFilePath) {
-		return fmt.Errorf("could not read resource: %s", resourceFilePath)
+		return nil, fmt.Errorf("could not read resource: %s", resourceFilePath)
 	}
 
-	return fmt.Errorf("aws: upload not implemented yet")
+	uploadRes, err := aws.CreateMultipartUpload(ctx, taskKey)
+	if err != nil {
+		return nil, fmt.Errorf("aws: could not create multipart upload: %w", err)
+	}
+	uploadResJson, err := json.Marshal(uploadRes)
+	if err != nil {
+		return nil, fmt.Errorf("aws: could not parse response from CreateMultipartUpload: %w", err)
+	}
+	return &backend.CreateUploadResult{StorageBackendMetadataJson: string(uploadResJson)}, nil
 }
 
 func getExchangeRate(c1 string, c2 string) (float64, error) {
@@ -168,15 +197,19 @@ func (aws *AwsBackend) EstimateCost(ctx context.Context, size uint64, currency s
 
 	var sb strings.Builder
 	headerLine := fmt.Sprintf("    S3 Storage Class               Cost for %s (per year)", L.HumanReadableBytes(size))
-	sb.WriteString(fmt.Sprintf("%s\n", strings.Repeat("-", len(headerLine))))
+	sb.WriteString(fmt.Sprintf("%s\n", L.Line(len(headerLine))))
 	sb.WriteString(headerLine)
-	sb.WriteString(fmt.Sprintf("\n%s\n", strings.Repeat("-", len(headerLine))))
+	sb.WriteString(fmt.Sprintf("\n%s\n", L.Line(len(headerLine))))
 	sb.WriteString(fmt.Sprintf("Standard (Frequent Retrieval)   :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardFrequent"], currency))
 	sb.WriteString(fmt.Sprintf("Standard (Infrequent Retrieval) :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardInfrequent"], currency))
 	sb.WriteString(fmt.Sprintf("Express (High Performance)      :   %*.2f %s\n", 10, awsStorageCostPerYear["Express"], currency))
 	sb.WriteString(fmt.Sprintf("Glacier (Flexible Retrieval)    :   %*.2f %s\n", 10, awsStorageCostPerYear["GlacierFlexible"], currency))
 	sb.WriteString(fmt.Sprintf("Glacier (Deep Archive)          :   %*.2f %s", 10, awsStorageCostPerYear["GlacierDeepArchive"], currency))
-	sb.WriteString(fmt.Sprintf("\n%s\n", strings.Repeat("-", len(headerLine))))
+	sb.WriteString(fmt.Sprintf("\n%s\n", L.Line(len(headerLine))))
 	sb.WriteString("Note: Above storage costs are an approximation based on storage costs for us-east-1 region, it does not include retrieval/deletion costs.\n")
 	return sb.String(), nil
+}
+
+func (a *AwsBackend) UploadResource(ctx context.Context, uploadID int64) error {
+	return fmt.Errorf("aws: UploadResource not implemented yet")
 }

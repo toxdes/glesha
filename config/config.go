@@ -7,19 +7,23 @@ import (
 	L "glesha/logger"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type Aws struct {
-	AccessKey  string `json:"access_key"`
-	SecretKey  string `json:"secret_key"`
-	Region     string `json:"region"`
-	BucketName string `json:"bucket_name"`
+	AccessKey    string `json:"access_key"`
+	SecretKey    string `json:"secret_key"`
+	AccountID    uint64 `json:"account_id"`
+	Region       string `json:"region"`
+	BucketName   string `json:"bucket_name"`
+	StorageClass string `json:"storage_class"`
 }
 
 type Config struct {
 	ArchiveFormat ArchiveFormat `json:"archive_format"`
 	Provider      Provider      `json:"provider"`
 	Aws           *Aws          `json:"aws,omitempty"`
+	BlockSizeMB   int64         `json:"block_size_mb"`
 }
 
 var config Config
@@ -28,14 +32,19 @@ var configPath string
 func Parse(configPathArg string) error {
 	file, err := os.Open(configPathArg)
 	if err != nil {
-		return fmt.Errorf("could not open open config file for reading")
+		return fmt.Errorf("config: could not open open config file for reading")
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(file)
 	err = decoder.Decode(&config)
 	if err != nil {
-		return fmt.Errorf("malformed config %s: %w", configPathArg, err)
+		return fmt.Errorf("config: malformed config %s: %w", configPathArg, err)
 	}
+	err = validate(&config)
+	if err != nil {
+		return fmt.Errorf("config: could not validate config: %w", err)
+	}
+
 	configPath, err = filepath.Abs(configPath)
 	if err != nil {
 		return err
@@ -51,7 +60,7 @@ func GetDefaultConfigDir() (string, error) {
 	configDir, configDirError := os.UserConfigDir()
 	homeDir, homeDirError := os.UserHomeDir()
 	if configDirError != nil && homeDirError != nil {
-		return "", fmt.Errorf("cannot find config dir: Config: %w, Home: %w", configDirError, homeDirError)
+		return "", fmt.Errorf("config: cannot find config dir: Config: %w, Home: %w", configDirError, homeDirError)
 	}
 	var dir string
 	if configDirError == nil {
@@ -102,11 +111,14 @@ func DumpDefaultConfig() string {
 	defaultConfig := Config{
 		ArchiveFormat: AF_TARGZ,
 		Provider:      PROVIDER_AWS,
+		BlockSizeMB:   10,
 		Aws: &Aws{
-			AccessKey:  "aws-access-key",
-			SecretKey:  "aws-secret-key",
-			Region:     "aws-region-name",
-			BucketName: "aws-s3-bucket-name",
+			AccessKey:    "aws-access-key",
+			SecretKey:    "aws-secret-key",
+			AccountID:    0,
+			Region:       "aws-region-name",
+			BucketName:   "aws-s3-bucket-name",
+			StorageClass: "aws-s3-storage-class",
 		},
 	}
 	configStr, err := defaultConfig.ToJson()
@@ -114,4 +126,15 @@ func DumpDefaultConfig() string {
 		return ""
 	}
 	return configStr
+}
+
+func validate(c *Config) error {
+	if !slices.Contains([]ArchiveFormat{AF_TARGZ}, c.ArchiveFormat) {
+		return fmt.Errorf("unknown archive format")
+	}
+	if !slices.Contains([]Provider{PROVIDER_AWS}, c.Provider) {
+		return fmt.Errorf("unknown provider")
+	}
+	// NOTE: aws specific keys are validated in aws_validator.go
+	return nil
 }

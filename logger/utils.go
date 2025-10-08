@@ -77,6 +77,10 @@ func ProgressBar(progressPercentage float64) string {
 	return fmt.Sprintf("%s%s", filledSymbol, emptySymbol)
 }
 
+func Line(width int) string {
+	return fmt.Sprintf("%s", strings.Repeat("-", width))
+}
+
 type TruncateMode int
 
 const (
