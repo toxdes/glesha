@@ -2,7 +2,7 @@
 printf "[RUN]\n"
 set -xe
 
-DEBUG_FLAG="-L debug"
+DEBUG_FLAG="-L info"
 # DEBUG_FLAG=""
 
 ./build/glesha add $DEBUG_FLAG -p aws -a targz -c ../glesha-secrets/config.json ~/pro/scripts

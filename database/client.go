@@ -138,7 +138,6 @@ func (d *DB) createTables(ctx context.Context) error {
 	}
 
 	for _, stmt := range stmts {
-		L.Debug(fmt.Sprintf("Executing SQL: %s", stmt))
 		_, err = txn.ExecContext(ctx, stmt)
 		if err != nil {
 			return err

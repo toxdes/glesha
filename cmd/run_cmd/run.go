@@ -194,35 +194,40 @@ func runTask(ctx context.Context) error {
 		return err
 	}
 	L.Info("Upload::CreateResourceContainer OK")
+	existingUpload, err := runCmdEnv.DB.GetUploadByTaskId(ctx, runCmdEnv.TaskID)
+	var uploadId int64
+	if err != nil || existingUpload == nil {
+		uploadRes, err := storageBackend.CreateUploadResource(ctx,
+			runCmdEnv.Task.Key(), archivePath)
+		if err != nil {
+			return err
+		}
+		archiveFileInfo, err := file_io.GetFileInfo(archivePath)
+		if err != nil {
+			return err
+		}
+		cfg := config.Get()
+		blockSizeInBytes := cfg.BlockSizeMB * int64(1024*1024)
+		var totalBlocks int64 = 1
+		if blockSizeInBytes > 0 {
+			totalBlocks = (int64(archiveFileInfo.Size) + blockSizeInBytes - 1) / blockSizeInBytes
+		}
 
-	uploadRes, err := storageBackend.CreateUploadResource(ctx,
-		runCmdEnv.Task.Key(), archivePath)
+		uploadId, err = runCmdEnv.DB.CreateUpload(ctx, runCmdEnv.TaskID,
+			uploadRes.StorageBackendMetadataJson, archivePath,
+			int64(archiveFileInfo.Size), archiveFileInfo.ModifiedAt,
+			totalBlocks, blockSizeInBytes, time.Now(), time.Now())
 
-	if err != nil {
-		return err
+		if err != nil {
+			return fmt.Errorf("failed to save upload information: %w", err)
+		}
+		L.Info(fmt.Sprintf("Upload::CreateUploadResource OK (upload_id: %d)", uploadId))
+
+	} else {
+		L.Info("Skipping creating a new upload because upload already exists for a task")
+		uploadId = existingUpload.ID
 	}
-	L.Info("Upload::CreateUploadResource OK")
-	archiveFileInfo, err := file_io.GetFileInfo(archivePath)
-	if err != nil {
-		return err
-	}
-	cfg := config.Get()
-	blockSizeInBytes := cfg.BlockSizeMB * int64(1024*1024)
-	var totalBlocks int64 = 1
-	if blockSizeInBytes > 0 {
-		totalBlocks = (int64(archiveFileInfo.Size) + blockSizeInBytes - 1) / blockSizeInBytes
-	}
-
-	uploadId, err := runCmdEnv.DB.CreateUpload(ctx, runCmdEnv.TaskID,
-		uploadRes.StorageBackendMetadataJson, archivePath,
-		int64(archiveFileInfo.Size), archiveFileInfo.ModifiedAt,
-		totalBlocks, blockSizeInBytes, time.Now(), time.Now())
-
-	if err != nil {
-		return fmt.Errorf("failed to save upload information: %w", err)
-	}
-	L.Info(fmt.Sprintf("Upload::Task created with id: %d\n", uploadId))
-
+	L.Println(fmt.Sprintf("Task(%d) now has upload ID: %d", runCmdEnv.TaskID, uploadId))
 	// TODO: call UploadPart for each part, and call CompleteMultipartUpload after
 	return fmt.Errorf("upload: UploadParts() not implemented yet")
 }
