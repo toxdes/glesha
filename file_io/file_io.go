@@ -83,18 +83,20 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 func IsReadable(filePath string) bool {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return true
+		return false
 	}
 	defer file.Close()
-	return err == nil
+	return true
 }
 
 func IsWritable(inputPath string) bool {
 	tempFile := "tempFile-123"
 	if ExistsDir(inputPath) {
 		file, err := os.CreateTemp(inputPath, tempFile)
-		defer os.Remove(file.Name())
-		defer file.Close()
+		if file != nil {
+			defer os.Remove(file.Name())
+			defer file.Close()
+		}
 		return err == nil
 	}
 	if Exists(inputPath) {

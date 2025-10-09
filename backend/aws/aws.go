@@ -145,12 +145,18 @@ func (aws *AwsBackend) CreateResourceContainer(ctx context.Context) error {
 	return nil
 }
 
-func (aws *AwsBackend) CreateUploadResource(ctx context.Context, taskKey string, resourceFilePath string) (*backend.CreateUploadResult, error) {
+func (aws *AwsBackend) CreateUploadResource(
+	ctx context.Context,
+	taskKey string,
+	resourceFilePath string,
+) (*backend.CreateUploadResult, error) {
 	resourceFileInfo, err := file_io.GetFileInfo(resourceFilePath)
 	if err != nil {
 		return nil, err
 	}
-	L.Info(fmt.Sprintf("aws: initiating upload: %s (%s)", resourceFilePath, L.HumanReadableBytes(info.Size)))
+	L.Info(fmt.Sprintf("aws: initiating upload: %s (%s)",
+		resourceFilePath,
+		L.HumanReadableBytes(resourceFileInfo.Size)))
 
 	cost, err := aws.EstimateCost(ctx, resourceFileInfo.Size, "INR")
 	if err != nil {

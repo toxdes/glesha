@@ -58,6 +58,9 @@ func (a *AwsValidator) ValidateBucketName(bucketName string) bool {
 	if strings.HasSuffix(bucketName, "--table-s3") {
 		return false
 	}
+	// even though it's allowed to have a single period, but no two adjacent periods,
+	// it's best to just avoid periods in the bucket name for now, until all edge cases
+	// of what's accepted by S3 is figured out.
 	if strings.Contains(bucketName, ".") {
 		return false
 	}

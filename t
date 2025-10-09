@@ -1,4 +1,3 @@
-#!/usr/bin/env bash
+#!/usr/bin/bash
 # this script is temporarily added for easier development, will be removed later
-set -xe
-./scripts/build.sh && ./scripts/run.sh
+source ./scripts/test.sh

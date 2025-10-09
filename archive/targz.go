@@ -299,5 +299,8 @@ func IsValidTarGz(filePath string) error {
 	defer gr.Close()
 	tr := tar.NewReader(gr)
 	_, err = tr.Next()
+	if err == io.EOF {
+		return nil
+	}
 	return err
 }
