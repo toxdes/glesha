@@ -177,6 +177,6 @@ func TestAwsBackend(t *testing.T) {
 		result, err := awsBackend.CreateUploadResource(context.Background(), "test-key", tempFile.Name())
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
-		assert.Contains(t, result.StorageBackendMetadataJson, "test-upload-id")
+		assert.Contains(t, result.Metadata.Json, "test-upload-id")
 	})
 }

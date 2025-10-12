@@ -59,6 +59,7 @@ const CREATE_UPLOADS_TABLE = `CREATE TABLE IF NOT EXISTS uploads(
 				task_id INTEGER NOT NULL UNIQUE,
 
 				storage_backend_metadata_json TEXT, 
+				storage_backend_metadata_schema_version INTEGER NOT NULL,
 				file_path TEXT NOT NULL,
 				file_size INTEGER NOT NULL,
 				file_last_modified_at TEXT NOT NULL,

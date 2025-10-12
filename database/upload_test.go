@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"glesha/backend"
 	"glesha/config"
 	"glesha/file_io"
 
@@ -34,11 +35,14 @@ func TestCreateAndGetUpload(t *testing.T) {
 		filesInfo,
 	)
 	assert.NoError(t, err)
-
+	metadata := backend.StorageMetadata{
+		Json:          "metadata",
+		SchemaVersion: 1,
+	}
 	uploadID, err := db.CreateUpload(
 		context.Background(),
 		taskID,
-		"metadata",
+		metadata,
 		"/path/to/file",
 		2048,
 		time.Now(),
@@ -54,13 +58,15 @@ func TestCreateAndGetUpload(t *testing.T) {
 	assert.NotNil(t, upload)
 	assert.Equal(t, uploadID, upload.ID)
 	assert.Equal(t, taskID, upload.TaskID)
-	assert.Equal(t, "metadata", upload.StorageBackendMetadataJson)
+	assert.Equal(t, metadata.Json, upload.StorageBackendMetadata.Json)
+	assert.Equal(t, metadata.SchemaVersion, upload.StorageBackendMetadata.SchemaVersion)
+	assert.True(t, upload.StorageBackendMetadata.SchemaVersion > 0)
 
 	// Try to create again, should return existing
 	newUploadID, err := db.CreateUpload(
 		context.Background(),
 		taskID,
-		"metadata2",
+		upload.StorageBackendMetadata,
 		"/path/to/file2",
 		4096,
 		time.Now(),
@@ -74,5 +80,6 @@ func TestCreateAndGetUpload(t *testing.T) {
 
 	newUpload, err := db.GetUploadByTaskId(context.Background(), taskID)
 	assert.NoError(t, err)
-	assert.Equal(t, "metadata", newUpload.StorageBackendMetadataJson)
+	assert.Equal(t, metadata.Json, newUpload.StorageBackendMetadata.Json)
+	assert.Equal(t, metadata.SchemaVersion, newUpload.StorageBackendMetadata.SchemaVersion)
 }

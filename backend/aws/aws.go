@@ -27,6 +27,8 @@ type AwsBackend struct {
 	protocol     string
 }
 
+const STORAGE_BACKEND_METADATA_SCHEMA_VERSION int64 = 1
+
 func new() (*AwsBackend, error) {
 	configs := config.Get()
 	if configs.Aws == nil {
@@ -176,7 +178,12 @@ func (aws *AwsBackend) CreateUploadResource(
 	if err != nil {
 		return nil, fmt.Errorf("aws: could not parse response from CreateMultipartUpload: %w", err)
 	}
-	return &backend.CreateUploadResult{StorageBackendMetadataJson: string(uploadResJson)}, nil
+	metadata := backend.StorageMetadata{
+		Json:          string(uploadResJson),
+		SchemaVersion: STORAGE_BACKEND_METADATA_SCHEMA_VERSION,
+	}
+
+	return &backend.CreateUploadResult{Metadata: metadata}, nil
 }
 
 func getExchangeRate(c1 string, c2 string) (float64, error) {

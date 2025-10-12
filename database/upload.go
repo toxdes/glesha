@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"glesha/backend"
 	L "glesha/logger"
 	"time"
 )
@@ -19,27 +20,27 @@ const (
 )
 
 type GleshaUpload struct {
-	ID                         int64
-	TaskID                     int64
-	StorageBackendMetadataJson string
-	FilePath                   string
-	FileSize                   int64
-	FileLastModifiedAt         time.Time
-	UploadedBytes              int64
-	UploadedBlocks             int64
-	TotalBlocks                int64
-	BlockSizeInBytes           int64
-	Status                     GleshaUploadStatus
-	CreatedAt                  time.Time
-	UpdatedAt                  time.Time
-	CompletedAt                time.Time
+	ID                     int64
+	TaskID                 int64
+	StorageBackendMetadata backend.StorageMetadata
+	FilePath               string
+	FileSize               int64
+	FileLastModifiedAt     time.Time
+	UploadedBytes          int64
+	UploadedBlocks         int64
+	TotalBlocks            int64
+	BlockSizeInBytes       int64
+	Status                 GleshaUploadStatus
+	CreatedAt              time.Time
+	UpdatedAt              time.Time
+	CompletedAt            time.Time
 }
 
 func (t *GleshaUpload) String() string {
 	return fmt.Sprintf("Upload:\n\tID: %d\n\tTaskID: %d\n\t\tStorageBackendMetadataJson: %s\n\tFilePath: %s\n\tFileSize: %s\n\tUploadedBytes: %d\n\tUploadedBlocks: %d\n\tTotalParts: %d\n\tStatus: %s\n",
 		t.ID,
 		t.TaskID,
-		t.StorageBackendMetadataJson,
+		t.StorageBackendMetadata.Json,
 		t.FilePath,
 		L.HumanReadableBytes(uint64(t.FileSize)),
 		t.UploadedBytes,
@@ -49,7 +50,7 @@ func (t *GleshaUpload) String() string {
 func (db *DB) CreateUpload(
 	ctx context.Context,
 	taskID int64,
-	storageBackendMetadataJson string,
+	storageBackendMetadata backend.StorageMetadata,
 	filePath string,
 	fileSize int64,
 	fileLastModifiedAt time.Time,
@@ -62,6 +63,7 @@ func (db *DB) CreateUpload(
 		`INSERT INTO uploads (
 		task_id,
 		storage_backend_metadata_json,
+		storage_backend_metadata_schema_version,
 		file_path,
 		file_size,
 		file_last_modified_at,
@@ -69,10 +71,11 @@ func (db *DB) CreateUpload(
 		block_size_in_bytes,
 		created_at,
 		updated_at
-	) VALUES (?,?,?,?,?,?,?,?,?) 
+	) VALUES (?,?,?,?,?,?,?,?,?,?) 
 	 ON CONFLICT(task_id) DO NOTHING`,
 		taskID,
-		storageBackendMetadataJson,
+		storageBackendMetadata.Json,
+		storageBackendMetadata.SchemaVersion,
 		filePath,
 		fileSize,
 		ToTimeStr(fileLastModifiedAt),
@@ -106,6 +109,7 @@ func (db *DB) GetUploadByTaskId(ctx context.Context, taskID int64) (*GleshaUploa
 		id,
 		task_id,
 		storage_backend_metadata_json,
+		storage_backend_metadata_schema_version,
 		file_path,
 		file_size,
 		file_last_modified_at,
@@ -127,7 +131,8 @@ func (db *DB) GetUploadByTaskId(ctx context.Context, taskID int64) (*GleshaUploa
 	err := row.Scan(
 		&u.ID,
 		&u.TaskID,
-		&u.StorageBackendMetadataJson,
+		&u.StorageBackendMetadata.Json,
+		&u.StorageBackendMetadata.SchemaVersion,
 		&u.FilePath,
 		&u.FileSize,
 		&fileLastModifiedAtStr,

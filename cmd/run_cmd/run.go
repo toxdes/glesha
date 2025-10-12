@@ -214,7 +214,7 @@ func runTask(ctx context.Context) error {
 		}
 
 		uploadId, err = runCmdEnv.DB.CreateUpload(ctx, runCmdEnv.TaskID,
-			uploadRes.StorageBackendMetadataJson, archivePath,
+			uploadRes.Metadata, archivePath,
 			int64(archiveFileInfo.Size), archiveFileInfo.ModifiedAt,
 			totalBlocks, blockSizeInBytes, time.Now(), time.Now())
 
