@@ -26,7 +26,7 @@ func TestNew(t *testing.T) {
 		}
 		_, err := new()
 		assert.Error(t, err)
-		assert.EqualError(t, err, "aws: bucket name is invalid")
+		assert.EqualError(t, err, "aws: bucket name contains invalid characters")
 	})
 
 	t.Run("InvalidRegion", func(t *testing.T) {
@@ -36,7 +36,7 @@ func TestNew(t *testing.T) {
 		}
 		_, err := new()
 		assert.Error(t, err)
-		assert.EqualError(t, err, "aws: region is invalid")
+		assert.EqualError(t, err, fmt.Sprintf("aws: invalid region: %s", config.Get().Aws.Region))
 	})
 
 	t.Run("InvalidStorageClass", func(t *testing.T) {
@@ -47,7 +47,7 @@ func TestNew(t *testing.T) {
 		}
 		_, err := new()
 		assert.Error(t, err)
-		assert.EqualError(t, err, "aws: storage class is invalid")
+		assert.EqualError(t, err, fmt.Sprintf("aws: invalid storage class %s", config.Get().Aws.StorageClass))
 	})
 
 	t.Run("InvalidAccountID", func(t *testing.T) {
@@ -59,7 +59,7 @@ func TestNew(t *testing.T) {
 		}
 		_, err := new()
 		assert.Error(t, err)
-		assert.EqualError(t, err, "aws: account id is invalid")
+		assert.EqualError(t, err, "aws: account_id must have exactly 12 digits")
 	})
 
 	t.Run("ValidConfig", func(t *testing.T) {

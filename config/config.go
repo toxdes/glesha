@@ -85,7 +85,11 @@ func GetDefaultConfigPath() (string, error) {
 		return "", err
 	}
 	configFilePath := filepath.Join(configDir, "config.json")
-	if !file_io.Exists(configFilePath) {
+	exists, err := file_io.Exists(configFilePath)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
 		_, err = file_io.WriteToFile(configFilePath, []byte(DumpDefaultConfig()), file_io.WRITE_OVERWRITE)
 	}
 	if err != nil {

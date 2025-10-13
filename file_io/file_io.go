@@ -62,10 +62,12 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 		}
 		if d.Type().IsRegular() {
 			filesInfo.TotalFileCount++
-			if !IsReadable(path) {
+			readable, err := IsReadable(path)
+			if err != nil || !readable {
 				L.Debug(fmt.Errorf("could not read: %s", path))
 				return nil
 			}
+
 			filesInfo.SizeInBytes += uint64(info.Size())
 			filesInfo.ReadableFileCount++
 		}
@@ -80,45 +82,64 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 	return filesInfo, nil
 }
 
-func IsReadable(filePath string) bool {
+func IsReadable(filePath string) (bool, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer file.Close()
-	return true
+	return true, nil
 }
 
-func IsWritable(inputPath string) bool {
-	tempFile := "tempFile-123"
-	if ExistsDir(inputPath) {
-		file, err := os.CreateTemp(inputPath, tempFile)
-		if file != nil {
-			defer os.Remove(file.Name())
-			defer file.Close()
-		}
-		return err == nil
-	}
-	if Exists(inputPath) {
-		info, err := os.Stat(inputPath)
-		if err != nil {
-			return false
-		}
-		perm := info.Mode().Perm()
-		writePermMask := (perm & 0200) | (perm & 0020) | (perm & 0002)
-		return writePermMask > 0
-	}
-	return false
-}
+func IsWritable(inputPath string) (bool, error) {
 
-func ExistsDir(inputPath string) bool {
 	info, err := os.Stat(inputPath)
-	return err == nil && info.IsDir()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, fmt.Errorf("path does not exist: %s", inputPath)
+		}
+		return false, fmt.Errorf("failed to stat path: %s", inputPath)
+	}
+
+	if info.IsDir() {
+		return isDirWritable(inputPath)
+	} else {
+		return isFileWritable(inputPath)
+	}
 }
 
-func Exists(inputFilePath string) bool {
+func isDirWritable(inputDirPath string) (bool, error) {
+	tempFilePath := filepath.Join(inputDirPath, ".write-test-"+strconv.Itoa(int(time.Now().UnixNano())))
+	tempFile, err := os.Create(tempFilePath)
+	if err != nil {
+		return false, err
+	}
+	_ = tempFile.Close()
+	_ = os.Remove(tempFilePath)
+	return true, nil
+}
+
+func isFileWritable(inputFilePath string) (bool, error) {
+	inputFile, err := os.OpenFile(inputFilePath, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		return false, err
+	}
+	_ = inputFile.Close()
+	return true, nil
+}
+
+func Exists(inputFilePath string) (bool, error) {
 	info, err := os.Stat(inputFilePath)
-	return err == nil && !info.IsDir()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	if info.IsDir() {
+		return false, fmt.Errorf("%s is a directory", inputFilePath)
+	}
+	return true, nil
 }
 
 type FileInfo struct {
@@ -126,6 +147,7 @@ type FileInfo struct {
 	ModifiedAt time.Time
 }
 
+// return filesize in bytes and last modified timestamp
 func GetFileInfo(inputFilePath string) (*FileInfo, error) {
 	stat, err := os.Stat(inputFilePath)
 	if err != nil {
@@ -179,13 +201,4 @@ func GetGlobalWorkDir() (string, error) {
 		return "", err
 	}
 	return absPath, nil
-}
-
-func ArePathsEqual(pathA string, pathB string) bool {
-	absPathA, errA := filepath.Abs(pathA)
-	absPathB, errB := filepath.Abs(pathB)
-	if errA != nil || errB != nil {
-		return false
-	}
-	return absPathA == absPathB
 }

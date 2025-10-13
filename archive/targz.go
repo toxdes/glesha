@@ -31,14 +31,19 @@ type TarGzArchive struct {
 }
 
 func NewTarGzArchiver(t *database.GleshaTask) (*TarGzArchive, error) {
-	if !file_io.IsReadable(t.InputPath) {
+	readable, err := file_io.IsReadable(t.InputPath)
+	if err != nil || !readable {
 		return nil, fmt.Errorf("no read permission on input path: %s", t.InputPath)
 	}
-	err := os.MkdirAll(t.OutputPath, os.ModePerm)
+
+	err = os.MkdirAll(t.OutputPath, os.ModePerm)
 	if err != nil {
 		return nil, err
 	}
-	if !file_io.IsWritable(t.OutputPath) {
+
+	writable, err := file_io.IsWritable(t.OutputPath)
+
+	if err != nil || !writable {
 		return nil, fmt.Errorf("no write permission on output path: %s", t.OutputPath)
 	}
 

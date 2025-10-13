@@ -35,18 +35,29 @@ func new() (*AwsBackend, error) {
 		return nil, fmt.Errorf("aws: could not find aws configuration")
 	}
 	validator := AwsValidator{}
-	if !validator.ValidateBucketName(configs.Aws.BucketName) {
-		return nil, fmt.Errorf("aws: bucket name is invalid")
+	err := validator.ValidateBucketName(configs.Aws.BucketName)
+	if err != nil {
+		return nil, err
 	}
-	if !validator.ValidateRegion(configs.Aws.Region) {
-		return nil, fmt.Errorf("aws: region is invalid")
+
+	err = validator.ValidateRegion(configs.Aws.Region)
+	if err != nil {
+		return nil, err
 	}
-	if !validator.ValidateStorageClass(configs.Aws.StorageClass) {
-		return nil, fmt.Errorf("aws: storage class is invalid")
+
+	err = validator.ValidateStorageClass(configs.Aws.StorageClass)
+
+	if err != nil {
+		return nil, err
 	}
-	if !validator.ValidateAccountID(configs.Aws.AccountID) {
-		return nil, fmt.Errorf("aws: account id is invalid")
+
+	err = validator.ValidateAccountID(configs.Aws.AccountID)
+
+	if err != nil {
+		return nil, err
 	}
+
+	L.Debug("aws: config is valid")
 	L.Debug(fmt.Sprintf("config::ArchiveFormat %s", configs.ArchiveFormat))
 	L.Debug(fmt.Sprintf("config::Aws::BucketName %s", configs.Aws.BucketName))
 	L.Debug(fmt.Sprintf("config::Aws::Region %s", configs.Aws.Region))
@@ -166,7 +177,9 @@ func (aws *AwsBackend) CreateUploadResource(
 	}
 	L.Info("aws: Estimating costs")
 	L.Print(cost)
-	if !file_io.IsReadable(resourceFilePath) {
+	readable, err := file_io.IsReadable(resourceFilePath)
+
+	if err != nil || !readable {
 		return nil, fmt.Errorf("could not read resource: %s", resourceFilePath)
 	}
 

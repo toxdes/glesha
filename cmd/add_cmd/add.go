@@ -210,7 +210,9 @@ func parseFlags(args []string) error {
 	}
 
 	if configPath != nil && *configPath != "" {
-		if !file_io.IsReadable(*configPath) {
+		readable, err := file_io.IsReadable(*configPath)
+
+		if err != nil || !readable {
 			return fmt.Errorf("config is not readable: %s", *configPath)
 		}
 	} else {

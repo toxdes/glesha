@@ -12,15 +12,15 @@ type MockFileIO struct {
 }
 
 // IsReadable is a mock method
-func (m *MockFileIO) IsReadable(path string) bool {
+func (m *MockFileIO) IsReadable(path string) error {
 	args := m.Called(path)
-	return args.Bool(0)
+	return args.Error(0)
 }
 
 // IsWritable is a mock method
-func (m *MockFileIO) IsWritable(path string) bool {
+func (m *MockFileIO) IsWritable(path string) error {
 	args := m.Called(path)
-	return args.Bool(0)
+	return args.Error(0)
 }
 
 // ComputeFilesInfo is a mock method

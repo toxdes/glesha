@@ -169,7 +169,11 @@ func GetDBFilePath(ctx context.Context) (string, error) {
 		return "", err
 	}
 	dbPath := filepath.Join(configDir, "glesha-db.db")
-	if !file_io.IsWritable(configDir) {
+	writable, err := file_io.IsWritable(configDir)
+	if err != nil {
+		return "", err
+	}
+	if !writable {
 		return "", fmt.Errorf("no write permissions to %s", dbPath)
 	}
 	return dbPath, nil
