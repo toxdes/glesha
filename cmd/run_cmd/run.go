@@ -206,11 +206,16 @@ func runTask(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		cfg := config.Get()
-		blockSizeInBytes := cfg.BlockSizeMB * int64(1024*1024)
+
+		blockSizeInBytes := uploadRes.BlockSizeInBytes
+		archiveFileSize := int64(archiveFileInfo.Size)
 		var totalBlocks int64 = 1
 		if blockSizeInBytes > 0 {
-			totalBlocks = (int64(archiveFileInfo.Size) + blockSizeInBytes - 1) / blockSizeInBytes
+			totalBlocks = (archiveFileSize + blockSizeInBytes - 1) / blockSizeInBytes
+		}
+
+		if err = storageBackend.IsBlockSizeOK(blockSizeInBytes, archiveFileSize); err != nil {
+			return fmt.Errorf("failed to partition file: %w", err)
 		}
 
 		uploadId, err = runCmdEnv.DB.CreateUpload(ctx, runCmdEnv.TaskID,
@@ -228,6 +233,13 @@ func runTask(ctx context.Context) error {
 		uploadId = existingUpload.ID
 	}
 	L.Println(fmt.Sprintf("Task(%d) now has upload ID: %d", runCmdEnv.TaskID, uploadId))
+
 	// TODO: call UploadPart for each part, and call CompleteMultipartUpload after
+	err = storageBackend.UploadResource(ctx, uploadId)
+
+	if err != nil {
+		return err
+	}
+
 	return fmt.Errorf("upload: UploadParts() not implemented yet")
 }

@@ -183,7 +183,15 @@ func (aws *AwsBackend) CreateUploadResource(
 		SchemaVersion: STORAGE_BACKEND_METADATA_SCHEMA_VERSION,
 	}
 
-	return &backend.CreateUploadResult{Metadata: metadata}, nil
+	info, err := file_io.GetFileInfo(resourceFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &backend.CreateUploadResult{
+		Metadata:         metadata,
+		BlockSizeInBytes: aws.GetOptimalBlockSizeForSize(int64(info.Size)),
+	}, nil
 }
 
 func getExchangeRate(c1 string, c2 string) (float64, error) {
@@ -225,4 +233,33 @@ func (aws *AwsBackend) EstimateCost(ctx context.Context, size uint64, currency s
 
 func (a *AwsBackend) UploadResource(ctx context.Context, uploadID int64) error {
 	return fmt.Errorf("aws: UploadResource not implemented yet")
+}
+
+func (aws *AwsBackend) GetOptimalBlockSizeForSize(sizeInBytes int64) int64 {
+	const MB int64 = 1024 * 1024
+	const GB int64 = 1024 * MB
+	if sizeInBytes <= 20*MB {
+		return 10 * MB
+	}
+	if sizeInBytes <= 5*GB {
+		return 50 * MB
+	}
+	if sizeInBytes <= 20*GB {
+		return 100 * MB
+	}
+	// TODO: tweat these parameters for costs/efficiency etc after profiling
+	// since 1e4 is the max limit for number of parts
+	// max upload size for a single file, is limited to 1.5 TB
+	return 150 * MB
+}
+
+func (aws *AwsBackend) IsBlockSizeOK(blockSize int64, fileSize int64) error {
+	if blockSize == 0 {
+		return fmt.Errorf("aws: block_size cannot be zero")
+	}
+	parts := (fileSize + blockSize - 1) / blockSize
+	if parts > 10000 {
+		return fmt.Errorf("aws: block_size is too small")
+	}
+	return nil
 }

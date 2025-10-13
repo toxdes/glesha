@@ -23,7 +23,6 @@ type Config struct {
 	ArchiveFormat ArchiveFormat `json:"archive_format"`
 	Provider      Provider      `json:"provider"`
 	Aws           *Aws          `json:"aws,omitempty"`
-	BlockSizeMB   int64         `json:"block_size_mb"`
 }
 
 var config Config
@@ -111,7 +110,6 @@ func DumpDefaultConfig() string {
 	defaultConfig := Config{
 		ArchiveFormat: AF_TARGZ,
 		Provider:      PROVIDER_AWS,
-		BlockSizeMB:   10,
 		Aws: &Aws{
 			AccessKey:    "aws-access-key",
 			SecretKey:    "aws-secret-key",

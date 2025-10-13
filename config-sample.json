@@ -1,7 +1,6 @@
 {
 	"archive_format": "targz",
 	"provider": "aws",
-	"block_size_mb": 20,
 	"aws": {
 		"account_id": 0,
 		"access_key": "YOUR_ACCESS_KEY",
