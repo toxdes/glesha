@@ -262,7 +262,7 @@ func (aws *AwsBackend) GetOptimalBlockSizeForSize(sizeInBytes int64) int64 {
 	}
 	// TODO: tweat these parameters for costs/efficiency etc after profiling
 	// since 1e4 is the max limit for number of parts
-	// max upload size for a single file, is limited to 1.5 TB
+	// max upload size for a single file is limited to 1.5 TB for now
 	return 150 * MB
 }
 

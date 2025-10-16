@@ -78,7 +78,7 @@ func ProgressBar(progressPercentage float64) string {
 }
 
 func Line(width int) string {
-	return fmt.Sprintf("%s", strings.Repeat("-", width))
+	return strings.Repeat("-", width)
 }
 
 type TruncateMode int
@@ -136,29 +136,14 @@ func HumanReadableTime(millis int64) string {
 	}
 
 	d := time.Duration(millis) * time.Millisecond
-
+	// TODO: show Ms and days as well
 	hours := int64(d / time.Hour)
 	d %= time.Hour
 	minutes := int64(d / time.Minute)
 	d %= time.Minute
 	seconds := int64(d / time.Second)
 
-	var parts []string
-
-	if hours > 0 {
-		parts = append(parts, fmt.Sprintf("%dh", hours))
-	}
-	if minutes > 0 {
-		parts = append(parts, fmt.Sprintf("%dm", minutes))
-	}
-	if seconds > 0 || (len(parts) == 0 && seconds == 0 && millis > 0) { // last condition handles cases like 500ms
-		if len(parts) == 0 && seconds == 0 {
-			return fmt.Sprintf("%ds", 0)
-		}
-		parts = append(parts, fmt.Sprintf("%ds", seconds))
-	}
-
-	parts = []string{}
+	parts := []string{}
 	if hours > 0 {
 		parts = append(parts, fmt.Sprintf("%dh", hours))
 	}

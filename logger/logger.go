@@ -62,7 +62,7 @@ func SetLevelFromString(l string) error {
 	case "silent":
 		level = SILENT
 	default:
-		return fmt.Errorf("Unsupported log level: %s", l)
+		return fmt.Errorf("unsupported log level: %s", l)
 	}
 	return nil
 }
@@ -72,7 +72,7 @@ func SetLevel(l LogLevel) error {
 	case DEBUG, INFO, WARN, ERROR, SILENT:
 		level = l
 	default:
-		return fmt.Errorf("Unsupported log level: %d", l)
+		return fmt.Errorf("unsupported log level: %d", l)
 	}
 	return nil
 }
@@ -121,7 +121,7 @@ func GetLogLevel() LogLevel {
 }
 
 func IsVerbose() bool {
-	return level == DEBUG
+	return level < WARN
 }
 
 func (l LogLevel) String() string {
