@@ -41,7 +41,7 @@ OPTIONS
         Supported values for PROVIDER: aws
 
     aws.account_id 
-        12-digit AWS account ID, used to identify for ownership
+        12-digit AWS account Id, used to identify for ownership
         of the S3 bucket, to prevent accidental modifications.
 
     aws.access_key, aws.secret_key

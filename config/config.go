@@ -13,7 +13,7 @@ import (
 type Aws struct {
 	AccessKey    string `json:"access_key"`
 	SecretKey    string `json:"secret_key"`
-	AccountID    uint64 `json:"account_id"`
+	AccountId    uint64 `json:"account_id"`
 	Region       string `json:"region"`
 	BucketName   string `json:"bucket_name"`
 	StorageClass string `json:"storage_class"`
@@ -117,7 +117,7 @@ func DumpDefaultConfig() string {
 		Aws: &Aws{
 			AccessKey:    "aws-access-key",
 			SecretKey:    "aws-secret-key",
-			AccountID:    0,
+			AccountId:    0,
 			Region:       "aws-region-name",
 			BucketName:   "aws-s3-bucket-name",
 			StorageClass: "aws-s3-storage-class",

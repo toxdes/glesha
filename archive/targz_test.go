@@ -5,7 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"glesha/database"
+	"glesha/database/model"
 	"os"
 	"path/filepath"
 	"testing"
@@ -22,9 +22,9 @@ func TestNewTarGzArchiver(t *testing.T) {
 	t.Run("InputPathNotReadable", func(t *testing.T) {
 		inputPath := filepath.Join(tempDir, "non-existent-input")
 		outputPath := filepath.Join(tempDir, "output")
-		task := &database.GleshaTask{
-			ID:        1,
-			InputPath: inputPath,
+		task := &model.Task{
+			Id:         1,
+			InputPath:  inputPath,
 			OutputPath: outputPath,
 		}
 
@@ -43,9 +43,9 @@ func TestNewTarGzArchiver(t *testing.T) {
 		err = os.Mkdir(outputPath, 0400) // Read-only
 		assert.NoError(t, err)
 
-		task := &database.GleshaTask{
-			ID:        1,
-			InputPath: inputPath,
+		task := &model.Task{
+			Id:         1,
+			InputPath:  inputPath,
 			OutputPath: outputPath,
 		}
 
@@ -64,16 +64,16 @@ func TestNewTarGzArchiver(t *testing.T) {
 		err = os.Mkdir(outputPath, 0755)
 		assert.NoError(t, err)
 
-		task := &database.GleshaTask{
-			ID:        1,
-			InputPath: inputPath,
+		task := &model.Task{
+			Id:         1,
+			InputPath:  inputPath,
 			OutputPath: outputPath,
 		}
 
 		archiver, err := NewTarGzArchiver(task)
 		assert.NoError(t, err)
 		assert.NotNil(t, archiver)
-		assert.Equal(t, task.ID, archiver.ID)
+		assert.Equal(t, task.Id, archiver.Id)
 		assert.Equal(t, task.InputPath, archiver.InputPath)
 		assert.Equal(t, task.OutputPath, archiver.OutputPath)
 	})
@@ -98,9 +98,9 @@ func TestTarGzArchive_Plan(t *testing.T) {
 	err = os.Mkdir(outputPath, 0755)
 	assert.NoError(t, err)
 
-	task := &database.GleshaTask{
-		ID:        1,
-		InputPath: inputPath,
+	task := &model.Task{
+		Id:         1,
+		InputPath:  inputPath,
 		OutputPath: outputPath,
 	}
 
@@ -139,9 +139,9 @@ func TestTarGzArchive_Archive(t *testing.T) {
 	err = os.Mkdir(outputPath, 0755)
 	assert.NoError(t, err)
 
-	task := &database.GleshaTask{
-		ID:        1,
-		InputPath: inputPath,
+	task := &model.Task{
+		Id:         1,
+		InputPath:  inputPath,
 		OutputPath: outputPath,
 	}
 
@@ -223,4 +223,3 @@ func TestIsValidTarGz(t *testing.T) {
 		assert.Error(t, err)
 	})
 }
-

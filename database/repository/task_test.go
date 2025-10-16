@@ -1,4 +1,4 @@
-package database
+package repository
 
 import (
 	"context"
@@ -6,14 +6,16 @@ import (
 	"time"
 
 	"glesha/config"
+	"glesha/database"
+	"glesha/database/model"
 	"glesha/file_io"
 
 	"github.com/stretchr/testify/assert"
 	_ "modernc.org/sqlite"
 )
 
-func setupTestDB(t *testing.T) *DB {
-	db, err := NewDB(":memory:")
+func setupTestDB(t *testing.T) *database.DB {
+	db, err := database.NewDB(":memory:")
 	assert.NoError(t, err)
 	err = db.Init(context.Background())
 	assert.NoError(t, err)
@@ -23,6 +25,7 @@ func setupTestDB(t *testing.T) *DB {
 func TestCreateAndGetTask(t *testing.T) {
 	db := setupTestDB(t)
 	defer db.Close(context.Background())
+	taskRepo := NewTaskRepository(db)
 
 	filesInfo := &file_io.FilesInfo{
 		TotalFileCount: 10,
@@ -30,7 +33,7 @@ func TestCreateAndGetTask(t *testing.T) {
 		ContentHash:    "test-hash",
 	}
 
-	taskID, err := db.CreateTask(
+	taskId, err := taskRepo.CreateTask(
 		context.Background(),
 		"/input",
 		"/output",
@@ -43,16 +46,17 @@ func TestCreateAndGetTask(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	task, err := db.GetTaskById(context.Background(), taskID)
+	task, err := taskRepo.GetTaskById(context.Background(), taskId)
 	assert.NoError(t, err)
 	assert.NotNil(t, task)
-	assert.Equal(t, taskID, task.ID)
+	assert.Equal(t, taskId, task.Id)
 	assert.Equal(t, "/input", task.InputPath)
 	assert.Equal(t, int64(1024), task.TotalSize)
 }
 
 func TestFindSimilarTask(t *testing.T) {
 	db := setupTestDB(t)
+	taskRepo := NewTaskRepository(db)
 	defer db.Close(context.Background())
 
 	filesInfo := &file_io.FilesInfo{
@@ -62,12 +66,12 @@ func TestFindSimilarTask(t *testing.T) {
 	}
 
 	t.Run("NoSimilarTask", func(t *testing.T) {
-		_, err := db.FindSimilarTask(context.Background(), "/input", config.PROVIDER_AWS, filesInfo, config.AF_TARGZ)
-		assert.ErrorIs(t, err, ErrNoExistingTask)
+		_, err := taskRepo.FindSimilarTask(context.Background(), "/input", config.PROVIDER_AWS, filesInfo, config.AF_TARGZ)
+		assert.ErrorIs(t, err, database.ErrDoesNotExist)
 	})
 
 	t.Run("SimilarTaskExists", func(t *testing.T) {
-		taskID, err := db.CreateTask(
+		taskId, err := taskRepo.CreateTask(
 			context.Background(),
 			"/input",
 			"/output",
@@ -80,15 +84,16 @@ func TestFindSimilarTask(t *testing.T) {
 		)
 		assert.NoError(t, err)
 
-		task, err := db.FindSimilarTask(context.Background(), "/input", config.PROVIDER_AWS, filesInfo, config.AF_TARGZ)
+		task, err := taskRepo.FindSimilarTask(context.Background(), "/input", config.PROVIDER_AWS, filesInfo, config.AF_TARGZ)
 		assert.NoError(t, err)
 		assert.NotNil(t, task)
-		assert.Equal(t, taskID, task.ID)
+		assert.Equal(t, taskId, task.Id)
 	})
 }
 
 func TestUpdateTaskStatus(t *testing.T) {
 	db := setupTestDB(t)
+	taskRepo := NewTaskRepository(db)
 	defer db.Close(context.Background())
 
 	filesInfo := &file_io.FilesInfo{
@@ -97,7 +102,7 @@ func TestUpdateTaskStatus(t *testing.T) {
 		ContentHash:    "test-hash",
 	}
 
-	taskID, err := db.CreateTask(
+	taskId, err := taskRepo.CreateTask(
 		context.Background(),
 		"/input",
 		"/output",
@@ -110,16 +115,17 @@ func TestUpdateTaskStatus(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	err = db.UpdateTaskStatus(context.Background(), taskID, STATUS_ARCHIVE_COMPLETED)
+	err = taskRepo.UpdateTaskStatus(context.Background(), taskId, model.TASK_STATUS_ARCHIVE_COMPLETED)
 	assert.NoError(t, err)
 
-	task, err := db.GetTaskById(context.Background(), taskID)
+	task, err := taskRepo.GetTaskById(context.Background(), taskId)
 	assert.NoError(t, err)
-	assert.Equal(t, STATUS_ARCHIVE_COMPLETED, task.Status)
+	assert.Equal(t, model.TASK_STATUS_ARCHIVE_COMPLETED, task.Status)
 }
 
 func TestUpdateTaskContentInfo(t *testing.T) {
 	db := setupTestDB(t)
+	taskRepo := NewTaskRepository(db)
 	defer db.Close(context.Background())
 
 	filesInfo := &file_io.FilesInfo{
@@ -128,7 +134,7 @@ func TestUpdateTaskContentInfo(t *testing.T) {
 		ContentHash:    "test-hash",
 	}
 
-	taskID, err := db.CreateTask(
+	taskId, err := taskRepo.CreateTask(
 		context.Background(),
 		"/input",
 		"/output",
@@ -147,10 +153,10 @@ func TestUpdateTaskContentInfo(t *testing.T) {
 		ContentHash:    "new-test-hash",
 	}
 
-	err = db.UpdateTaskContentInfo(context.Background(), taskID, newFilesInfo)
+	err = taskRepo.UpdateTaskContentInfo(context.Background(), taskId, newFilesInfo)
 	assert.NoError(t, err)
 
-	task, err := db.GetTaskById(context.Background(), taskID)
+	task, err := taskRepo.GetTaskById(context.Background(), taskId)
 	assert.NoError(t, err)
 	assert.Equal(t, int64(2048), task.TotalSize)
 	assert.Equal(t, "new-test-hash", task.ContentHash)

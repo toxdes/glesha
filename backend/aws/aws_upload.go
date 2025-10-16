@@ -11,7 +11,7 @@ import (
 )
 
 type CreateMultipartUploadResult struct {
-	UploadID                string `json:"upload_id"`
+	UploadId                string `json:"upload_id"`
 	Key                     string `json:"key"`
 	Bucket                  string `json:"bucket"`
 	AwsChecksumAlgorithm    string `json:"aws_checksum_algorithm"`
@@ -31,7 +31,7 @@ func (aws *AwsBackend) CreateMultipartUpload(ctx context.Context, taskKey string
 	// TODO: maybe other values for cache-control make more sense here?
 	req.Header.Set("cache-control", "no-cache")
 	req.Header.Set("x-amz-storage-class", aws.storageClass)
-	req.Header.Set("x-amz-expected-bucket-owner", fmt.Sprintf("%d", aws.accountID))
+	req.Header.Set("x-amz-expected-bucket-owner", fmt.Sprintf("%d", aws.accountId))
 	req.Header.Set("x-amz-checksum-algorithm", "SHA256")
 	req.Header.Set("x-amz-checksum-type", "COMPOSITE")
 
@@ -82,7 +82,7 @@ func (aws *AwsBackend) CreateMultipartUpload(ctx context.Context, taskKey string
 		XMLName  xml.Name `xml:"InitiateMultipartUploadResult"`
 		Bucket   string   `xml:"Bucket"`
 		Key      string   `xml:"Key"`
-		UploadID string   `xml:"UploadId"`
+		UploadId string   `xml:"UploadId"`
 	}
 	var uploadRes UploadResp
 	err = xml.Unmarshal(bodyBytes, &uploadRes)
@@ -90,7 +90,7 @@ func (aws *AwsBackend) CreateMultipartUpload(ctx context.Context, taskKey string
 		return nil, fmt.Errorf("aws: failed to parse result of create multipart upload request: %w", err)
 	}
 	return &CreateMultipartUploadResult{
-		UploadID:                uploadRes.UploadID,
+		UploadId:                uploadRes.UploadId,
 		Bucket:                  uploadRes.Bucket,
 		Key:                     uploadRes.Key,
 		AwsChecksumAlgorithm:    resp.Header.Get("x-amz-checksum-algorithm"),

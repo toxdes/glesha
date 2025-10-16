@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"glesha/config"
 	"glesha/database"
+	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
 	"os"
@@ -27,6 +28,7 @@ type AddCmdEnv struct {
 	DB            *database.DB
 	IgnoredDirs   map[string]bool
 	FilesInfo     *file_io.FilesInfo
+	TaskRepo      repository.TaskRepository
 }
 
 var addCmdEnv *AddCmdEnv
@@ -63,27 +65,28 @@ func Execute(ctx context.Context, args []string) error {
 		return err
 	}
 	addCmdEnv.FilesInfo = filesInfo
-	return queueTask(ctx)
+	addCmdEnv.TaskRepo = repository.NewTaskRepository(db)
+	return queueTask(ctx, addCmdEnv.TaskRepo)
 }
 
-func queueTask(ctx context.Context) error {
-	task, err := addCmdEnv.DB.FindSimilarTask(
+func queueTask(ctx context.Context, taskRepo repository.TaskRepository) error {
+	task, err := taskRepo.FindSimilarTask(
 		ctx,
 		addCmdEnv.InputPath,
 		addCmdEnv.Provider,
 		addCmdEnv.FilesInfo,
 		addCmdEnv.ArchiveFormat,
 	)
-	if err != nil && err != database.ErrNoExistingTask {
+	if err != nil && err != database.ErrDoesNotExist {
 		return err
 	}
 	var taskId int64
 	if task != nil {
-		taskId = task.ID
+		taskId = task.Id
 	}
 
-	if err == database.ErrNoExistingTask {
-		taskId, err = addCmdEnv.DB.CreateTask(ctx,
+	if err == database.ErrDoesNotExist {
+		taskId, err = addCmdEnv.TaskRepo.CreateTask(ctx,
 			addCmdEnv.InputPath,
 			addCmdEnv.OutputPath,
 			addCmdEnv.ConfigPath,

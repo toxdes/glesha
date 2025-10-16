@@ -9,6 +9,8 @@ import (
 	"glesha/backend/aws"
 	"glesha/config"
 	"glesha/database"
+	"glesha/database/model"
+	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
 	"strconv"
@@ -17,9 +19,11 @@ import (
 )
 
 type RunCmdEnv struct {
-	DB     *database.DB
-	TaskID int64
-	Task   *database.GleshaTask
+	DB         *database.DB
+	TaskId     int64
+	Task       *model.Task
+	TaskRepo   repository.TaskRepository
+	UploadRepo repository.UploadRepository
 }
 
 var runCmdEnv *RunCmdEnv
@@ -50,10 +54,14 @@ func Execute(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	runCmdEnv.Task, err = runCmdEnv.DB.GetTaskById(ctx, runCmdEnv.TaskID)
-	if err != nil && err == database.ErrNoExistingTask {
-		if err == database.ErrNoExistingTask {
-			return fmt.Errorf("task %d does not exist, for more information see 'glesha help add'", runCmdEnv.TaskID)
+
+	runCmdEnv.TaskRepo = repository.NewTaskRepository(db)
+	runCmdEnv.UploadRepo = repository.NewUploadRepository(db)
+
+	runCmdEnv.Task, err = runCmdEnv.TaskRepo.GetTaskById(ctx, runCmdEnv.TaskId)
+	if err != nil {
+		if err == database.ErrDoesNotExist {
+			return fmt.Errorf("task %d does not exist, for more information see 'glesha help add'", runCmdEnv.TaskId)
 		}
 		return err
 	}
@@ -82,7 +90,7 @@ func parseFlags(args []string) error {
 	nArgs := len(runCmd.Args())
 
 	if nArgs < 1 {
-		return fmt.Errorf("ID not provided. For more information check 'glesha help run'")
+		return fmt.Errorf("no task Id provided. For more information check 'glesha help run'")
 	}
 	if nArgs > 1 {
 		return fmt.Errorf("too many arguments. For more information, check 'glesha help run'")
@@ -99,7 +107,7 @@ func parseFlags(args []string) error {
 		L.Info(fmt.Sprintf("log level set to: %s", strings.ToUpper(*logLevel)))
 	}
 	runCmdEnv = &RunCmdEnv{
-		TaskID: taskId,
+		TaskId: taskId,
 		Task:   nil,
 		DB:     nil,
 	}
@@ -114,10 +122,10 @@ func runTask(ctx context.Context) error {
 	}
 	mustRearchive := false
 	switch t.Status {
-	case database.STATUS_QUEUED,
-		database.STATUS_ARCHIVE_RUNNING,
-		database.STATUS_ARCHIVE_ABORTED,
-		database.STATUS_ARCHIVE_PAUSED:
+	case model.TASK_STATUS_QUEUED,
+		model.TASK_STATUS_ARCHIVE_RUNNING,
+		model.TASK_STATUS_ARCHIVE_ABORTED,
+		model.TASK_STATUS_ARCHIVE_PAUSED:
 		mustRearchive = true
 	}
 
@@ -163,12 +171,12 @@ func runTask(ctx context.Context) error {
 			return fmt.Errorf("kill signal received, exiting")
 		default:
 		}
-		err = runCmdEnv.DB.UpdateTaskStatus(ctx, runCmdEnv.TaskID, database.STATUS_ARCHIVE_COMPLETED)
+		err = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_ARCHIVE_COMPLETED)
 		if err != nil {
 			return err
 		}
-		err = runCmdEnv.DB.UpdateTaskContentInfo(ctx,
-			runCmdEnv.TaskID, archiver.GetInfo(ctx))
+		err = runCmdEnv.TaskRepo.UpdateTaskContentInfo(ctx,
+			runCmdEnv.TaskId, archiver.GetInfo(ctx))
 		if err != nil {
 			return err
 		}
@@ -176,6 +184,7 @@ func runTask(ctx context.Context) error {
 	} else {
 		L.Info("Skipping Archiving because input_path contents have not changed since last run")
 	}
+
 	archivePath := archiver.GetArchiveFilePath(ctx)
 	L.Printf("Archive: %s\n", archivePath)
 
@@ -194,17 +203,20 @@ func runTask(ctx context.Context) error {
 		return err
 	}
 	L.Info("Upload::CreateResourceContainer OK")
-	existingUpload, err := runCmdEnv.DB.GetUploadByTaskId(ctx, runCmdEnv.TaskID)
+
+	existingUpload, err := runCmdEnv.UploadRepo.GetUploadByTaskId(ctx, runCmdEnv.TaskId)
+
 	var uploadId int64
-	if err != nil || existingUpload == nil {
-		uploadRes, err := storageBackend.CreateUploadResource(ctx,
+
+	if err != nil && err == database.ErrDoesNotExist {
+		uploadRes, err2 := storageBackend.CreateUploadResource(ctx,
 			runCmdEnv.Task.Key(), archivePath)
-		if err != nil {
-			return err
+		if err2 != nil {
+			return err2
 		}
-		archiveFileInfo, err := file_io.GetFileInfo(archivePath)
-		if err != nil {
-			return err
+		archiveFileInfo, err2 := file_io.GetFileInfo(archivePath)
+		if err2 != nil {
+			return err2
 		}
 
 		blockSizeInBytes := uploadRes.BlockSizeInBytes
@@ -214,25 +226,34 @@ func runTask(ctx context.Context) error {
 			totalBlocks = (archiveFileSize + blockSizeInBytes - 1) / blockSizeInBytes
 		}
 
-		if err = storageBackend.IsBlockSizeOK(blockSizeInBytes, archiveFileSize); err != nil {
+		err2 = storageBackend.IsBlockSizeOK(blockSizeInBytes, archiveFileSize)
+		if err2 != nil {
 			return fmt.Errorf("failed to partition file: %w", err)
 		}
 
-		uploadId, err = runCmdEnv.DB.CreateUpload(ctx, runCmdEnv.TaskID,
+		uploadId, err2 = runCmdEnv.UploadRepo.CreateUpload(ctx, runCmdEnv.TaskId,
 			uploadRes.Metadata, archivePath,
 			int64(archiveFileInfo.Size), archiveFileInfo.ModifiedAt,
 			totalBlocks, blockSizeInBytes, time.Now(), time.Now())
 
-		if err != nil {
+		if err2 != nil {
 			return fmt.Errorf("failed to save upload information: %w", err)
 		}
-		L.Info(fmt.Sprintf("Upload::CreateUploadResource OK (upload_id: %d)", uploadId))
-
+		L.Printf("Upload::CreateUploadResource OK (upload_id: %d)\n", uploadId)
+		err = nil
+	} else if err != nil {
+		return fmt.Errorf("could not get upload for task id %d: %w", runCmdEnv.TaskId, err)
 	} else {
 		L.Info("Skipping creating a new upload because upload already exists for a task")
-		uploadId = existingUpload.ID
+		uploadId = existingUpload.Id
 	}
-	L.Println(fmt.Sprintf("Task(%d) now has upload ID: %d", runCmdEnv.TaskID, uploadId))
+	L.Println(fmt.Sprintf("Task(%d) now has upload Id: %d", runCmdEnv.TaskId, uploadId))
+
+	// upload, err := runCmdEnv.UploadRepo.GetUploadById(ctx, uploadId)
+
+	if err != nil {
+		return err
+	}
 
 	// TODO: call UploadPart for each part, and call CompleteMultipartUpload after
 	err = storageBackend.UploadResource(ctx, uploadId)

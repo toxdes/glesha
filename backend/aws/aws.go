@@ -20,7 +20,7 @@ type AwsBackend struct {
 	bucketName   string
 	accessKey    string
 	secretKey    string
-	accountID    uint64
+	accountId    uint64
 	region       string
 	storageClass string
 	host         string
@@ -51,7 +51,7 @@ func new() (*AwsBackend, error) {
 		return nil, err
 	}
 
-	err = validator.ValidateAccountID(configs.Aws.AccountID)
+	err = validator.ValidateAccountId(configs.Aws.AccountId)
 
 	if err != nil {
 		return nil, err
@@ -72,7 +72,7 @@ func new() (*AwsBackend, error) {
 		secretKey:    configs.Aws.SecretKey,
 		region:       configs.Aws.Region,
 		storageClass: configs.Aws.StorageClass,
-		accountID:    configs.Aws.AccountID,
+		accountId:    configs.Aws.AccountId,
 		host:         host,
 		protocol:     protocol,
 	}
@@ -244,7 +244,7 @@ func (aws *AwsBackend) EstimateCost(ctx context.Context, size uint64, currency s
 	return sb.String(), nil
 }
 
-func (a *AwsBackend) UploadResource(ctx context.Context, uploadID int64) error {
+func (a *AwsBackend) UploadResource(ctx context.Context, uploadId int64) error {
 	return fmt.Errorf("aws: UploadResource not implemented yet")
 }
 

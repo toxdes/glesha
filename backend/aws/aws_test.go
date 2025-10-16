@@ -50,12 +50,12 @@ func TestNew(t *testing.T) {
 		assert.EqualError(t, err, fmt.Sprintf("aws: invalid storage class %s", config.Get().Aws.StorageClass))
 	})
 
-	t.Run("InvalidAccountID", func(t *testing.T) {
+	t.Run("InvalidAccountId", func(t *testing.T) {
 		config.Get().Aws = &config.Aws{
 			BucketName:   "my-bucket",
 			Region:       "us-east-1",
 			StorageClass: "STANDARD",
-			AccountID:    12345,
+			AccountId:    12345,
 		}
 		_, err := new()
 		assert.Error(t, err)
@@ -67,7 +67,7 @@ func TestNew(t *testing.T) {
 			BucketName:   "my-bucket",
 			Region:       "us-east-1",
 			StorageClass: "STANDARD",
-			AccountID:    123456789012,
+			AccountId:    123456789012,
 			AccessKey:    "test-access-key",
 			SecretKey:    "test-secret-key",
 		}

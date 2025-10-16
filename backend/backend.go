@@ -16,7 +16,7 @@ type CreateUploadResult struct {
 type StorageBackend interface {
 	CreateResourceContainer(ctx context.Context) error
 	CreateUploadResource(ctx context.Context, taskKey string, resourceFilePath string) (*CreateUploadResult, error)
-	UploadResource(ctx context.Context, uploadID int64) error
+	UploadResource(ctx context.Context, uploadId int64) error
 	IsBlockSizeOK(blockSize int64, fileSize int64) error
 }
 

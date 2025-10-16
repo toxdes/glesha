@@ -69,20 +69,20 @@ func TestAwsValidator_ValidateStorageClass(t *testing.T) {
 	})
 }
 
-func TestAwsValidator_ValidateAccountID(t *testing.T) {
+func TestAwsValidator_ValidateAccountId(t *testing.T) {
 	validator := AwsValidator{}
 
-	t.Run("ValidAccountIDs", func(t *testing.T) {
-		validIDs := []uint64{123456789012, 987654321098}
-		for _, id := range validIDs {
-			assert.NoError(t, validator.ValidateAccountID(id), "Expected account ID %d to be valid", id)
+	t.Run("ValidAccountIds", func(t *testing.T) {
+		validIds := []uint64{123456789012, 987654321098}
+		for _, id := range validIds {
+			assert.NoError(t, validator.ValidateAccountId(id), "Expected account Id %d to be valid", id)
 		}
 	})
 
-	t.Run("InvalidAccountIDs", func(t *testing.T) {
-		invalidIDs := []uint64{12345, 1234567890123}
-		for _, id := range invalidIDs {
-			assert.Error(t, validator.ValidateAccountID(id), "Expected account ID %d to be invalid", id)
+	t.Run("InvalidAccountIds", func(t *testing.T) {
+		invalidIds := []uint64{12345, 1234567890123}
+		for _, id := range invalidIds {
+			assert.Error(t, validator.ValidateAccountId(id), "Expected account Id %d to be invalid", id)
 		}
 	})
 }

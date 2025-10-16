@@ -79,7 +79,7 @@ func (a *AwsValidator) ValidateStorageClass(storageClass string) error {
 	return nil
 }
 
-func (a *AwsValidator) ValidateAccountID(id uint64) error {
+func (a *AwsValidator) ValidateAccountId(id uint64) error {
 	length := 0
 	// must be 12 digits
 	for ; id > 0; id /= 10 {

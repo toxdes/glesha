@@ -1,4 +1,4 @@
-package database
+package repository
 
 import (
 	"context"
@@ -15,6 +15,8 @@ import (
 
 func TestCreateAndGetUpload(t *testing.T) {
 	db := setupTestDB(t)
+	taskRepo := NewTaskRepository(db)
+	uploadRepo := NewUploadRepository(db)
 	defer db.Close(context.Background())
 
 	filesInfo := &file_io.FilesInfo{
@@ -23,7 +25,7 @@ func TestCreateAndGetUpload(t *testing.T) {
 		ContentHash:    "test-hash",
 	}
 
-	taskID, err := db.CreateTask(
+	taskId, err := taskRepo.CreateTask(
 		context.Background(),
 		"/input",
 		"/output",
@@ -39,9 +41,9 @@ func TestCreateAndGetUpload(t *testing.T) {
 		Json:          "metadata",
 		SchemaVersion: 1,
 	}
-	uploadID, err := db.CreateUpload(
+	uploadId, err := uploadRepo.CreateUpload(
 		context.Background(),
-		taskID,
+		taskId,
 		metadata,
 		"/path/to/file",
 		2048,
@@ -53,19 +55,19 @@ func TestCreateAndGetUpload(t *testing.T) {
 	)
 	assert.NoError(t, err)
 
-	upload, err := db.GetUploadByTaskId(context.Background(), taskID)
+	upload, err := uploadRepo.GetUploadByTaskId(context.Background(), taskId)
 	assert.NoError(t, err)
 	assert.NotNil(t, upload)
-	assert.Equal(t, uploadID, upload.ID)
-	assert.Equal(t, taskID, upload.TaskID)
+	assert.Equal(t, uploadId, upload.Id)
+	assert.Equal(t, taskId, upload.TaskId)
 	assert.Equal(t, metadata.Json, upload.StorageBackendMetadata.Json)
 	assert.Equal(t, metadata.SchemaVersion, upload.StorageBackendMetadata.SchemaVersion)
 	assert.True(t, upload.StorageBackendMetadata.SchemaVersion > 0)
 
 	// Try to create again, should return existing
-	newUploadID, err := db.CreateUpload(
+	newUploadId, err := uploadRepo.CreateUpload(
 		context.Background(),
-		taskID,
+		taskId,
 		upload.StorageBackendMetadata,
 		"/path/to/file2",
 		4096,
@@ -76,9 +78,9 @@ func TestCreateAndGetUpload(t *testing.T) {
 		time.Now(),
 	)
 	assert.NoError(t, err)
-	assert.Equal(t, uploadID, newUploadID)
+	assert.Equal(t, uploadId, newUploadId)
 
-	newUpload, err := db.GetUploadByTaskId(context.Background(), taskID)
+	newUpload, err := uploadRepo.GetUploadByTaskId(context.Background(), taskId)
 	assert.NoError(t, err)
 	assert.Equal(t, metadata.Json, newUpload.StorageBackendMetadata.Json)
 	assert.Equal(t, metadata.SchemaVersion, newUpload.StorageBackendMetadata.SchemaVersion)

@@ -6,7 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"glesha/database"
+	"glesha/database/model"
 	"glesha/file_io"
 	L "glesha/logger"
 	"io"
@@ -18,7 +18,7 @@ import (
 )
 
 type TarGzArchive struct {
-	ID                   int64
+	Id                   int64
 	InputPath            string
 	OutputPath           string
 	Info                 *file_io.FilesInfo
@@ -30,7 +30,7 @@ type TarGzArchive struct {
 	archiveAlreadyExists bool
 }
 
-func NewTarGzArchiver(t *database.GleshaTask) (*TarGzArchive, error) {
+func NewTarGzArchiver(t *model.Task) (*TarGzArchive, error) {
 	readable, err := file_io.IsReadable(t.InputPath)
 	if err != nil || !readable {
 		return nil, fmt.Errorf("no read permission on input path: %s", t.InputPath)
@@ -64,7 +64,7 @@ func NewTarGzArchiver(t *database.GleshaTask) (*TarGzArchive, error) {
 		absGleshaWorkDir: true,
 	}
 	return &TarGzArchive{
-		ID:            t.ID,
+		Id:            t.Id,
 		InputPath:     t.InputPath,
 		OutputPath:    t.OutputPath,
 		Info:          nil,
@@ -100,7 +100,7 @@ func (tgz *TarGzArchive) GetInfo(ctx context.Context) *file_io.FilesInfo {
 
 func (tgz *TarGzArchive) getTarFile() string {
 	return filepath.Join(tgz.GleshaWorkDir,
-		fmt.Sprintf("glesha-%d.tar.gz", tgz.ID))
+		fmt.Sprintf("glesha-%d.tar.gz", tgz.Id))
 }
 
 func (tgz *TarGzArchive) archive(ctx context.Context) error {
