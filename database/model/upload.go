@@ -65,7 +65,7 @@ func (t *Upload) String() string {
 		t.TaskId,
 		t.StorageBackendMetadata.Json,
 		t.FilePath,
-		L.HumanReadableBytes(uint64(t.FileSize)),
+		L.HumanReadableBytes(uint64(t.FileSize), 2),
 		t.UploadedBytes,
 		t.UploadedBlocks, t.TotalBlocks, t.Status)
 }

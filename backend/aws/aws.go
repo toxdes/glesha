@@ -169,7 +169,7 @@ func (aws *AwsBackend) CreateUploadResource(
 	}
 	L.Info(fmt.Sprintf("aws: initiating upload: %s (%s)",
 		resourceFilePath,
-		L.HumanReadableBytes(resourceFileInfo.Size)))
+		L.HumanReadableBytes(resourceFileInfo.Size, 2)))
 
 	cost, err := aws.EstimateCost(ctx, resourceFileInfo.Size, "INR")
 	if err != nil {

@@ -64,7 +64,7 @@ func (t *Task) String() string {
 		t.ConfigPath,
 		t.Provider.String(),
 		t.ArchiveFormat.String(),
-		L.HumanReadableBytes(uint64(t.TotalSize)),
+		L.HumanReadableBytes(uint64(t.TotalSize), 2),
 		t.TotalFileCount)
 }
 

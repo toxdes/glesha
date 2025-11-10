@@ -10,9 +10,12 @@ import (
 	"unicode/utf8"
 )
 
-func HumanReadableBytes(bytes uint64) string {
+func HumanReadableBytes(bytes uint64, precision int) string {
 	if bytes == 0 {
 		return "0 B"
+	}
+	if precision <= 0 {
+		precision = 2
 	}
 	val := float64(bytes)
 	suffixes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
@@ -22,7 +25,7 @@ func HumanReadableBytes(bytes uint64) string {
 		val /= unit
 		i += 1
 	}
-	return fmt.Sprintf("%.2f%s", val, suffixes[i])
+	return fmt.Sprintf("%.*f%s", precision, val, suffixes[i])
 }
 
 func HttpResponseString(resp *http.Response) string {
