@@ -30,23 +30,23 @@ var (
 
 // cursor sequences
 const (
-	C_ESCAPE     = "\x1B"
-	C_SAVE       = C_ESCAPE + "7"
-	C_RESTORE    = C_ESCAPE + "8"
-	C_CLEAR_LINE = C_ESCAPE + "[2K"
-	C_UP         = C_ESCAPE + "[1A"
-	C_DOWN       = C_ESCAPE + "[1B"
-	C_RIGHT      = C_ESCAPE + "[1C"
-	C_LEFT       = C_ESCAPE + "[1D"
+	C_ESCAPE     string = "\x1B"
+	C_SAVE              = C_ESCAPE + "7"
+	C_RESTORE           = C_ESCAPE + "8"
+	C_CLEAR_LINE        = C_ESCAPE + "[2K"
+	C_UP                = C_ESCAPE + "[1A"
+	C_DOWN              = C_ESCAPE + "[1B"
+	C_RIGHT             = C_ESCAPE + "[1C"
+	C_LEFT              = C_ESCAPE + "[1D"
 )
 
 // colors
 const (
-	colorReset  = C_ESCAPE + "[0m"
-	colorRed    = C_ESCAPE + "[31m"
-	colorGreen  = C_ESCAPE + "[32m"
-	colorYellow = C_ESCAPE + "[33m"
-	colorBlue   = C_ESCAPE + "[34m"
+	colorReset  string = C_ESCAPE + "[0m"
+	colorRed           = C_ESCAPE + "[31m"
+	colorGreen         = C_ESCAPE + "[32m"
+	colorYellow        = C_ESCAPE + "[33m"
+	colorBlue          = C_ESCAPE + "[34m"
 )
 
 func SetLevelFromString(l string) error {
