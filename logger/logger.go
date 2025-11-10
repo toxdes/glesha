@@ -10,7 +10,7 @@ import (
 
 type LogLevel int
 
-var printCallerLocation bool = true
+var printCallerLocation string
 
 const (
 	DEBUG LogLevel = iota
@@ -79,7 +79,7 @@ func SetLevel(l LogLevel) error {
 
 func Debug(v ...any) {
 	if level <= DEBUG {
-		if printCallerLocation {
+		if printCallerLocation == "true" {
 			_, file, line, _ := runtime.Caller(1)
 			debugLogger.Printf("%s:%d: %s%s", file, line, fmt.Sprint(v...), colorReset)
 		} else {
@@ -102,7 +102,7 @@ func Warn(v ...any) {
 
 func Error(v ...any) {
 	if level <= ERROR {
-		if printCallerLocation {
+		if printCallerLocation == "true" {
 			_, file, line, _ := runtime.Caller(1)
 			errorLogger.Printf("%s:%d: - %s%s", file, line, fmt.Sprint(v...), colorReset)
 		} else {
