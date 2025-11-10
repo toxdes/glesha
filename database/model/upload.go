@@ -2,7 +2,6 @@ package model
 
 import (
 	"fmt"
-	"glesha/backend"
 	L "glesha/logger"
 	"time"
 )
@@ -37,35 +36,47 @@ const CREATE_UPLOADS_TABLE = `CREATE TABLE IF NOT EXISTS uploads(
 				created_at TEXT NOT NULL, 
 				updated_at TEXT NOT NULL,
 				completed_at TEXT,
+				url TEXT,
 
 				UNIQUE(task_id),
 				FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );`
 
 type Upload struct {
-	Id                     int64
-	TaskId                 int64
-	StorageBackendMetadata backend.StorageMetadata
-	FilePath               string
-	FileSize               int64
-	FileLastModifiedAt     time.Time
-	UploadedBytes          int64
-	UploadedBlocks         int64
-	TotalBlocks            int64
-	BlockSizeInBytes       int64
-	Status                 UploadStatus
-	CreatedAt              time.Time
-	UpdatedAt              time.Time
-	CompletedAt            time.Time
+	Id                                  int64
+	TaskId                              int64
+	StorageBackendMetadataJson          string
+	StorageBackendMetadataSchemaVersion int64
+	FilePath                            string
+	FileSize                            int64
+	FileLastModifiedAt                  time.Time
+	UploadedBytes                       int64
+	UploadedBlocks                      int64
+	TotalBlocks                         int64
+	BlockSizeInBytes                    int64
+	Status                              UploadStatus
+	CreatedAt                           time.Time
+	UpdatedAt                           time.Time
+	CompletedAt                         time.Time
+	Url                                 *string
 }
 
 func (t *Upload) String() string {
-	return fmt.Sprintf("Upload:\n\tId: %d\n\tTaskId: %d\n\t\tStorageBackendMetadataJson: %s\n\tFilePath: %s\n\tFileSize: %s\n\tUploadedBytes: %d\n\tUploadedBlocks: %d\n\tTotalParts: %d\n\tStatus: %s\n",
+	url := "<nil>"
+	if t.Url != nil {
+		url = *t.Url
+	}
+	return fmt.Sprintf("Upload:\n\tId: %d\n\tTaskId: %d\n\t\tStorageBackendMetadataJson: %s\n\tStorageBackendMetadataSchemaVersion: %d\n\tFilePath: %s\n\tFileSize: %s\n\tUploadedBytes: %d\n\tUploadedBlocks: %d\n\tTotalParts: %d\n\tStatus: %s\n\tURL: %s\n",
 		t.Id,
 		t.TaskId,
-		t.StorageBackendMetadata.Json,
+		t.StorageBackendMetadataJson,
+		t.StorageBackendMetadataSchemaVersion,
 		t.FilePath,
 		L.HumanReadableBytes(uint64(t.FileSize), 2),
 		t.UploadedBytes,
-		t.UploadedBlocks, t.TotalBlocks, t.Status)
+		t.UploadedBlocks,
+		t.TotalBlocks,
+		t.Status,
+		url,
+	)
 }

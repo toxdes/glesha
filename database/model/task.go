@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"glesha/checksum"
 	"glesha/config"
 	L "glesha/logger"
 	"time"
@@ -69,5 +70,5 @@ func (t *Task) String() string {
 }
 
 func (t *Task) Key() string {
-	return fmt.Sprintf("%d-%s-%d", t.Id, t.ContentHash, t.CreatedAt.UnixMilli())
+	return fmt.Sprintf("%d-%s-%d", t.Id, checksum.HexEncodeStr([]byte(t.ContentHash)), t.CreatedAt.UnixMilli())
 }

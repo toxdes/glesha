@@ -2,15 +2,16 @@ package file_io
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"glesha/checksum"
 	L "glesha/logger"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,9 +22,34 @@ type FilesInfo struct {
 	ContentHash       string
 }
 
+type ProgressReader struct {
+	R          io.ReadSeeker
+	Sent       int64
+	Total      int64
+	Position   int64
+	OnProgress func(sent int64, total int64)
+}
+
+func (pr *ProgressReader) Read(p []byte) (n int, err error) {
+	n, err = pr.R.Read(p)
+	atomic.AddInt64(&pr.Sent, int64(n))
+	atomic.AddInt64(&pr.Position, int64(n))
+	sent := atomic.LoadInt64(&pr.Sent)
+	pr.OnProgress(sent, pr.Total)
+	return n, err
+}
+
+func (pr *ProgressReader) Seek(offset int64, whence int) (int64, error) {
+	newOffset, err := pr.R.Seek(offset, whence)
+	if err == nil {
+		atomic.StoreInt64(&pr.Position, int64(newOffset))
+	}
+	return newOffset, err
+}
+
 func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
 	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0, ContentHash: ""}
-	contentHashWriter := sha256.New()
+	contentHashWriter := checksum.NewSha256()
 	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
 		select {
 		case <-ctx.Done():
@@ -78,7 +104,7 @@ func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[str
 	if err != nil {
 		return nil, err
 	}
-	filesInfo.ContentHash = hex.EncodeToString(contentHashWriter.Sum([]byte{}))
+	filesInfo.ContentHash = checksum.Base64EncodeStr(contentHashWriter.Sum([]byte{}))
 	return filesInfo, nil
 }
 
@@ -201,4 +227,43 @@ func GetGlobalWorkDir() (string, error) {
 		return "", err
 	}
 	return absPath, nil
+}
+
+func ReadFromOffset(ctx context.Context, filePath string, offset int64, buf []byte) (readBytes int64, err error) {
+	readBytes = -1
+	select {
+	case <-ctx.Done():
+		return -1, ctx.Err()
+	default:
+	}
+	absFilePath, err := filepath.Abs(filePath)
+	if err != nil {
+		return -1, fmt.Errorf("could not get abs path for path %s: %w", filePath, err)
+	}
+
+	file, err := os.Open(absFilePath)
+
+	if err != nil {
+		return -1, fmt.Errorf("could not open file %s:%w", absFilePath, err)
+	}
+	defer file.Close()
+
+	type result struct {
+		readCnt int
+		err     error
+	}
+
+	resultChannel := make(chan result, 1)
+	defer close(resultChannel)
+	go func() {
+		readCnt, err := file.ReadAt(buf, offset)
+		resultChannel <- result{readCnt, err}
+	}()
+
+	select {
+	case res := <-resultChannel:
+		return int64(res.readCnt), res.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
 }

@@ -19,23 +19,21 @@ import (
 )
 
 type RunCmdEnv struct {
-	DB         *database.DB
-	TaskId     int64
-	Task       *model.Task
-	TaskRepo   repository.TaskRepository
-	UploadRepo repository.UploadRepository
+	DB                *database.DB
+	TaskId            int64
+	Task              *model.Task
+	TaskRepo          repository.TaskRepository
+	UploadRepo        repository.UploadRepository
+	UploadBlockRepo   repository.UploadBlockRepository
+	MaxConcurrentJobs int
 }
-
-var runCmdEnv *RunCmdEnv
 
 func Execute(ctx context.Context, args []string) error {
 	// parse cli args
-	err := parseFlags(args)
+	runCmdEnv := &RunCmdEnv{}
+	err := parseFlags(args, runCmdEnv)
 	if err != nil {
 		return err
-	}
-	if runCmdEnv == nil {
-		return fmt.Errorf("could not initialize env, this shouldn't happen")
 	}
 
 	// initialize db connection
@@ -57,6 +55,7 @@ func Execute(ctx context.Context, args []string) error {
 
 	runCmdEnv.TaskRepo = repository.NewTaskRepository(db)
 	runCmdEnv.UploadRepo = repository.NewUploadRepository(db)
+	runCmdEnv.UploadBlockRepo = repository.NewUploadBlockRepository(db)
 
 	runCmdEnv.Task, err = runCmdEnv.TaskRepo.GetTaskById(ctx, runCmdEnv.TaskId)
 	if err != nil {
@@ -70,13 +69,16 @@ func Execute(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	err = runTask(ctx)
+	err = runTask(ctx, runCmdEnv)
 	return err
 }
 
-func parseFlags(args []string) error {
+func parseFlags(args []string, runCmdEnv *RunCmdEnv) error {
+	const DEFAULT_MAX_JOBS = 1
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
 	logLevel := runCmd.String("log-level", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
+	maxConcurrentJobs := runCmd.Int("jobs", DEFAULT_MAX_JOBS, "Set max workers to use for processing")
+	runCmd.IntVar(maxConcurrentJobs, "j", DEFAULT_MAX_JOBS, "Set max workers to use for processing")
 	runCmd.StringVar(logLevel, "L", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
 	runCmd.Usage = func() {
 		PrintUsage()
@@ -104,18 +106,14 @@ func parseFlags(args []string) error {
 		if err != nil {
 			return err
 		}
-		L.Info(fmt.Sprintf("log level set to: %s", strings.ToUpper(*logLevel)))
+		L.Info(fmt.Sprintf("Setting log level set to: %s", strings.ToUpper(*logLevel)))
 	}
-	runCmdEnv = &RunCmdEnv{
-		TaskId: taskId,
-		Task:   nil,
-		DB:     nil,
-	}
-
+	runCmdEnv.TaskId = taskId
+	runCmdEnv.MaxConcurrentJobs = *maxConcurrentJobs
 	return err
 }
 
-func runTask(ctx context.Context) error {
+func runTask(ctx context.Context, runCmdEnv *RunCmdEnv) error {
 	t := runCmdEnv.Task
 	if t == nil {
 		return fmt.Errorf("no task to run")
@@ -138,7 +136,7 @@ func runTask(ctx context.Context) error {
 			return err
 		}
 		archivePath := archiver.GetArchiveFilePath(ctx)
-		L.Info("Archive: Planning archive")
+		L.Info("Planning archive")
 		err = archiver.Plan(ctx)
 		if err != nil {
 			return err
@@ -202,7 +200,7 @@ func runTask(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	L.Info("Upload::CreateResourceContainer OK")
+	L.Println("Upload::CreateResourceContainer OK")
 
 	existingUpload, err := runCmdEnv.UploadRepo.GetUploadByTaskId(ctx, runCmdEnv.TaskId)
 
@@ -214,6 +212,7 @@ func runTask(ctx context.Context) error {
 		if err2 != nil {
 			return err2
 		}
+		L.Println("Upload::CreateUploadResource OK")
 		archiveFileInfo, err2 := file_io.GetFileInfo(archivePath)
 		if err2 != nil {
 			return err2
@@ -230,11 +229,20 @@ func runTask(ctx context.Context) error {
 		if err2 != nil {
 			return fmt.Errorf("failed to partition file: %w", err)
 		}
-
-		uploadId, err2 = runCmdEnv.UploadRepo.CreateUpload(ctx, runCmdEnv.TaskId,
-			uploadRes.Metadata, archivePath,
-			int64(archiveFileInfo.Size), archiveFileInfo.ModifiedAt,
-			totalBlocks, blockSizeInBytes, time.Now(), time.Now())
+		now := time.Now()
+		uploadId, err2 = runCmdEnv.UploadRepo.CreateUpload(
+			ctx,
+			runCmdEnv.TaskId,
+			uploadRes.Metadata.Json,
+			uploadRes.Metadata.SchemaVersion,
+			archivePath,
+			int64(archiveFileInfo.Size),
+			archiveFileInfo.ModifiedAt,
+			totalBlocks,
+			blockSizeInBytes,
+			now,
+			now,
+		)
 
 		if err2 != nil {
 			return fmt.Errorf("failed to save upload information: %w", err)
@@ -248,19 +256,22 @@ func runTask(ctx context.Context) error {
 		uploadId = existingUpload.Id
 	}
 	L.Println(fmt.Sprintf("Task(%d) now has upload Id: %d", runCmdEnv.TaskId, uploadId))
-
-	// upload, err := runCmdEnv.UploadRepo.GetUploadById(ctx, uploadId)
-
 	if err != nil {
 		return err
 	}
 
-	// TODO: call UploadPart for each part, and call CompleteMultipartUpload after
-	err = storageBackend.UploadResource(ctx, uploadId)
+	err = storageBackend.UploadResource(
+		ctx,
+		runCmdEnv.TaskRepo,
+		runCmdEnv.UploadRepo,
+		runCmdEnv.UploadBlockRepo,
+		runCmdEnv.MaxConcurrentJobs,
+		uploadId,
+	)
 
 	if err != nil {
 		return err
 	}
-
-	return fmt.Errorf("upload: UploadParts() not implemented yet")
+	L.Printf("Upload Archive: OK\n")
+	return nil
 }

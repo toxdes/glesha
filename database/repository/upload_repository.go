@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"glesha/backend"
 	"glesha/database"
 	"glesha/database/model"
 	"time"
@@ -14,7 +13,8 @@ type UploadRepository interface {
 	CreateUpload(
 		ctx context.Context,
 		taskId int64,
-		storageBackendMetadata backend.StorageMetadata,
+		storageBackendMetadataJson string,
+		storageBackendMetadataSchemaVersion int64,
 		filePath string,
 		fileSize int64,
 		fileLastModifiedAt time.Time,
@@ -33,6 +33,18 @@ type UploadRepository interface {
 		ctx context.Context,
 		taskId int64,
 	) (*model.Upload, error)
+
+	MarkComplete(
+		ctx context.Context,
+		id int64,
+		url string,
+	) error
+
+	UpdateStatus(
+		ctx context.Context,
+		id int64,
+		status model.UploadStatus,
+	) error
 }
 
 type uploadRepository struct {
@@ -46,7 +58,8 @@ func NewUploadRepository(db *database.DB) UploadRepository {
 func (u uploadRepository) CreateUpload(
 	ctx context.Context,
 	taskId int64,
-	storageBackendMetadata backend.StorageMetadata,
+	storageBackendMetadataJson string,
+	storageBackendMetadataSchemaVersion int64,
 	filePath string,
 	fileSize int64,
 	fileLastModifiedAt time.Time,
@@ -71,8 +84,8 @@ func (u uploadRepository) CreateUpload(
 	) VALUES (?,?,?,?,?,?,?,?,?,?) 
 	 ON CONFLICT(task_id) DO NOTHING`,
 		taskId,
-		storageBackendMetadata.Json,
-		storageBackendMetadata.SchemaVersion,
+		storageBackendMetadataJson,
+		storageBackendMetadataSchemaVersion,
 		filePath,
 		fileSize,
 		database.ToTimeStr(fileLastModifiedAt),
@@ -119,19 +132,21 @@ func (u uploadRepository) GetUploadByTaskId(ctx context.Context, taskId int64) (
 		status,
 		created_at,
 		updated_at,
-		completed_at
+		completed_at,
+		url
 	from uploads WHERE task_id=?`, taskId)
 
 	var upload model.Upload
-	var fileLastModifiedAtStr string
+	var fileLastModifiedAtStr sql.NullString
 	var createdAtStr string
 	var updatedAtStr string
 	var completedAtStr sql.NullString
+	var urlStr sql.NullString
 	err := row.Scan(
 		&upload.Id,
 		&upload.TaskId,
-		&upload.StorageBackendMetadata.Json,
-		&upload.StorageBackendMetadata.SchemaVersion,
+		&upload.StorageBackendMetadataJson,
+		&upload.StorageBackendMetadataSchemaVersion,
 		&upload.FilePath,
 		&upload.FileSize,
 		&fileLastModifiedAtStr,
@@ -143,6 +158,7 @@ func (u uploadRepository) GetUploadByTaskId(ctx context.Context, taskId int64) (
 		&createdAtStr,
 		&updatedAtStr,
 		&completedAtStr,
+		&urlStr,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -150,11 +166,18 @@ func (u uploadRepository) GetUploadByTaskId(ctx context.Context, taskId int64) (
 		}
 		return nil, fmt.Errorf("could not find upload for task id %d: %w", taskId, err)
 	}
-	upload.FileLastModifiedAt = database.FromTimeStr(fileLastModifiedAtStr)
+
+	if fileLastModifiedAtStr.Valid {
+		upload.FileLastModifiedAt = database.FromTimeStr(fileLastModifiedAtStr.String)
+	}
+
 	upload.CreatedAt = database.FromTimeStr(createdAtStr)
 	upload.UpdatedAt = database.FromTimeStr(updatedAtStr)
 	if completedAtStr.Valid {
 		upload.CompletedAt = database.FromTimeStr(completedAtStr.String)
+	}
+	if urlStr.Valid {
+		upload.Url = &urlStr.String
 	}
 	return &upload, nil
 }
@@ -176,22 +199,24 @@ func (u uploadRepository) GetUploadById(ctx context.Context, uploadId int64) (*m
 		status,
 		created_at,
 		updated_at,
-		completed_at
+		completed_at,
+		url
 	from uploads WHERE id=?`, uploadId)
 
 	var upload model.Upload
-	var fileLastModifiedAtStr string
+	var fileLastModifiedAtStr sql.NullString
 	var createdAtStr string
 	var updatedAtStr string
 	var completedAtStr sql.NullString
+	var urlStr sql.NullString
 	err := row.Scan(
 		&upload.Id,
 		&upload.TaskId,
-		&upload.StorageBackendMetadata.Json,
-		&upload.StorageBackendMetadata.SchemaVersion,
+		&upload.StorageBackendMetadataJson,
+		&upload.StorageBackendMetadataSchemaVersion,
 		&upload.FilePath,
 		&upload.FileSize,
-		&upload.FileLastModifiedAt,
+		&fileLastModifiedAtStr,
 		&upload.UploadedBytes,
 		&upload.UploadedBlocks,
 		&upload.TotalBlocks,
@@ -200,15 +225,58 @@ func (u uploadRepository) GetUploadById(ctx context.Context, uploadId int64) (*m
 		&createdAtStr,
 		&updatedAtStr,
 		&completedAtStr,
+		&urlStr,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("could not find upload for id %d: %w", uploadId, err)
 	}
-	upload.FileLastModifiedAt = database.FromTimeStr(fileLastModifiedAtStr)
+	if fileLastModifiedAtStr.Valid {
+		upload.FileLastModifiedAt = database.FromTimeStr(fileLastModifiedAtStr.String)
+
+	}
 	upload.CreatedAt = database.FromTimeStr(createdAtStr)
 	upload.UpdatedAt = database.FromTimeStr(updatedAtStr)
 	if completedAtStr.Valid {
 		upload.CompletedAt = database.FromTimeStr(completedAtStr.String)
 	}
+	if urlStr.Valid {
+		upload.Url = &urlStr.String
+	}
 	return &upload, nil
+}
+
+func (u uploadRepository) MarkComplete(
+	ctx context.Context,
+	id int64,
+	url string,
+) error {
+	q := `UPDATE uploads SET
+				status=?,
+				url=?,
+				updated_at=?,
+				completed_at=?
+				WHERE id=?`
+	now := database.ToTimeStr(time.Now())
+	_, err := u.db.D.ExecContext(ctx, q, model.UPLOAD_STATUS_COMPLETED, url, now, now, id)
+	if err != nil {
+		return fmt.Errorf("could not mark upload as complete for upload id %d:%w", id, err)
+	}
+	return nil
+}
+
+func (u uploadRepository) UpdateStatus(
+	ctx context.Context,
+	id int64,
+	status model.UploadStatus,
+) error {
+	q := `UPDATE uploads SET
+				status=?,
+				updated_at=?
+				WHERE id=?`
+	now := database.ToTimeStr(time.Now())
+	_, err := u.db.D.ExecContext(ctx, q, status, now, id)
+	if err != nil {
+		return fmt.Errorf("could not update status to %s for upload id %d:%w", status, id, err)
+	}
+	return nil
 }

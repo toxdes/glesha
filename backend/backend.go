@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"glesha/database/repository"
 )
 
 type StorageMetadata struct {
@@ -15,8 +16,22 @@ type CreateUploadResult struct {
 
 type StorageBackend interface {
 	CreateResourceContainer(ctx context.Context) error
-	CreateUploadResource(ctx context.Context, taskKey string, resourceFilePath string) (*CreateUploadResult, error)
-	UploadResource(ctx context.Context, uploadId int64) error
+
+	CreateUploadResource(
+		ctx context.Context,
+		taskKey string,
+		resourceFilePath string,
+	) (*CreateUploadResult, error)
+
+	UploadResource(
+		ctx context.Context,
+		taksRepo repository.TaskRepository,
+		uploadRepository repository.UploadRepository,
+		uploadBlockRepository repository.UploadBlockRepository,
+		maxConcurrentJobs int,
+		uploadId int64,
+	) error
+
 	IsBlockSizeOK(blockSize int64, fileSize int64) error
 }
 

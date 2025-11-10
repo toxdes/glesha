@@ -156,7 +156,7 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			}
 		}
 
-		L.Debug(fmt.Sprintf("Processing: %s", path))
+		L.Debug(fmt.Sprintf("Processing: %s", L.TruncateString(path, 48, L.TRUNC_LEFT)))
 
 		var link string
 		relPath, err := filepath.Rel(filepath.Dir(tgz.InputPath), path)
@@ -223,7 +223,7 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			completedBytes += uint64(info.Size())
 			if L.IsVerbose() {
 				L.Debug(fmt.Sprintf("Processed: %s (%s)",
-					path,
+					L.TruncateString(path, 40, L.TRUNC_LEFT),
 					L.HumanReadableBytes(uint64(bufferedFileReader.Size()), 2)))
 			}
 		}

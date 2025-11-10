@@ -138,3 +138,14 @@ func (l LogLevel) String() string {
 		return "Unknown log level, indicates a bug. Please report"
 	}
 }
+
+func HumanReadableCount(
+	count int,
+	singular string,
+	plural string,
+) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %s", count, plural)
+}

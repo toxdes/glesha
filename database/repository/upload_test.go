@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"glesha/backend"
 	"glesha/config"
 	"glesha/file_io"
 
@@ -37,14 +36,14 @@ func TestCreateAndGetUpload(t *testing.T) {
 		filesInfo,
 	)
 	assert.NoError(t, err)
-	metadata := backend.StorageMetadata{
-		Json:          "metadata",
-		SchemaVersion: 1,
-	}
+	metadataJson := "metadata"
+	metadataSchemaVersion := int64(1)
+
 	uploadId, err := uploadRepo.CreateUpload(
 		context.Background(),
 		taskId,
-		metadata,
+		metadataJson,
+		metadataSchemaVersion,
 		"/path/to/file",
 		2048,
 		time.Now(),
@@ -60,15 +59,16 @@ func TestCreateAndGetUpload(t *testing.T) {
 	assert.NotNil(t, upload)
 	assert.Equal(t, uploadId, upload.Id)
 	assert.Equal(t, taskId, upload.TaskId)
-	assert.Equal(t, metadata.Json, upload.StorageBackendMetadata.Json)
-	assert.Equal(t, metadata.SchemaVersion, upload.StorageBackendMetadata.SchemaVersion)
-	assert.True(t, upload.StorageBackendMetadata.SchemaVersion > 0)
+	assert.Equal(t, metadataJson, upload.StorageBackendMetadataJson)
+	assert.Equal(t, metadataSchemaVersion, upload.StorageBackendMetadataSchemaVersion)
+	assert.True(t, upload.StorageBackendMetadataSchemaVersion > 0)
 
 	// Try to create again, should return existing
 	newUploadId, err := uploadRepo.CreateUpload(
 		context.Background(),
 		taskId,
-		upload.StorageBackendMetadata,
+		upload.StorageBackendMetadataJson,
+		upload.StorageBackendMetadataSchemaVersion,
 		"/path/to/file2",
 		4096,
 		time.Now(),
@@ -82,6 +82,6 @@ func TestCreateAndGetUpload(t *testing.T) {
 
 	newUpload, err := uploadRepo.GetUploadByTaskId(context.Background(), taskId)
 	assert.NoError(t, err)
-	assert.Equal(t, metadata.Json, newUpload.StorageBackendMetadata.Json)
-	assert.Equal(t, metadata.SchemaVersion, newUpload.StorageBackendMetadata.SchemaVersion)
+	assert.Equal(t, metadataJson, newUpload.StorageBackendMetadataJson)
+	assert.Equal(t, metadataSchemaVersion, newUpload.StorageBackendMetadataSchemaVersion)
 }
