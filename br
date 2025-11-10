@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
 # this script is temporarily added for easier development, will be removed later
 set -xe
+if [[ $1 == 'c' ]] then
+  ./scripts/clean.sh
+fi
 ./scripts/build.sh && ./scripts/run.sh
