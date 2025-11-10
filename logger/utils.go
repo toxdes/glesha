@@ -139,12 +139,14 @@ func HumanReadableTime(millis int64) string {
 	}
 
 	d := time.Duration(millis) * time.Millisecond
-	// TODO: show Ms and days as well
+	// TODO: show days as well
 	hours := int64(d / time.Hour)
 	d %= time.Hour
 	minutes := int64(d / time.Minute)
 	d %= time.Minute
 	seconds := int64(d / time.Second)
+	d %= time.Second
+	ms := int64(d / time.Millisecond)
 
 	parts := []string{}
 	if hours > 0 {
@@ -153,12 +155,11 @@ func HumanReadableTime(millis int64) string {
 	if minutes > 0 {
 		parts = append(parts, fmt.Sprintf("%dm", minutes))
 	}
-	if seconds > 0 || (len(parts) == 0 && millis > 0) {
+	if seconds > 0 {
 		parts = append(parts, fmt.Sprintf("%ds", seconds))
 	}
-
-	if len(parts) == 0 && millis > 0 {
-		return "0s"
+	if ms > 0 || (len(parts) == 0 && millis > 0) {
+		parts = append(parts, fmt.Sprintf("%dms", ms))
 	}
 
 	return strings.Join(parts, " ")
