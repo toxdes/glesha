@@ -85,8 +85,10 @@ func Println(a ...any) (int, error) {
 }
 
 // progressPercentage should be a float64 between 0.0 and 100.0 (inclusive).
-func ProgressBar(progressPercentage float64) string {
-	const barWidth = 24
+func ProgressBar(progressPercentage float64, barWidth int) string {
+	if barWidth <= 0 {
+		barWidth = 16
+	}
 	fraction := progressPercentage / 100.0
 	fraction = max(fraction, 0.0)
 	fraction = min(fraction, 1.0)
@@ -97,7 +99,6 @@ func ProgressBar(progressPercentage float64) string {
 	filledSymbol := strings.Repeat("█", filledWidth)
 	emptySymbol := strings.Repeat("░", emptyWidth)
 
-	// Combine into the final string
 	return fmt.Sprintf("%s%s", filledSymbol, emptySymbol)
 }
 
