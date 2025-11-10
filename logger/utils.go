@@ -36,10 +36,31 @@ func HttpResponseString(resp *http.Response) string {
 			resp.Request.URL.String(),
 			resp.Status, err)
 	}
+
+	var sb strings.Builder
+	sb.WriteString("\n---Req---\n")
+	sb.WriteString(fmt.Sprintf("URL:%s\n", resp.Request.URL))
+	sb.WriteString("\n---Req. Headers---\n")
+	for key, values := range resp.Request.Header {
+		sb.WriteString(fmt.Sprintf("%s : ", key))
+		for _, value := range values {
+			sb.WriteString(value)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fmt.Sprintf("Resp. Status: %d", resp.StatusCode))
+	sb.WriteString("\n---Resp. Headers---\n")
+	for key, values := range resp.Header {
+		sb.WriteString(fmt.Sprintf("%s : ", key))
+		for _, value := range values {
+			sb.WriteString(value)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n---Resp. Body---\n")
 	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	return fmt.Sprintf("[%s] Status: %s\n Content: %s",
-		resp.Request.URL.String(),
-		resp.Status, string(bodyBytes))
+	sb.WriteString(string(bodyBytes))
+	return sb.String()
 }
 
 func Printf(format string, v ...any) (int, error) {
