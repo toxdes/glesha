@@ -362,7 +362,7 @@ func (aws *AwsBackend) completeMultipartUpload(
 ) error {
 	blocks, err := uploadBlockRepo.GetCompletedBlocksForUploadId(ctx, upload.Id)
 	if err != nil {
-		return fmt.Errorf("could not get blocks for upload id")
+		return fmt.Errorf("could not get blocks for upload id %d", upload.Id)
 	}
 	if len(blocks) != int(upload.TotalBlocks) {
 		return fmt.Errorf("not all blocks are completed, cannot complete multipart upload")
