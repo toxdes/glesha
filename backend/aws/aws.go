@@ -165,13 +165,13 @@ func (aws *AwsBackend) UploadResource(
 	uploadId int64,
 ) error {
 	upload, err := uploadRepo.GetUploadById(ctx, uploadId)
+	if err != nil {
+		return fmt.Errorf("could not find upload for upload id %d:%w", uploadId, err)
+	}
 	L.Info(fmt.Sprintf(
 		"Using %s to upload",
 		L.HumanReadableCount(maxConcurrentJobs, "job", "jobs"),
 	))
-	if err != nil {
-		return fmt.Errorf("could not find upload for upload id %d:%w", uploadId, err)
-	}
 	task, err := taskRepo.GetTaskById(ctx, upload.TaskId)
 	taskKey := task.Key()
 	if err != nil {

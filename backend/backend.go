@@ -25,7 +25,7 @@ type StorageBackend interface {
 
 	UploadResource(
 		ctx context.Context,
-		taksRepo repository.TaskRepository,
+		taskRepo repository.TaskRepository,
 		uploadRepository repository.UploadRepository,
 		uploadBlockRepository repository.UploadBlockRepository,
 		maxConcurrentJobs int,

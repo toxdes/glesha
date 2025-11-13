@@ -106,7 +106,7 @@ func parseFlags(args []string, runCmdEnv *RunCmdEnv) error {
 		if err != nil {
 			return err
 		}
-		L.Info(fmt.Sprintf("Setting log level set to: %s", strings.ToUpper(*logLevel)))
+		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
 	}
 	runCmdEnv.TaskId = taskId
 	runCmdEnv.MaxConcurrentJobs = *maxConcurrentJobs

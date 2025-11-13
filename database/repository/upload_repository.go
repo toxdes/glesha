@@ -232,7 +232,6 @@ func (u uploadRepository) GetUploadById(ctx context.Context, uploadId int64) (*m
 	}
 	if fileLastModifiedAtStr.Valid {
 		upload.FileLastModifiedAt = database.FromTimeStr(fileLastModifiedAtStr.String)
-
 	}
 	upload.CreatedAt = database.FromTimeStr(createdAtStr)
 	upload.UpdatedAt = database.FromTimeStr(updatedAtStr)

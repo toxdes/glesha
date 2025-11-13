@@ -138,7 +138,7 @@ func (ubr uploadBlockRepo) UpdateStatus(
 	blockId int64,
 	status model.UploadBlockStatus,
 ) error {
-	q := "UPDATE upload_blocks SET status=?, completed_bytes=? where id=?"
+	q := "UPDATE upload_blocks SET status=? where id=?"
 
 	_, err := ubr.db.D.ExecContext(ctx, q, status, blockId)
 
