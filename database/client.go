@@ -34,7 +34,7 @@ func NewDB(dbPath string) (*DB, error) {
 
 const DateTimeFormat string = "20060102T150405Z"
 
-var ErrDoesNotExist error = errors.New("couldn't find in database")
+var ErrDoesNotExist error = errors.New("could not find in database")
 
 const PRAGMAS = `
 PRAGMA foreign_keys = ON;

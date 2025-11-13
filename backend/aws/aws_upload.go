@@ -190,7 +190,11 @@ func (aws *AwsBackend) uploadBlock(
 
 	L.Debug(fmt.Sprintf("Uploading block %d using worker %d", blockId, workerId))
 
-	uploadBlockRepo.UpdateStatus(ctx, upload.Id, blockId, model.UB_STATUS_RUNNING)
+	err := uploadBlockRepo.UpdateStatus(ctx, upload.Id, blockId, model.UB_STATUS_RUNNING)
+
+	if err != nil {
+		return fmt.Errorf("could not update status to %s for %d/%d:%w", model.UB_STATUS_RUNNING, upload.Id, blockId, err)
+	}
 
 	ub, err := uploadBlockRepo.GetById(ctx, blockId)
 	if err != nil {
@@ -320,7 +324,10 @@ func (aws *AwsBackend) uploadBlock(
 				return fmt.Errorf("aws: bucket %s is in different region", aws.bucketName)
 			}
 
-			uploadBlockRepo.MarkError(ctx, upload.Id, blockId, awsError.Message)
+			_, err = uploadBlockRepo.MarkError(ctx, upload.Id, blockId, awsError.Message)
+			if err != nil {
+				return fmt.Errorf("aws: could not mark upload as failed for block id %d of upload id %d: %w", blockId, ub.UploadId, err)
+			}
 			return fmt.Errorf("aws: unknown error: %s", awsError.Message)
 		}
 		L.Printf("\r%s", L.C_CLEAR_LINE)
@@ -329,7 +336,7 @@ func (aws *AwsBackend) uploadBlock(
 
 		err = uploadBlockRepo.MarkComplete(ctx, upload.Id, blockId, checksum, etag)
 		if err != nil {
-			L.Panic(err)
+			return err
 		}
 	}
 	select {
@@ -431,7 +438,7 @@ func (aws *AwsBackend) completeMultipartUpload(
 	bodyBytes, err := io.ReadAll(resp.Body)
 
 	if err != nil {
-		return fmt.Errorf("couldn't read response body of aws::CompleteMultipartUpload request")
+		return fmt.Errorf("could not read response body of aws::CompleteMultipartUpload request")
 	}
 	var awsError AwsError
 	err = xml.Unmarshal(bodyBytes, &awsError)

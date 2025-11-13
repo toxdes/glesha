@@ -48,7 +48,7 @@ type UploadBlockRepository interface {
 		ctx context.Context,
 		uploadId int64,
 		blockId int64,
-		errorMsg string,
+		errorMessage string,
 	) (retryCount int64, err error)
 	GetCompletedBlocksForUploadId(
 		ctx context.Context,
@@ -180,7 +180,7 @@ func (ubr uploadBlockRepo) MarkError(
 	ctx context.Context,
 	uploadId int64,
 	blockId int64,
-	errorMsg string,
+	errorMessage string,
 ) (retryCount int64, err error) {
 	q := `UPDATE upload_blocks 
 				SET status=?, 
@@ -188,7 +188,7 @@ func (ubr uploadBlockRepo) MarkError(
 				error_count=error_count+1, 
 				updated_at=? 
 				WHERE id=? AND upload_id=?`
-	_, err = ubr.db.D.ExecContext(ctx, q, model.UB_STATUS_ERROR, errorMsg, database.ToTimeStr(time.Now()), blockId, uploadId)
+	_, err = ubr.db.D.ExecContext(ctx, q, model.UB_STATUS_ERROR, errorMessage, database.ToTimeStr(time.Now()), blockId, uploadId)
 	if err != nil {
 		return -1, fmt.Errorf("could not mark error block with id %d: %w", blockId, err)
 	}
@@ -213,7 +213,7 @@ func (ubr uploadBlockRepo) NextUnfinishedBlocks(
 	if err != nil {
 		return blockIds, fmt.Errorf("could not get next blocks for upload id %d: %w", uploadId, err)
 	}
-
+	defer rows.Close()
 	for rows.Next() {
 		var id int64
 		err = rows.Scan(&id)
@@ -221,9 +221,7 @@ func (ubr uploadBlockRepo) NextUnfinishedBlocks(
 			return blockIds, fmt.Errorf("could not scan rows to get next blocks for upload id:%d: %w", uploadId, err)
 		}
 		blockIds = append(blockIds, id)
-
 	}
-	defer rows.Close()
 
 	return blockIds, nil
 }
@@ -250,7 +248,7 @@ func (ubr uploadBlockRepo) GetById(ctx context.Context, id int64) (res *model.Up
 	var createdAtStr string
 	var updatedAtStr string
 	var uploadedAtStr sql.NullString
-	var errorMsg sql.NullString
+	var errorMessage sql.NullString
 	ub := model.UploadBlock{}
 	err = row.Scan(
 		&ub.Id,
@@ -263,7 +261,7 @@ func (ubr uploadBlockRepo) GetById(ctx context.Context, id int64) (res *model.Up
 		&createdAtStr,
 		&updatedAtStr,
 		&uploadedAtStr,
-		&errorMsg,
+		&errorMessage,
 		&ub.ErrorCount,
 	)
 
@@ -305,13 +303,14 @@ func (ubr uploadBlockRepo) GetCompletedBlocksForUploadId(ctx context.Context, up
 	if err != nil {
 		return blocks, fmt.Errorf("couldnt get completed blocks for upload id %d:%w", uploadId, err)
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var etagStr sql.NullString
 		var checksumStr sql.NullString
 		var createdAtStr string
 		var updatedAtStr string
 		var uploadedAtStr sql.NullString
-		var errorMsg sql.NullString
+		var errorMessage sql.NullString
 		ub := model.UploadBlock{}
 		err = rows.Scan(
 			&ub.Id,
@@ -324,7 +323,7 @@ func (ubr uploadBlockRepo) GetCompletedBlocksForUploadId(ctx context.Context, up
 			&createdAtStr,
 			&updatedAtStr,
 			&uploadedAtStr,
-			&errorMsg,
+			&errorMessage,
 			&ub.ErrorCount,
 		)
 		if err != nil {

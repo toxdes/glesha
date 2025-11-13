@@ -49,27 +49,27 @@ const (
 )
 
 type UploadBlock struct {
-	Id         int64
-	UploadId   int64
-	FileOffset int64
-	Size       int64
-	Status     UploadBlockStatus
-	Etag       string
-	Checksum   string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	UploadedAt *time.Time
-	ErrorMsg   string
-	ErrorCount int64
+	Id           int64
+	UploadId     int64
+	FileOffset   int64
+	Size         int64
+	Status       UploadBlockStatus
+	Etag         string
+	Checksum     string
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	UploadedAt   *time.Time
+	ErrorMessage string
+	ErrorCount   int64
 }
 
 func (ub *UploadBlock) String() string {
-	return fmt.Sprintf("UploadBlock:\n\tId:%d\n\tOffset:%d\n\tSize:%d\n\tStatus:%s\n\tErrorMsg:%v\n\tErrorCount:%d\n",
+	return fmt.Sprintf("UploadBlock:\n\tId:%d\n\tOffset:%d\n\tSize:%d\n\tStatus:%s\n\tErrorMessage:%v\n\tErrorCount:%d\n",
 		ub.Id,
 		ub.FileOffset,
 		ub.Size,
 		ub.Status,
-		ub.ErrorMsg,
+		ub.ErrorMessage,
 		ub.ErrorCount,
 	)
 }
