@@ -34,7 +34,7 @@ func NewDB(dbPath string) (*DB, error) {
 
 const DateTimeFormat string = "20060102T150405Z"
 
-var ErrDoesNotExist error = errors.New("couldn't find in database")
+var ErrDoesNotExist error = errors.New("could not find in database")
 
 const PRAGMAS = `
 PRAGMA foreign_keys = ON;
@@ -45,22 +45,8 @@ CREATE INDEX IF NOT EXISTS idx_uploads_status ON uploads(status, task_id);
 `
 
 const CREATE_INDICES_ON_UPLOAD_BLOCKS = `
-CREATE INDEX IF NOT EXISTS idx_upload_block ON upload_blocks(upload_id, block_number);
 CREATE INDEX IF NOT EXISTS idx_upload_status ON upload_blocks(upload_id, status);
 `
-
-const CREATE_UPDATE_UPLOAD_PROGRESS_TRIGGER = `CREATE TRIGGER IF NOT EXISTS 
-update_upload_progress
-AFTER UPDATE ON upload_blocks
-FOR EACH ROW
-WHEN NEW.status = 'COMPLETED'
-BEGIN
-	UPDATE uploads
-	SET uploaded_blocks = uploaded_blocks + 1,
-			uploaded_bytes = uploaded_bytes + NEW.size,
-			updated_at = strftime('%Y%m%dT%H%M%S', 'now') || 'Z'
-	WHERE upload_id = NEW.upload_id;
-END;`
 
 func (d *DB) createTables(ctx context.Context) error {
 	txn, err := d.D.Begin()
@@ -78,7 +64,7 @@ func (d *DB) createTables(ctx context.Context) error {
 		PRAGMAS,
 		model.CREATE_TASKS_TABLE, model.CREATE_UPLOADS_TABLE, model.CREATE_UPLOAD_BLOCKS_TABLE,
 		CREATE_INDICES_ON_UPLOADS, CREATE_INDICES_ON_UPLOAD_BLOCKS,
-		CREATE_UPDATE_UPLOAD_PROGRESS_TRIGGER,
+		model.CREATE_UPDATE_UPLOAD_PROGRESS_TRIGGER,
 	}
 
 	for _, stmt := range stmts {

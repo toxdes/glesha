@@ -2,19 +2,22 @@ package aws
 
 import (
 	"bytes"
-	"context"
 	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	L "glesha/logger"
-	"io"
+	"glesha/checksum"
+	"glesha/database"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
 )
+
+func hmacSha256(key []byte, data []byte) []byte {
+	h := hmac.New(checksum.NewSha256, key)
+	h.Write(data)
+	return h.Sum(nil)
+}
 
 func getCanonicalURI(req *http.Request) string {
 	path := req.URL.Path
@@ -31,7 +34,6 @@ func getCanonicalURI(req *http.Request) string {
 			fixedSegments = append(fixedSegments, url.PathEscape(segment))
 		}
 	}
-	L.Debug(fixedSegments)
 	return "/" + strings.Join(fixedSegments, "/")
 }
 
@@ -100,46 +102,14 @@ func getSignedHeaders(req *http.Request) string {
 	sort.Strings(signedHeaderNames)
 	return strings.Join(signedHeaderNames, ";")
 }
-func getHashedPayload(req *http.Request) (string, error) {
-	var bodyBytes []byte
 
-	if req.Body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(req.Body)
-		if err != nil {
-			return "", fmt.Errorf("failed to read request body: %w", err)
-		}
-		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	}
-	hash := sha256.Sum256(bodyBytes)
-
-	return hex.EncodeToString(hash[:]), nil
-}
-
-func hmacSha256(key []byte, data []byte) []byte {
-	h := hmac.New(sha256.New, key)
-	h.Write(data)
-	return h.Sum(nil)
-}
-
-func (aws *AwsBackend) SignRequest(ctx context.Context, req *http.Request, isSignedPayload bool) error {
-
-	RequestDateTimeFormat := "20060102T150405Z"
+// https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html
+func (aws *AwsBackend) signRequest(req *http.Request, payloadHash string) error {
 	DateFormat := "20060102"
 	now := time.Now().UTC()
-	var payloadHash string
-	if isSignedPayload {
-		maybePayloadHash, err := getHashedPayload(req)
-		if err != nil {
-			return err
-		}
-		payloadHash = maybePayloadHash
-	} else {
-		payloadHash = "UNSIGNED-PAYLOAD"
-	}
 
 	req.Header.Set("x-amz-content-sha256", payloadHash)
-	req.Header.Set("x-amz-date", now.Format(RequestDateTimeFormat))
+	req.Header.Set("x-amz-date", now.Format(database.DateTimeFormat))
 
 	signedHeaders := getSignedHeaders(req)
 	canonicalReq := fmt.Sprintf("%s\n%s\n%s\n%s\n%s\n%s",
@@ -151,14 +121,14 @@ func (aws *AwsBackend) SignRequest(ctx context.Context, req *http.Request, isSig
 		payloadHash,
 	)
 
-	h := sha256.Sum256(bytes.NewBufferString(canonicalReq).Bytes())
-	hashedCanonicalRequest := hex.EncodeToString(h[:])
+	h := checksum.Sha256(bytes.NewBufferString(canonicalReq).Bytes())
+	hashedCanonicalRequest := checksum.HexEncodeStr(h[:])
 
 	credentialScope := fmt.Sprintf("%s/%s/%s/aws4_request", now.Format(DateFormat), aws.region, "s3")
 
 	stringToSign := fmt.Sprintf("%s\n%s\n%s\n%s",
 		"AWS4-HMAC-SHA256",
-		now.Format(RequestDateTimeFormat),
+		now.Format(database.DateTimeFormat),
 		credentialScope,
 		hashedCanonicalRequest)
 
@@ -166,7 +136,7 @@ func (aws *AwsBackend) SignRequest(ctx context.Context, req *http.Request, isSig
 	dateRegionKey := hmacSha256(dateKey, []byte(aws.region))
 	dateRegionServiceKey := hmacSha256(dateRegionKey, []byte("s3"))
 	signingKey := hmacSha256(dateRegionServiceKey, []byte("aws4_request"))
-	signature := hex.EncodeToString(hmacSha256(signingKey, []byte(stringToSign)))
+	signature := checksum.HexEncodeStr(hmacSha256(signingKey, []byte(stringToSign)))
 	authHeader := fmt.Sprintf("%s Credential=%s/%s,SignedHeaders=%s,Signature=%s",
 		"AWS4-HMAC-SHA256",
 		aws.accessKey,

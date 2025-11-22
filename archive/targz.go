@@ -156,7 +156,7 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			}
 		}
 
-		L.Debug(fmt.Sprintf("Processing: %s", path))
+		L.Debug(fmt.Sprintf("Processing: %s", L.TruncateString(path, 48, L.TRUNC_LEFT)))
 
 		var link string
 		relPath, err := filepath.Rel(filepath.Dir(tgz.InputPath), path)
@@ -200,14 +200,14 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
 			}
 			L.Print(L.C_SAVE)
-			L.Printf("%sArchiving: %.2f%% %s (%d/%d) [%s - %s]",
+			L.Printf("\r%sArchiving: %.2f%% %s (%d/%d) [%s - %s]",
 				L.C_CLEAR_LINE,
 				progressPercentage,
-				L.ProgressBar(progressPercentage),
+				L.ProgressBar(progressPercentage, -1),
 				tgz.Progress.Done,
 				tgz.Progress.Total,
 				L.TruncateString(filepath.Base(path), 24, L.TRUNC_CENTER),
-				L.HumanReadableBytes(uint64(info.Size())))
+				L.HumanReadableBytes(uint64(info.Size()), 2))
 			L.Print(L.C_RESTORE)
 			err = tarGzWriter.WriteHeader(header)
 			if err != nil {
@@ -223,8 +223,8 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			completedBytes += uint64(info.Size())
 			if L.IsVerbose() {
 				L.Debug(fmt.Sprintf("Processed: %s (%s)",
-					path,
-					L.HumanReadableBytes(uint64(bufferedFileReader.Size()))))
+					L.TruncateString(path, 40, L.TRUNC_LEFT),
+					L.HumanReadableBytes(uint64(bufferedFileReader.Size()), 2)))
 			}
 		}
 		return nil
@@ -249,13 +249,13 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	L.Printf("%sArchiving: Done (%d/%d) (%s -> %s)\n",
+	L.Printf("\r%sArchiving: Done (%d/%d) (%s -> %s)\n",
 		L.C_CLEAR_LINE,
 		tgz.Progress.Done,
 		tgz.Progress.Total,
-		L.HumanReadableBytes(tgz.Info.SizeInBytes),
-		L.HumanReadableBytes(tarFileInfo.Size))
-	L.Info(fmt.Sprintf("Took: %s", L.HumanReadableTime(time.Now().UnixMilli()-startTime.UnixMilli())))
+		L.HumanReadableBytes(tgz.Info.SizeInBytes, 2),
+		L.HumanReadableBytes(tarFileInfo.Size, 2))
+	L.Printf("Archiving took %s\n", L.HumanReadableTime(time.Now().UnixMilli()-startTime.UnixMilli()))
 	tarGzWriter.Close()
 	gzipWriter.Close()
 	tarFile.Close()

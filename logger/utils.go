@@ -10,9 +10,12 @@ import (
 	"unicode/utf8"
 )
 
-func HumanReadableBytes(bytes uint64) string {
+func HumanReadableBytes(bytes uint64, precision int) string {
 	if bytes == 0 {
 		return "0 B"
+	}
+	if precision <= 0 {
+		precision = 2
 	}
 	val := float64(bytes)
 	suffixes := []string{"B", "KB", "MB", "GB", "TB", "PB", "EB"}
@@ -22,7 +25,7 @@ func HumanReadableBytes(bytes uint64) string {
 		val /= unit
 		i += 1
 	}
-	return fmt.Sprintf("%.2f%s", val, suffixes[i])
+	return fmt.Sprintf("%.*f%s", precision, val, suffixes[i])
 }
 
 func HttpResponseString(resp *http.Response) string {
@@ -33,10 +36,31 @@ func HttpResponseString(resp *http.Response) string {
 			resp.Request.URL.String(),
 			resp.Status, err)
 	}
+
+	var sb strings.Builder
+	sb.WriteString("\n---Req---\n")
+	sb.WriteString(fmt.Sprintf("URL:%s\n", resp.Request.URL))
+	sb.WriteString("\n---Req. Headers---\n")
+	for key, values := range resp.Request.Header {
+		sb.WriteString(fmt.Sprintf("%s : ", key))
+		for _, value := range values {
+			sb.WriteString(value)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString(fmt.Sprintf("Resp. Status: %d", resp.StatusCode))
+	sb.WriteString("\n---Resp. Headers---\n")
+	for key, values := range resp.Header {
+		sb.WriteString(fmt.Sprintf("%s : ", key))
+		for _, value := range values {
+			sb.WriteString(value)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n---Resp. Body---\n")
 	resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	return fmt.Sprintf("[%s] Status: %s\n Content: %s",
-		resp.Request.URL.String(),
-		resp.Status, string(bodyBytes))
+	sb.WriteString(string(bodyBytes))
+	return sb.String()
 }
 
 func Printf(format string, v ...any) (int, error) {
@@ -61,8 +85,10 @@ func Println(a ...any) (int, error) {
 }
 
 // progressPercentage should be a float64 between 0.0 and 100.0 (inclusive).
-func ProgressBar(progressPercentage float64) string {
-	const barWidth = 24
+func ProgressBar(progressPercentage float64, barWidth int) string {
+	if barWidth <= 0 {
+		barWidth = 16
+	}
 	fraction := progressPercentage / 100.0
 	fraction = max(fraction, 0.0)
 	fraction = min(fraction, 1.0)
@@ -73,7 +99,6 @@ func ProgressBar(progressPercentage float64) string {
 	filledSymbol := strings.Repeat("█", filledWidth)
 	emptySymbol := strings.Repeat("░", emptyWidth)
 
-	// Combine into the final string
 	return fmt.Sprintf("%s%s", filledSymbol, emptySymbol)
 }
 
@@ -136,12 +161,14 @@ func HumanReadableTime(millis int64) string {
 	}
 
 	d := time.Duration(millis) * time.Millisecond
-	// TODO: show Ms and days as well
+	// TODO: show days as well
 	hours := int64(d / time.Hour)
 	d %= time.Hour
 	minutes := int64(d / time.Minute)
 	d %= time.Minute
 	seconds := int64(d / time.Second)
+	d %= time.Second
+	ms := int64(d / time.Millisecond)
 
 	parts := []string{}
 	if hours > 0 {
@@ -150,12 +177,11 @@ func HumanReadableTime(millis int64) string {
 	if minutes > 0 {
 		parts = append(parts, fmt.Sprintf("%dm", minutes))
 	}
-	if seconds > 0 || (len(parts) == 0 && millis > 0) {
+	if seconds > 0 {
 		parts = append(parts, fmt.Sprintf("%ds", seconds))
 	}
-
-	if len(parts) == 0 && millis > 0 {
-		return "0s"
+	if ms > 0 || (len(parts) == 0 && millis > 0) {
+		parts = append(parts, fmt.Sprintf("%dms", ms))
 	}
 
 	return strings.Join(parts, " ")

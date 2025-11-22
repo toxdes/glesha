@@ -10,7 +10,7 @@ import (
 
 type LogLevel int
 
-var printCallerLocation bool = true
+var printCallerLocation string
 
 const (
 	DEBUG LogLevel = iota
@@ -30,23 +30,23 @@ var (
 
 // cursor sequences
 const (
-	C_ESCAPE     = "\x1B"
-	C_SAVE       = C_ESCAPE + "7"
-	C_RESTORE    = C_ESCAPE + "8"
-	C_CLEAR_LINE = C_ESCAPE + "[2K"
-	C_UP         = C_ESCAPE + "[1A"
-	C_DOWN       = C_ESCAPE + "[1B"
-	C_RIGHT      = C_ESCAPE + "[1C"
-	C_LEFT       = C_ESCAPE + "[1D"
+	C_ESCAPE     string = "\x1B"
+	C_SAVE              = C_ESCAPE + "7"
+	C_RESTORE           = C_ESCAPE + "8"
+	C_CLEAR_LINE        = C_ESCAPE + "[2K"
+	C_UP                = C_ESCAPE + "[1A"
+	C_DOWN              = C_ESCAPE + "[1B"
+	C_RIGHT             = C_ESCAPE + "[1C"
+	C_LEFT              = C_ESCAPE + "[1D"
 )
 
 // colors
 const (
-	colorReset  = C_ESCAPE + "[0m"
-	colorRed    = C_ESCAPE + "[31m"
-	colorGreen  = C_ESCAPE + "[32m"
-	colorYellow = C_ESCAPE + "[33m"
-	colorBlue   = C_ESCAPE + "[34m"
+	colorReset  string = C_ESCAPE + "[0m"
+	colorRed           = C_ESCAPE + "[31m"
+	colorGreen         = C_ESCAPE + "[32m"
+	colorYellow        = C_ESCAPE + "[33m"
+	colorBlue          = C_ESCAPE + "[34m"
 )
 
 func SetLevelFromString(l string) error {
@@ -79,7 +79,7 @@ func SetLevel(l LogLevel) error {
 
 func Debug(v ...any) {
 	if level <= DEBUG {
-		if printCallerLocation {
+		if printCallerLocation == "true" {
 			_, file, line, _ := runtime.Caller(1)
 			debugLogger.Printf("%s:%d: %s%s", file, line, fmt.Sprint(v...), colorReset)
 		} else {
@@ -102,7 +102,7 @@ func Warn(v ...any) {
 
 func Error(v ...any) {
 	if level <= ERROR {
-		if printCallerLocation {
+		if printCallerLocation == "true" {
 			_, file, line, _ := runtime.Caller(1)
 			errorLogger.Printf("%s:%d: - %s%s", file, line, fmt.Sprint(v...), colorReset)
 		} else {
@@ -137,4 +137,15 @@ func (l LogLevel) String() string {
 	default:
 		return "Unknown log level, indicates a bug. Please report"
 	}
+}
+
+func HumanReadableCount(
+	count int,
+	singular string,
+	plural string,
+) string {
+	if count == 1 {
+		return fmt.Sprintf("%d %s", count, singular)
+	}
+	return fmt.Sprintf("%d %s", count, plural)
 }

@@ -15,7 +15,7 @@ COPY . .
 
 RUN if [ "$TARGETOS" = "windows" ]; then SUFFIX=".exe"; else SUFFIX=""; fi && \
     OUTFILE="/app/${BIN_NAME}${SUFFIX}" && \
-    go build -ldflags="-X 'glesha/cmd/version_cmd.version=${VERSION}' -X 'glesha/cmd/version_cmd.commitHash=${COMMIT_HASH}' -X 'glesha/logger/logger.printCallerLocation=false'" \
+    go build -ldflags="-X 'glesha/cmd/version_cmd.version=${VERSION}' -X 'glesha/cmd/version_cmd.commitHash=${COMMIT_HASH}' -X 'glesha/logger.printCallerLocation=false'" \
     -o "$OUTFILE" .
 
 FROM scratch AS export
