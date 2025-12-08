@@ -22,10 +22,11 @@ type DB struct {
 }
 
 func NewDB(dbPath string) (*DB, error) {
-	d, err := sql.Open("sqlite", dbPath)
+	d, err := sql.Open("sqlite", fmt.Sprintf("%s?%s", dbPath, PRAGMAS_QUERY_STRING))
 	if err != nil {
 		return nil, err
 	}
+	d.SetMaxOpenConns(1)
 	return &DB{
 		D:             d,
 		connectionUri: dbPath,
@@ -36,9 +37,7 @@ const DateTimeFormat string = "20060102T150405Z"
 
 var ErrDoesNotExist error = errors.New("could not find in database")
 
-const PRAGMAS = `
-PRAGMA foreign_keys = ON;
-`
+const PRAGMAS_QUERY_STRING = `_foreign_keys=on&_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000`
 
 const CREATE_INDICES_ON_UPLOADS = `
 CREATE INDEX IF NOT EXISTS idx_uploads_status ON uploads(status, task_id);
@@ -61,7 +60,6 @@ func (d *DB) createTables(ctx context.Context) error {
 	}()
 
 	stmts := []string{
-		PRAGMAS,
 		model.CREATE_TASKS_TABLE, model.CREATE_UPLOADS_TABLE, model.CREATE_UPLOAD_BLOCKS_TABLE,
 		CREATE_INDICES_ON_UPLOADS, CREATE_INDICES_ON_UPLOAD_BLOCKS,
 		model.CREATE_UPDATE_UPLOAD_PROGRESS_TRIGGER,
