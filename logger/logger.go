@@ -126,7 +126,7 @@ func GetLogLevel() LogLevel {
 }
 
 func IsVerbose() bool {
-	return level < WARN
+	return level < INFO
 }
 
 func (l LogLevel) String() string {

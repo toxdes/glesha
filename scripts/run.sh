@@ -4,7 +4,7 @@ set -xe
 
 # DEBUG_FLAG="-L debug"
 DEBUG_FLAG=""
-dd if=/dev/urandom of=output.dat  bs=100M  count=40
+dd if=/dev/urandom of=output.dat  bs=100M  count=2
 ./build/glesha add $DEBUG_FLAG -p aws -a targz -c ../glesha-secrets/config.json output.dat
 ./build/glesha run $DEBUG_FLAG -j 4 1
 rm output.dat
