@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -22,10 +23,10 @@ const (
 
 var (
 	level       = INFO
-	debugLogger = log.New(os.Stdout, colorBlue+"=> ", log.Lmsgprefix)
-	infoLogger  = log.New(os.Stdout, colorGreen+"=> ", log.Lmsgprefix)
-	warnLogger  = log.New(os.Stdout, colorYellow+"=> ", log.Lmsgprefix)
-	errorLogger = log.New(os.Stderr, colorRed+"=> ", log.Lmsgprefix)
+	debugLogger = log.New(os.Stdout, C_COLOR_BLUE+"=> ", log.Lmsgprefix)
+	infoLogger  = log.New(os.Stdout, C_COLOR_GREEN+"=> ", log.Lmsgprefix)
+	warnLogger  = log.New(os.Stdout, C_COLOR_YELLOW+"=> ", log.Lmsgprefix)
+	errorLogger = log.New(os.Stderr, C_COLOR_RED+"=> ", log.Lmsgprefix)
 )
 
 // cursor sequences
@@ -42,11 +43,11 @@ const (
 
 // colors
 const (
-	colorReset  string = C_ESCAPE + "[0m"
-	colorRed           = C_ESCAPE + "[31m"
-	colorGreen         = C_ESCAPE + "[32m"
-	colorYellow        = C_ESCAPE + "[33m"
-	colorBlue          = C_ESCAPE + "[34m"
+	C_COLOR_RESET  string = C_ESCAPE + "[0m"
+	C_COLOR_RED           = C_ESCAPE + "[31m"
+	C_COLOR_GREEN         = C_ESCAPE + "[32m"
+	C_COLOR_YELLOW        = C_ESCAPE + "[33m"
+	C_COLOR_BLUE          = C_ESCAPE + "[34m"
 )
 
 func SetLevelFromString(l string) error {
@@ -81,22 +82,24 @@ func Debug(v ...any) {
 	if level <= DEBUG {
 		if printCallerLocation == "true" {
 			_, file, line, _ := runtime.Caller(1)
-			debugLogger.Printf("%s:%d: %s%s", file, line, fmt.Sprint(v...), colorReset)
+			cwd, _ := os.Getwd()
+			relPath, _ := filepath.Rel(cwd, file)
+			debugLogger.Printf("%s:%d: - %s%s", relPath, line, fmt.Sprint(v...), C_COLOR_RESET)
 		} else {
-			debugLogger.Print(fmt.Sprint(v...), colorReset)
+			debugLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 		}
 	}
 }
 
 func Info(v ...any) {
 	if level <= INFO {
-		infoLogger.Print(fmt.Sprint(v...), colorReset)
+		infoLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 	}
 }
 
 func Warn(v ...any) {
 	if level <= WARN {
-		warnLogger.Print(fmt.Sprint(v...), colorReset)
+		warnLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 	}
 }
 
@@ -104,15 +107,17 @@ func Error(v ...any) {
 	if level <= ERROR {
 		if printCallerLocation == "true" {
 			_, file, line, _ := runtime.Caller(1)
-			errorLogger.Printf("%s:%d: - %s%s", file, line, fmt.Sprint(v...), colorReset)
+			cwd, _ := os.Getwd()
+			relPath, _ := filepath.Rel(cwd, file)
+			errorLogger.Printf("%s:%d: - %s%s", relPath, line, fmt.Sprint(v...), C_COLOR_RESET)
 		} else {
-			errorLogger.Print(fmt.Sprint(v...), colorReset)
+			errorLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 		}
 	}
 }
 
 func Panic(v ...any) {
-	errorLogger.Print(fmt.Sprint(v...), colorReset)
+	errorLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 	os.Exit(1)
 }
 
