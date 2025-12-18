@@ -230,8 +230,8 @@ func (ubr uploadBlockRepo) MarkError(
 
 func (ubr uploadBlockRepo) ResetDirtyBlocks(ctx context.Context, uploadId int64) (int64, error) {
 	q := `UPDATE upload_blocks
-        SET status=? WHERE status=?`
-	res, err := ubr.db.D.ExecContext(ctx, q, model.UB_STATUS_QUEUED, model.UB_STATUS_RUNNING)
+        SET status=? WHERE status=? AND upload_id=?`
+	res, err := ubr.db.D.ExecContext(ctx, q, model.UB_STATUS_QUEUED, model.UB_STATUS_RUNNING, uploadId)
 	if err != nil {
 		return -1, fmt.Errorf("could not reset dirty blocks for upload id %d:%w", uploadId, err)
 	}
