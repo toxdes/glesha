@@ -12,6 +12,7 @@ import (
 	L "glesha/logger"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -93,11 +94,12 @@ func (af *AWSFactory) NewStorageBackend() (backend.StorageBackend, error) {
 }
 
 func (aws *AwsBackend) IsBlockSizeOK(blockSize int64, fileSize int64) error {
+	// AWS::MultipartUpload only supports parts between 1-10_000
 	if blockSize == 0 {
 		return fmt.Errorf("aws: block_size cannot be zero")
 	}
 	parts := (fileSize + blockSize - 1) / blockSize
-	if parts > 10000 {
+	if parts > 10_000 {
 		return fmt.Errorf("aws: block_size is too small")
 	}
 	return nil
@@ -169,7 +171,7 @@ func (aws *AwsBackend) UploadResource(
 		return fmt.Errorf("could not find upload for upload id %d:%w", uploadId, err)
 	}
 	L.Info(fmt.Sprintf(
-		"Using %s to upload",
+		"Using upto %s to upload",
 		L.HumanReadableCount(maxConcurrentJobs, "job", "jobs"),
 	))
 	task, err := taskRepo.GetTaskById(ctx, upload.TaskId)
@@ -182,7 +184,13 @@ func (aws *AwsBackend) UploadResource(
 	if err != nil {
 		return fmt.Errorf("could not parse storage backend metadata for upload id %d:%w", uploadId, err)
 	}
-
+	resetCnt, err := uploadBlockRepo.ResetDirtyBlocks(ctx, uploadId)
+	if err != nil {
+		return err
+	}
+	if resetCnt > 0 {
+		L.Info(fmt.Sprintf("Resetting %d dirty blocks from previous unfinished run", resetCnt))
+	}
 	createdCnt, err := uploadBlockRepo.CreateUploadBlocks(
 		ctx,
 		uploadId,
@@ -195,22 +203,36 @@ func (aws *AwsBackend) UploadResource(
 	if createdCnt > 0 {
 		L.Debug(fmt.Sprintf("Upload blocks created: %d", createdCnt))
 	}
-	// get unfinished parts
+
+	// add bytes from completed blocks
+	completedBlocks, err := uploadBlockRepo.GetCompletedBlocksForUploadId(ctx, upload.Id)
+	if err != nil {
+		return fmt.Errorf("couldn't get existing completed blocks for upload id %d: %w", upload.Id, err)
+	}
+	completedBytes := int64(0)
+	for _, b := range completedBlocks {
+		completedBytes += b.Size
+	}
+	var totalSent atomic.Uint64
+	totalSent.Store(uint64(completedBytes))
+
 	// DB_BATCH_SIZE is # of next unfinished blocks to fetch from sqlite DB
 	// TODO: maybe this should be exposed as arg/config?
 	const DB_BATCH_SIZE = 16
 	blockIds := make(chan int64, DB_BATCH_SIZE)
 
-	// producer - get the unfinished blocks info from sqlite
+	// producer - get the unfinished block ids from sqlite
 	go func() {
 		defer close(blockIds)
 		for {
-			ids, err := uploadBlockRepo.NextUnfinishedBlocks(ctx, uploadId, DB_BATCH_SIZE)
+			// TODO: implement error retries
+			ids, err := uploadBlockRepo.ClaimNextUnfinishedBlocks(ctx, uploadId, DB_BATCH_SIZE)
 			if err != nil {
 				L.Panic(fmt.Sprintf("could not get next unfinished blocks for upload id %d:%v", uploadId, err))
 				// TODO: handle errors
 				return
 			}
+			L.Debug(fmt.Sprintf("Claimed blocks to run: %v", ids))
 			if len(ids) == 0 {
 				L.Info("Skipping UploadBlock(s) because all blocks are finished uploading.")
 				break
@@ -233,11 +255,12 @@ func (aws *AwsBackend) UploadResource(
 
 	sema := make(chan struct{}, maxConcurrentJobs)
 	var wg sync.WaitGroup
-	var mutex sync.Mutex
-
-	progress := make(map[int][3]int64)
-	totalSent := int64(0)
 	startTime := time.Now()
+
+	progress := sync.Map{} // progress[workerId] = sentBytes
+
+	// we also need maxConcurrentJobs while printing the progress line
+	progress.Store("maxConcurrentJobs", maxConcurrentJobs)
 
 	// consumer - process unfinished blocks
 	for workerId := 1; workerId <= maxConcurrentJobs; workerId++ {
@@ -254,9 +277,8 @@ func (aws *AwsBackend) UploadResource(
 					taskKey,
 					blockId,
 					workerId,
-					progress,
+					&progress,
 					&totalSent,
-					&mutex,
 				)
 				if err != nil {
 					L.Panic(err)
@@ -277,9 +299,9 @@ func (aws *AwsBackend) UploadResource(
 	case <-waitCh:
 		L.Printf("%s%s\r", L.C_UP, L.C_CLEAR_LINE)
 		delta := time.Now().UnixMilli() - startTime.UnixMilli()
-		if totalSent > 0 {
-			L.Printf("Uploading: Done (%s uploaded)\n", L.HumanReadableBytes(uint64(totalSent), 1))
-			L.Printf("Uploading took %s\n", L.HumanReadableTime(delta))
+		if totalSent.Load() > 0 {
+			L.Info(fmt.Sprintf("Uploading: Done (%s uploaded)\n", L.HumanReadableBytes(totalSent.Load(), 1)))
+			L.Printf("took %s\n", L.HumanReadableTime(delta))
 		}
 		return aws.completeMultipartUpload(
 			ctx,

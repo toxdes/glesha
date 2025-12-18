@@ -4,30 +4,33 @@ import (
 	"context"
 	"fmt"
 	L "glesha/logger"
-	"sort"
 	"strings"
+	"sync"
 )
 
-func (aws *AwsBackend) getProgressLine(progress map[int][3]int64) string {
-	// progress[workerId][0] -> blockId
-	// progress[workerId][1] -> sentBytes
-	// progress[workerId][2] -> totalBytes
+func (aws *AwsBackend) getProgressLine(progress *sync.Map) string {
+	// progress[workerId] -> sentBytes int64
+	// progress["maxConcurrentJobs"] -> jobs int
 	var sb strings.Builder
 	cnt := 0
-	n := len(progress)
-	var ids []int
-	for k := range progress {
-		ids = append(ids, k)
+	maxJobsVal, ok := progress.Load("maxConcurrentJobs")
+	maxConcurrentJobs := 1
+	if ok {
+		maxConcurrentJobs = maxJobsVal.(int)
 	}
-	sort.Ints(ids)
-	for _, id := range ids {
-		if progress[id][1] == progress[id][2] {
-			continue
+	for id := 1; id <= maxConcurrentJobs; id++ {
+		val, ok := progress.Load(id)
+		p := uint64(0)
+		if ok {
+			p = uint64(val.(int64))
 		}
-		sb.WriteString(fmt.Sprintf("[CN%d: %s]",
+		sb.WriteString(fmt.Sprintf("[CN%d: %s%s%s]",
 			id,
-			L.HumanReadableBytes(uint64(progress[id][1]), 1)))
-		if cnt != n-1 {
+			L.C_COLOR_GREEN,
+			L.HumanReadableBytes(p, 1),
+			L.C_COLOR_RESET,
+		))
+		if id != maxConcurrentJobs-1 {
 			sb.WriteString(" ")
 		}
 		cnt++

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 )
 
 type CreateMultipartUploadResult struct {
@@ -183,18 +184,11 @@ func (aws *AwsBackend) uploadBlock(
 	taskKey string,
 	blockId int64,
 	workerId int,
-	progress map[int][3]int64,
-	totalSent *int64,
-	mutex *sync.Mutex,
+	progress *sync.Map,
+	totalSent *atomic.Uint64,
 ) error {
 
 	L.Debug(fmt.Sprintf("Uploading block %d using worker %d", blockId, workerId))
-
-	err := uploadBlockRepo.UpdateStatus(ctx, upload.Id, blockId, model.UB_STATUS_RUNNING)
-
-	if err != nil {
-		return fmt.Errorf("could not update status to %s for %d/%d:%w", model.UB_STATUS_RUNNING, upload.Id, blockId, err)
-	}
 
 	ub, err := uploadBlockRepo.GetById(ctx, blockId)
 	if err != nil {
@@ -221,45 +215,35 @@ func (aws *AwsBackend) uploadBlock(
 		)
 
 		pr := file_io.ProgressReader{
-			R:     blockContentReader,
-			Total: ub.Size,
-			Sent:  0,
-			OnProgress: func(sent int64, total int64) {
+			R: blockContentReader,
+			OnProgress: func(delta int64) {
 				var p float64
 				// process the progress update
-				mutex.Lock()
-				var np [3]int64
-				np[0] = blockId
-				delta := sent - progress[workerId][1]
-				if delta < 0 {
-					// worker is processing a new block now
-					delta = sent
-				}
-				*totalSent += delta
-				totalSentCopy := uint64(*totalSent)
-				np[1] = sent
-				np[2] = total
-				progress[workerId] = np
-				p = float64(*totalSent) * 100.0 / float64(upload.FileSize)
-				progressCopy := make(map[int][3]int64, len(progress))
-				for k, v := range progress {
-					progressCopy[k] = v
-				}
+				val, _ := progress.LoadOrStore(workerId, int64(0))
+				totalSent.Add(uint64(delta))
+				progress.Store(workerId, val.(int64)+delta)
+				p = float64(totalSent.Load()) * 100.0 / float64(upload.FileSize)
 
-				mutex.Unlock()
 				// print progress line
-				workerProgress := aws.getProgressLine(progressCopy)
-				L.Printf(
-					"%s\r%sUploading: %.1f%% %s [%s Sent]%s\r%s%s",
-					L.C_UP,
-					L.C_CLEAR_LINE,
-					p,
-					L.ProgressBar(p, -1),
-					L.HumanReadableBytes(totalSentCopy, 1),
-					L.C_DOWN,
-					L.C_CLEAR_LINE,
-					workerProgress,
-				)
+				workerProgress := aws.getProgressLine(progress)
+				if !L.IsVerbose() {
+					// FIXME: show this progress in verbose mode, without overwriting debug log lines
+					L.Printf(
+						"\r%sUploading: %.1f%% %s [%s%s%s Sent]%s\r%s%s%s\r",
+						L.C_CLEAR_LINE,
+						p,
+						L.ProgressBar(p, -1),
+						L.C_COLOR_GREEN,
+						L.HumanReadableBytes(totalSent.Load(), 1),
+						L.C_COLOR_RESET,
+						L.C_DOWN,
+						L.C_CLEAR_LINE,
+						workerProgress,
+						L.C_UP,
+					)
+				} else {
+					L.Debug(fmt.Sprintf("[w%d|b%d]sent %d/%d bytes", workerId, blockId, val.(int64)+delta, ub.Size))
+				}
 			},
 		}
 
@@ -333,6 +317,9 @@ func (aws *AwsBackend) uploadBlock(
 		L.Printf("\r%s", L.C_CLEAR_LINE)
 		etag := resp.Header.Get("Etag")
 		checksum := resp.Header.Get("X-Amz-Checksum-Sha256")
+
+		// reset worker progress
+		progress.Store(workerId, int64(0))
 
 		err = uploadBlockRepo.MarkComplete(ctx, upload.Id, blockId, checksum, etag)
 		if err != nil {
@@ -434,7 +421,7 @@ func (aws *AwsBackend) completeMultipartUpload(
 		return err
 	}
 	defer resp.Body.Close()
-	L.Debug(fmt.Sprintf("\r%s%s", L.C_CLEAR_LINE, L.HttpResponseString(resp)))
+	L.Debug(fmt.Sprintf("\r%s", L.HttpResponseString(resp)))
 	bodyBytes, err := io.ReadAll(resp.Body)
 
 	if err != nil {
