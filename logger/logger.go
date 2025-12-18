@@ -82,10 +82,7 @@ func SetLevel(l LogLevel) error {
 func Debug(v ...any) {
 	if level <= DEBUG {
 		if printCallerLocation == "true" {
-			_, file, line, _ := runtime.Caller(1)
-			cwd, _ := os.Getwd()
-			relPath, _ := filepath.Rel(cwd, file)
-			debugLogger.Printf("%s:%d: - %s%s", relPath, line, fmt.Sprint(v...), C_COLOR_RESET)
+			printWithCallerLocation(debugLogger, v...)
 		} else {
 			debugLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 		}
@@ -107,10 +104,7 @@ func Warn(v ...any) {
 func Error(v ...any) {
 	if level <= ERROR {
 		if printCallerLocation == "true" {
-			_, file, line, _ := runtime.Caller(1)
-			cwd, _ := os.Getwd()
-			relPath, _ := filepath.Rel(cwd, file)
-			errorLogger.Printf("%s:%d: - %s%s", relPath, line, fmt.Sprint(v...), C_COLOR_RESET)
+			printWithCallerLocation(errorLogger, v...)
 		} else {
 			errorLogger.Print(fmt.Sprint(v...), C_COLOR_RESET)
 		}
@@ -154,4 +148,17 @@ func HumanReadableCount(
 		return fmt.Sprintf("%d %s", count, singular)
 	}
 	return fmt.Sprintf("%d %s", count, plural)
+}
+
+func printWithCallerLocation(l *log.Logger, v ...any) {
+	_, file, line, _ := runtime.Caller(2)
+	cwd, err := os.Getwd()
+	relPath := file
+	if err == nil {
+		rp, err := filepath.Rel(cwd, file)
+		if err == nil {
+			relPath = rp
+		}
+	}
+	l.Printf("%s:%d %s%s", relPath, line, fmt.Sprint(v...), C_COLOR_RESET)
 }
