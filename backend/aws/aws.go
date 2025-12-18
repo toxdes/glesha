@@ -171,7 +171,7 @@ func (aws *AwsBackend) UploadResource(
 		return fmt.Errorf("could not find upload for upload id %d:%w", uploadId, err)
 	}
 	L.Info(fmt.Sprintf(
-		"Using upto %s to upload",
+		"Using up to %s to upload",
 		L.HumanReadableCount(maxConcurrentJobs, "job", "jobs"),
 	))
 	task, err := taskRepo.GetTaskById(ctx, upload.TaskId)

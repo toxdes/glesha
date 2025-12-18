@@ -5,8 +5,10 @@ import (
 	L "glesha/logger"
 )
 
-// will be populated at build time through -ldflags
+// NOTE: populated at build time with -ldflags (-X)
 var version string
+
+// NOTE: populated at build time with -ldflags (-X)
 var commitHash string
 
 func Execute(ctx context.Context, args []string) error {

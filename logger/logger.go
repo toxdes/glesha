@@ -11,6 +11,7 @@ import (
 
 type LogLevel int
 
+// NOTE: populated at build time with -ldflags (-X)
 var printCallerLocation string
 
 const (
