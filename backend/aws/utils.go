@@ -30,7 +30,7 @@ func (aws *AwsBackend) getProgressLine(progress *sync.Map) string {
 			L.HumanReadableBytes(p, 1),
 			L.C_COLOR_RESET,
 		))
-		if id != maxConcurrentJobs-1 {
+		if id != maxConcurrentJobs {
 			sb.WriteString(" ")
 		}
 		cnt++

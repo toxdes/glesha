@@ -263,6 +263,7 @@ func (aws *AwsBackend) UploadResource(
 	progress.Store("maxConcurrentJobs", maxConcurrentJobs)
 
 	// consumer - process unfinished blocks
+	// NOTE: workerIds are 1 indexed
 	for workerId := 1; workerId <= maxConcurrentJobs; workerId++ {
 		wg.Add(1)
 		go func(workerId int) {
