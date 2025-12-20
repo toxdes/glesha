@@ -32,11 +32,15 @@ type UploadBlockRepository interface {
 		blockId int64,
 		status model.UploadBlockStatus,
 	) error
-	NextUnfinishedBlocks(
+	ClaimNextUnfinishedBlocks(
 		ctx context.Context,
 		uploadId int64,
 		limit int,
 	) (blockIds []int64, err error)
+	RemoveAllBlocks(
+		ctx context.Context,
+		uploadId int64,
+	) (removeCnt int64, err error)
 	MarkComplete(
 		ctx context.Context,
 		uploadId int64,
@@ -54,6 +58,10 @@ type UploadBlockRepository interface {
 		ctx context.Context,
 		uploadId int64,
 	) (blocks []model.UploadBlock, err error)
+	ResetDirtyBlocks(
+		ctx context.Context,
+		uploadId int64,
+	) (resetCount int64, err error)
 }
 
 type uploadBlockRepo struct {
@@ -84,14 +92,32 @@ func (ubr uploadBlockRepo) CreateUploadBlocks(
 		L.Info("Skipping creating upload blocks because blocks already exist")
 		return 0, nil
 	}
-	// ASSUMPTION: file changes are handled some level up
+
+	// FIXME: handle cases where file size stays same, but contents are changed
+	if size > 0 {
+		// it means we already have some blocks for this uploadId
+		// and since the sizes differ, we need to recompute the blocks and offsets again
+		L.Printf("Starting fresh because archive size has been changed since last run")
+		_, err = ubr.RemoveAllBlocks(ctx, uploadId)
+		if err != nil {
+			return -1, fmt.Errorf("could not clear leftovers from previous run for upload id %d: %w", uploadId, err)
+		}
+		size = 0
+	}
+
+	if size != 0 {
+		return -1, fmt.Errorf("db::CreateUploadBlocks was expecting no blocks for uploadId %d, but found blocks of total size %d", uploadId, size)
+	}
+
+	// construct INSERT statement to insert many rows at once
+	// should be fine for ~1K rows
 	ARGS := 6
 	row := "(" + strings.Repeat("?,", ARGS)[:ARGS*2-1] + ")"
 
 	rows := make([]string, 0, totalBlocks)
-	args := make([]interface{}, 0, totalBlocks*int64(ARGS))
+	args := make([]any, 0, totalBlocks*int64(ARGS))
 	now := database.ToTimeStr(time.Now())
-	for b := int64(0); b < totalBlocks; b++ {
+	for b := range totalBlocks {
 		rows = append(rows, row)
 		offset := b * blockSizeInBytes
 		size := blockSizeInBytes
@@ -100,9 +126,9 @@ func (ubr uploadBlockRepo) CreateUploadBlocks(
 		}
 		args = append(args, uploadId, offset, size, model.UB_STATUS_QUEUED, now, now)
 	}
-	q := fmt.Sprintf(`INSERT INTO 
-										upload_blocks 
-										(upload_id, file_offset, size, status, created_at, updated_at) 
+	q := fmt.Sprintf(`INSERT INTO
+										upload_blocks
+										(upload_id, file_offset, size, status, created_at, updated_at)
 										VALUES %s`, strings.Join(rows, ","))
 	res, err := ubr.db.D.ExecContext(ctx, q, args...)
 	if err != nil {
@@ -127,6 +153,7 @@ func (ubr uploadBlockRepo) GetBlockSizeSumForUploadId(
 		return -1, fmt.Errorf("could not get block count for upload id %d: %w", uploadId, err)
 	}
 	if totalSize.Valid {
+		L.Debug(fmt.Sprintf("total size for upload with id %d: %s", uploadId, L.HumanReadableBytes(uint64(totalSize.Int64), 3)))
 		return totalSize.Int64, nil
 	}
 	return 0, nil
@@ -158,7 +185,7 @@ func (ubr uploadBlockRepo) MarkComplete(
 ) error {
 	q := `UPDATE upload_blocks
 			 SET checksum=?,
-			 etag=?, 
+			 etag=?,
 			 status=?,
 			 uploaded_at=?,
 			 updated_at=?
@@ -182,11 +209,11 @@ func (ubr uploadBlockRepo) MarkError(
 	blockId int64,
 	errorMessage string,
 ) (retryCount int64, err error) {
-	q := `UPDATE upload_blocks 
-				SET status=?, 
-				error_message=?, 
-				error_count=error_count+1, 
-				updated_at=? 
+	q := `UPDATE upload_blocks
+				SET status=?,
+				error_message=?,
+				error_count=error_count+1,
+				updated_at=?
 				WHERE id=? AND upload_id=?`
 	_, err = ubr.db.D.ExecContext(ctx, q, model.UB_STATUS_ERROR, errorMessage, database.ToTimeStr(time.Now()), blockId, uploadId)
 	if err != nil {
@@ -201,14 +228,40 @@ func (ubr uploadBlockRepo) MarkError(
 	return errorCount, nil
 }
 
-func (ubr uploadBlockRepo) NextUnfinishedBlocks(
+func (ubr uploadBlockRepo) ResetDirtyBlocks(ctx context.Context, uploadId int64) (int64, error) {
+	q := `UPDATE upload_blocks
+        SET status=? WHERE status=? AND upload_id=?`
+	res, err := ubr.db.D.ExecContext(ctx, q, model.UB_STATUS_QUEUED, model.UB_STATUS_RUNNING, uploadId)
+	if err != nil {
+		return -1, fmt.Errorf("could not reset dirty blocks for upload id %d:%w", uploadId, err)
+	}
+	return res.RowsAffected()
+}
+
+func (ubr uploadBlockRepo) ClaimNextUnfinishedBlocks(
 	ctx context.Context,
 	uploadId int64,
 	limit int,
 ) (blockIds []int64, err error) {
-	q := "SELECT id from upload_blocks where upload_id=? and status IN (?,?) LIMIT ?"
+	q := `UPDATE upload_blocks
+	      SET status=?
+				WHERE id IN (
+				  SELECT id FROM upload_blocks
+					WHERE upload_id=? AND status in (?,?)
+				  LIMIT ?
+				)
+				RETURNING id
+				`
 
-	rows, err := ubr.db.D.QueryContext(ctx, q, uploadId, model.UB_STATUS_QUEUED, model.UB_STATUS_ERROR, limit)
+	rows, err := ubr.db.D.QueryContext(
+		ctx,
+		q,
+		model.UB_STATUS_RUNNING,
+		uploadId,
+		model.UB_STATUS_QUEUED,
+		model.UB_STATUS_ERROR,
+		limit,
+	)
 
 	if err != nil {
 		return blockIds, fmt.Errorf("could not get next blocks for upload id %d: %w", uploadId, err)
@@ -227,7 +280,7 @@ func (ubr uploadBlockRepo) NextUnfinishedBlocks(
 }
 
 func (ubr uploadBlockRepo) GetById(ctx context.Context, id int64) (res *model.UploadBlock, err error) {
-	q := `SELECT 
+	q := `SELECT
 					id,
 					upload_id,
 					file_offset,
@@ -239,7 +292,7 @@ func (ubr uploadBlockRepo) GetById(ctx context.Context, id int64) (res *model.Up
 					updated_at,
 					uploaded_at,
 					error_message,
-					error_count 
+					error_count
 				FROM upload_blocks WHERE id=?`
 
 	row := ubr.db.D.QueryRow(q, id)
@@ -284,7 +337,7 @@ func (ubr uploadBlockRepo) GetById(ctx context.Context, id int64) (res *model.Up
 }
 
 func (ubr uploadBlockRepo) GetCompletedBlocksForUploadId(ctx context.Context, uploadId int64) ([]model.UploadBlock, error) {
-	q := `SELECT 
+	q := `SELECT
 					id,
 					upload_id,
 					file_offset,
@@ -296,7 +349,7 @@ func (ubr uploadBlockRepo) GetCompletedBlocksForUploadId(ctx context.Context, up
 					updated_at,
 					uploaded_at,
 					error_message,
-					error_count 
+					error_count
 				FROM upload_blocks WHERE upload_id=? AND status=? ORDER BY id ASC`
 	rows, err := ubr.db.D.QueryContext(ctx, q, uploadId, model.UB_STATUS_COMPLETE)
 	var blocks []model.UploadBlock
@@ -344,4 +397,17 @@ func (ubr uploadBlockRepo) GetCompletedBlocksForUploadId(ctx context.Context, up
 		blocks = append(blocks, ub)
 	}
 	return blocks, nil
+}
+
+func (ubr uploadBlockRepo) RemoveAllBlocks(ctx context.Context, uploadId int64) (int64, error) {
+	q := "DELETE FROM upload_blocks WHERE upload_id=?"
+	res, err := ubr.db.D.ExecContext(ctx, q, uploadId)
+	if err != nil {
+		return -1, err
+	}
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return -1, err
+	}
+	return rowsAffected, nil
 }

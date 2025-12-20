@@ -21,3 +21,6 @@ dist/
 
 # Ignore SQLite3 database files
 *.db
+
+# Ignore temporary files created during dev
+*.dat

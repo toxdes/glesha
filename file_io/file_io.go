@@ -23,28 +23,29 @@ type FilesInfo struct {
 }
 
 type ProgressReader struct {
-	R          io.ReadSeeker
-	Sent       int64
-	Total      int64
-	Position   int64
-	OnProgress func(sent int64, total int64)
+	R                         io.ReadSeeker
+	OnProgress                func(sent int64)
+	bytesReadInCurrentAttempt atomic.Int64 // FIXME: does this need to be atomic?
 }
 
 func (pr *ProgressReader) Read(p []byte) (n int, err error) {
 	n, err = pr.R.Read(p)
-	atomic.AddInt64(&pr.Sent, int64(n))
-	atomic.AddInt64(&pr.Position, int64(n))
-	sent := atomic.LoadInt64(&pr.Sent)
-	pr.OnProgress(sent, pr.Total)
+	pr.bytesReadInCurrentAttempt.Add(int64(n))
+	if pr.OnProgress != nil {
+		pr.OnProgress(int64(n))
+	}
 	return n, err
 }
 
 func (pr *ProgressReader) Seek(offset int64, whence int) (int64, error) {
-	newOffset, err := pr.R.Seek(offset, whence)
-	if err == nil {
-		atomic.StoreInt64(&pr.Position, int64(newOffset))
+	L.Debug(fmt.Sprintf("Seek happened: offset: %d, whence: %d", offset, whence))
+	if offset == 0 && whence == io.SeekStart {
+		if pr.OnProgress != nil {
+			pr.OnProgress(-pr.bytesReadInCurrentAttempt.Load())
+		}
+		pr.bytesReadInCurrentAttempt.Store(0)
 	}
-	return newOffset, err
+	return pr.R.Seek(offset, whence)
 }
 
 func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {

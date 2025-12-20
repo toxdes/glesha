@@ -199,6 +199,7 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			if tgz.Progress.Total > 0 {
 				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
 			}
+			// FIXME: this is clearing lines that shouldn't be cleared sometimes
 			L.Print(L.C_SAVE)
 			L.Printf("\r%sArchiving: %.2f%% %s (%d/%d) [%s - %s]",
 				L.C_CLEAR_LINE,
