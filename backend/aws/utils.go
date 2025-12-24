@@ -24,11 +24,9 @@ func (aws *AwsBackend) getProgressLine(progress *sync.Map) string {
 		if ok {
 			p = uint64(val.(int64))
 		}
-		sb.WriteString(fmt.Sprintf("[CN%d: %s%s%s]",
+		sb.WriteString(fmt.Sprintf("[CN%d: %s]",
 			id,
-			L.C_COLOR_GREEN,
 			L.HumanReadableBytes(p, 1),
-			L.C_COLOR_RESET,
 		))
 		if id != maxConcurrentJobs {
 			sb.WriteString(" ")

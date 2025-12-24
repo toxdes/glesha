@@ -129,7 +129,6 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			}
 		default:
 		}
-		L.Print(L.C_CLEAR_LINE)
 
 		_, ignore := tgz.IgnoredDirs[path]
 
@@ -199,17 +198,13 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			if tgz.Progress.Total > 0 {
 				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
 			}
-			// FIXME: this is clearing lines that shouldn't be cleared sometimes
-			L.Print(L.C_SAVE)
-			L.Printf("\r%sArchiving: %.2f%% %s (%d/%d) [%s - %s]",
-				L.C_CLEAR_LINE,
+			L.Footer(L.NORMAL, fmt.Sprintf("Archiving: %.2f%% %s (%d/%d) [%s - %s]",
 				progressPercentage,
 				L.ProgressBar(progressPercentage, -1),
 				tgz.Progress.Done,
 				tgz.Progress.Total,
 				L.TruncateString(filepath.Base(path), 24, L.TRUNC_CENTER),
-				L.HumanReadableBytes(uint64(info.Size()), 2))
-			L.Print(L.C_RESTORE)
+				L.HumanReadableBytes(uint64(info.Size()), 2)))
 			err = tarGzWriter.WriteHeader(header)
 			if err != nil {
 				L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
@@ -250,8 +245,8 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	L.Printf("\r%sArchiving: Done (%d/%d) (%s -> %s)\n",
-		L.C_CLEAR_LINE,
+	L.Footer(L.NORMAL, "")
+	L.Printf("Archiving: Done (%d/%d) (%s -> %s)\n",
 		tgz.Progress.Done,
 		tgz.Progress.Total,
 		L.HumanReadableBytes(tgz.Info.SizeInBytes, 2),

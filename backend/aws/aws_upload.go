@@ -226,24 +226,17 @@ func (aws *AwsBackend) uploadBlock(
 
 				// print progress line
 				workerProgress := aws.getProgressLine(progress)
-				if !L.IsVerbose() {
-					// FIXME: show this progress in verbose mode, without overwriting debug log lines
-					L.Printf(
-						"\r%sUploading: %.1f%% %s [%s%s%s Sent]%s\r%s%s%s\r",
-						L.C_CLEAR_LINE,
+				if L.IsVerbose() {
+					L.Debug(fmt.Sprintf("[w%d|b%d] sent %d/%d bytes", workerId, blockId, val.(int64)+delta, ub.Size))
+				}
+				L.Footer(L.NORMAL,
+					fmt.Sprintf("Uploading: %.1f%% %s [%s Sent]\n%s",
 						p,
 						L.ProgressBar(p, -1),
-						L.C_COLOR_GREEN,
 						L.HumanReadableBytes(totalSent.Load(), 1),
-						L.C_COLOR_RESET,
-						L.C_DOWN,
-						L.C_CLEAR_LINE,
 						workerProgress,
-						L.C_UP,
-					)
-				} else {
-					L.Debug(fmt.Sprintf("[w%d|b%d]sent %d/%d bytes", workerId, blockId, val.(int64)+delta, ub.Size))
-				}
+					),
+				)
 			},
 		}
 
@@ -281,7 +274,7 @@ func (aws *AwsBackend) uploadBlock(
 			return err
 		}
 		defer resp.Body.Close()
-		L.Debug(fmt.Sprintf("\r%s%s", L.C_CLEAR_LINE, L.HttpResponseString(resp)))
+		L.Debug(L.HttpResponseString(resp))
 		bodyBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return err
@@ -314,7 +307,6 @@ func (aws *AwsBackend) uploadBlock(
 			}
 			return fmt.Errorf("aws: unknown error: %s", awsError.Message)
 		}
-		L.Printf("\r%s", L.C_CLEAR_LINE)
 		etag := resp.Header.Get("Etag")
 		checksum := resp.Header.Get("X-Amz-Checksum-Sha256")
 
@@ -421,7 +413,7 @@ func (aws *AwsBackend) completeMultipartUpload(
 		return err
 	}
 	defer resp.Body.Close()
-	L.Debug(fmt.Sprintf("\r%s", L.HttpResponseString(resp)))
+	L.Debug(fmt.Sprintf("%s", L.HttpResponseString(resp)))
 	bodyBytes, err := io.ReadAll(resp.Body)
 
 	if err != nil {

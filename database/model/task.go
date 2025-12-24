@@ -24,41 +24,43 @@ const (
 
 const CREATE_TASKS_TABLE = `CREATE TABLE IF NOT EXISTS tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        
+
 				input_path TEXT NOT NULL,
         output_path TEXT NOT NULL,
         config_path TEXT NOT NULL,
-        
+
 				provider TEXT NOT NULL,
         archive_format TEXT NOT NULL,
-        
+
 				status TEXT NOT NULL,
-        
+
 				created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        
+
 				content_hash TEXT NOT NULL,
         size INTEGER NOT NULL,
-        file_count INTEGER NOT NULL
+        file_count INTEGER NOT NULL,
+        archived_file_count INTEGER DEFAULT 0
 );`
 
 type Task struct {
-	Id             int64
-	InputPath      string
-	OutputPath     string
-	ConfigPath     string
-	Status         TaskStatus
-	Provider       config.Provider
-	ArchiveFormat  config.ArchiveFormat
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
-	ContentHash    string
-	TotalSize      int64
-	TotalFileCount int64
+	Id                int64
+	InputPath         string
+	OutputPath        string
+	ConfigPath        string
+	Status            TaskStatus
+	Provider          config.Provider
+	ArchiveFormat     config.ArchiveFormat
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	ContentHash       string
+	TotalSize         int64
+	TotalFileCount    int64
+	ArchivedFileCount int64
 }
 
 func (t *Task) String() string {
-	return fmt.Sprintf("Task:\n\tId: %d\n\tInputPath: %s\n\tOutputPath: %s\n\tConfigPath: %s\n\tProvider: %s\n\tArchiveFormat: %s\n\tSize: %s\n\tTotalFileCount: %d\n",
+	return fmt.Sprintf("[Task]\n  Id: %d\n  InputPath: %s\n  OutputPath: %s\n  ConfigPath: %s\n  Provider: %s\n  ArchiveFormat: %s\n  Size: %s\n  TotalFileCount: %d\n",
 		t.Id,
 		t.InputPath,
 		t.OutputPath,

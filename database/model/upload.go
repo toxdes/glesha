@@ -66,7 +66,7 @@ func (t *Upload) String() string {
 	if t.Url != nil {
 		url = *t.Url
 	}
-	return fmt.Sprintf("Upload:\n\tId: %d\n\tTaskId: %d\n\t\tStorageBackendMetadataJson: %s\n\tStorageBackendMetadataSchemaVersion: %d\n\tFilePath: %s\n\tFileSize: %s\n\tUploadedBytes: %d\n\tUploadedBlocks: %d\n\tTotalParts: %d\n\tStatus: %s\n\tURL: %s\n",
+	return fmt.Sprintf("[Upload]\n  Id: %d\n  TaskId: %d\n    StorageBackendMetadataJson: %s\n  StorageBackendMetadataSchemaVersion: %d\n  FilePath: %s\n  FileSize: %s\n  UploadedBytes: %d\n  UploadedBlocks: %d\n  TotalParts: %d\n  Status: %s\n  URL: %s\n",
 		t.Id,
 		t.TaskId,
 		t.StorageBackendMetadataJson,

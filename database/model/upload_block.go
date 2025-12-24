@@ -64,7 +64,7 @@ type UploadBlock struct {
 }
 
 func (ub *UploadBlock) String() string {
-	return fmt.Sprintf("UploadBlock:\n\tId:%d\n\tOffset:%d\n\tSize:%d\n\tStatus:%s\n\tErrorMessage:%v\n\tErrorCount:%d\n",
+	return fmt.Sprintf("[UploadBlock]\n  Id:%d\n  Offset:%d\n  Size:%d\n  Status:%s\n  ErrorMessage:%v\n  ErrorCount:%d\n",
 		ub.Id,
 		ub.FileOffset,
 		ub.Size,
