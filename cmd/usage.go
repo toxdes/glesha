@@ -14,6 +14,7 @@ COMMANDS
         help       Help about a subcommand
         add        Creates a glesha archive and upload task
         run        Runs a glesha task
+        tui        Interactive terminal user interface
         ls         Lists all available glesha tasks
         rm         Deletes a glesha task, and relevant cache files
         cleanup    Cleans up cache, unwanted files created by glesha.

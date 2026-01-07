@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"glesha/database/model"
+	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
 	"io"
@@ -103,7 +104,11 @@ func (tgz *TarGzArchive) getTarFile() string {
 		fmt.Sprintf("glesha-%d.tar.gz", tgz.Id))
 }
 
-func (tgz *TarGzArchive) archive(ctx context.Context) error {
+func (tgz *TarGzArchive) archive(
+	ctx context.Context,
+	catalogRepo repository.FileCatalogRepository,
+	taskRepo repository.TaskRepository,
+) error {
 	if tgz.archiveAlreadyExists {
 		L.Printf("Archive already exists for path %s: %s\n",
 			tgz.InputPath, tgz.getTarFile())
@@ -119,6 +124,9 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	gzipWriter := gzip.NewWriter(tarFile)
 	tarGzWriter := tar.NewWriter(gzipWriter)
 	startTime := time.Now()
+
+	var catalogBatch []model.FileCatalogRow
+
 	err = filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, walkErr error) error {
 		select {
 		case <-ctx.Done():
@@ -185,6 +193,27 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 		}
 		header.Name = relPath
 
+		fileType := "file"
+		if info.IsDir() {
+			fileType = "dir"
+		}
+		catalogBatch = append(catalogBatch, model.FileCatalogRow{
+			TaskId:     tgz.Id,
+			FullPath:   relPath,
+			Name:       info.Name(),
+			ParentPath: filepath.Dir(relPath),
+			FileType:   fileType,
+			SizeBytes:  info.Size(),
+			ModifiedAt: info.ModTime(),
+		})
+
+		// TODO: make this configurable from config.json
+		const CATALOG_BATCH_SIZE int = 1000
+		if len(catalogBatch) >= CATALOG_BATCH_SIZE {
+			catalogRepo.AddMany(ctx, catalogBatch)
+			catalogBatch = nil
+		}
+
 		if info.Mode().IsRegular() {
 			file, err := os.Open(path)
 			if err != nil {
@@ -216,6 +245,10 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 				return nil
 			}
 			tgz.Progress.Done++
+			// update progress more frequently, because now we will have a tui dashboard
+			if tgz.Progress.Done%10 == 0 {
+				_ = taskRepo.UpdateArchivedFileCount(ctx, tgz.Id, int64(tgz.Progress.Done))
+			}
 			completedBytes += uint64(info.Size())
 			if L.IsVerbose() {
 				L.Debug(fmt.Sprintf("Processed: %s (%s)",
@@ -231,6 +264,10 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 		gzipWriter.Close()
 		tarFile.Close()
 		return err
+	}
+
+	if len(catalogBatch) > 0 {
+		catalogRepo.AddMany(ctx, catalogBatch)
 	}
 
 	if shouldAbort {
@@ -259,8 +296,12 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	return nil
 }
 
-func (tgz *TarGzArchive) Start(ctx context.Context) error {
-	return tgz.archive(ctx)
+func (tgz *TarGzArchive) Start(
+	ctx context.Context,
+	catalogRepo repository.FileCatalogRepository,
+	taskRepo repository.TaskRepository,
+) error {
+	return tgz.archive(ctx, catalogRepo, taskRepo)
 }
 
 func (tgz *TarGzArchive) GetProgress(ctx context.Context) (*Progress, error) {

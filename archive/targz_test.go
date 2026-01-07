@@ -5,7 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
+	"glesha/database"
 	"glesha/database/model"
+	"glesha/database/repository"
 	"os"
 	"path/filepath"
 	"testing"
@@ -155,8 +157,17 @@ func TestTarGzArchive_Archive(t *testing.T) {
 
 		err = archiver.Plan(context.Background())
 		assert.NoError(t, err)
-
-		err = archiver.archive(context.Background())
+		
+		// create in-memory database for test
+		db, err := database.NewDB(":memory:")
+		assert.NoError(t, err)
+		defer db.Close(context.Background())
+		err = db.Init(context.Background())
+		assert.NoError(t, err)
+		
+		catalogRepo := repository.NewFileCatalogRepository(db)
+		taskRepo := repository.NewTaskRepository(db)
+		err = archiver.archive(context.Background(), catalogRepo, taskRepo)
 		assert.NoError(t, err)
 
 		// Verify the archive file exists and is valid
@@ -176,7 +187,14 @@ func TestTarGzArchive_Archive(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err = archiver.archive(ctx)
+		// create in-memory database for test
+		db, err := database.NewDB(":memory:")
+		assert.NoError(t, err)
+		defer db.Close(context.Background())
+		err = db.Init(context.Background())
+		assert.NoError(t, err)
+
+		err = archiver.archive(ctx, repository.NewFileCatalogRepository(db), repository.NewTaskRepository(db))
 		assert.NoError(t, err) // The error is not propagated, but the archive is not created
 
 		// Verify the archive file does not exist

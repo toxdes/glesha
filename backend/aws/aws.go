@@ -122,12 +122,17 @@ func (aws *AwsBackend) CreateUploadResource(
 		resourceFilePath,
 		L.HumanReadableBytes(resourceFileInfo.Size, 2))
 
-	cost, err := aws.estimateCost(ctx, resourceFileInfo.Size, "INR")
+	cost, err := EstimateCost(ctx, resourceFileInfo.Size, "INR")
 	if err != nil {
 		return nil, err
 	}
 	L.Info("aws: Estimating costs")
-	L.Print(cost)
+	L.Print(renderEstimatedCost(
+		ctx,
+		resourceFileInfo.Size,
+		cost,
+		AwsStorageClass(config.Get().Aws.StorageClass), "INR"))
+
 	readable, err := file_io.IsReadable(resourceFilePath)
 
 	if err != nil || !readable {

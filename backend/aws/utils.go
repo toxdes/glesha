@@ -36,32 +36,59 @@ func (aws *AwsBackend) getProgressLine(progress *sync.Map) string {
 	return sb.String()
 }
 
-func (aws *AwsBackend) estimateCost(ctx context.Context, size uint64, currency string) (string, error) {
-	exchangeRate, err := aws.getExchangeRate(ctx, "USD", currency)
+func EstimateCost(ctx context.Context, size uint64, currency string) (map[AwsStorageClass]float64, error) {
+	exchangeRate, err := getExchangeRate(ctx, "USD", currency)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	awsStorageCostPerYear := map[string]float64{
-		"StandardFrequent":   12 * float64(size) * float64(0.023) * exchangeRate * float64(1e-9),
-		"StandardInfrequent": 12 * float64(size) * float64(0.0125) * exchangeRate * float64(1e-9),
-		"Express":            12 * float64(size) * float64(0.11) * exchangeRate * float64(1e-9),
-		"GlacierFlexible":    12 * float64(size) * float64(0.0037) * exchangeRate * float64(1e-9),
-		"GlacierDeepArchive": 12 * float64(size) * float64(0.00099) * exchangeRate * float64(1e-9),
+	awsPricingByStorageClass := map[AwsStorageClass]float64{
+		AWS_SC_STANDARD:            exchangeRate * 12 * float64(size) * float64(0.023) * float64(1e-9),
+		AWS_SC_INTELLIGENT_TIERING: exchangeRate * 12 * float64(size) * float64(0.023) * float64(1e-9),
+		AWS_SC_STANDARD_IA:         exchangeRate * 12 * float64(size) * float64(0.0125) * float64(1e-9),
+		AWS_SC_ONEZONE_IA:          exchangeRate * 12 * float64(size) * float64(0.01) * float64(1e-9),
+		AWS_SC_GLACIER_IR:          exchangeRate * 12 * float64(size) * float64(0.004) * float64(1e-9),
+		AWS_SC_GLACIER:             exchangeRate * 12 * float64(size) * float64(0.00099) * float64(1e-9),
+		AWS_SC_DEEP_ARCHIVE:        exchangeRate * 12 * float64(size) * float64(0.00099) * float64(1e-9),
 	}
+	return awsPricingByStorageClass, nil
+}
 
+func renderEstimatedCost(
+	_ context.Context,
+	size uint64,
+	costs map[AwsStorageClass]float64,
+	activeStorageClass AwsStorageClass,
+	currency string) string {
 	var sb strings.Builder
-	headerLine := fmt.Sprintf("    S3 Storage Class               Cost for %s (per year)", L.HumanReadableBytes(size, 2))
+	// TODO: maybe use lipgloss/table instead of handwaving this
+	emptySpaceHeader := 32
+	headerLine := fmt.Sprintf(
+		"AWS S3 Storage Class%sStorage cost for %s/year",
+		strings.Repeat(" ", emptySpaceHeader),
+		L.HumanReadableBytes(size, 2))
 	sb.WriteString(fmt.Sprintf("%s\n", L.Line(len(headerLine))))
 	sb.WriteString(headerLine)
 	sb.WriteString(fmt.Sprintf("\n%s\n", L.Line(len(headerLine))))
-	sb.WriteString(fmt.Sprintf("Standard (Frequent Retrieval)   :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardFrequent"], currency))
-	sb.WriteString(fmt.Sprintf("Standard (Infrequent Retrieval) :   %*.2f %s\n", 10, awsStorageCostPerYear["StandardInfrequent"], currency))
-	sb.WriteString(fmt.Sprintf("Express (High Performance)      :   %*.2f %s\n", 10, awsStorageCostPerYear["Express"], currency))
-	sb.WriteString(fmt.Sprintf("Glacier (Flexible Retrieval)    :   %*.2f %s\n", 10, awsStorageCostPerYear["GlacierFlexible"], currency))
-	sb.WriteString(fmt.Sprintf("Glacier (Deep Archive)          :   %*.2f %s", 10, awsStorageCostPerYear["GlacierDeepArchive"], currency))
-	sb.WriteString(fmt.Sprintf("\n%s\n", L.Line(len(headerLine))))
+	for _, key := range GetAwsStorageClasses() {
+		activeMarker := ""
+		label := GetStorageClassLabel(key)
+		emptySpace := len(headerLine) - len(label) - emptySpaceHeader/4
+		if key == activeStorageClass {
+			activeMarker = "✓ "
+			emptySpace -= 2
+		}
+		sb.WriteString(
+			fmt.Sprintf(
+				"%s%s%s%.2f %s\n",
+				activeMarker,
+				label,
+				strings.Repeat(" ", emptySpace),
+				costs[key],
+				currency))
+	}
+	sb.WriteString(fmt.Sprintf("%s\n", L.Line(len(headerLine))))
 	sb.WriteString("Note: Above storage costs are an approximation based on storage costs for us-east-1 region, it does not include retrieval/deletion costs.\n")
-	return sb.String(), nil
+	return sb.String()
 }
 
 func (aws *AwsBackend) getOptimalBlockSizeForSize(sizeInBytes int64) int64 {
@@ -82,7 +109,7 @@ func (aws *AwsBackend) getOptimalBlockSizeForSize(sizeInBytes int64) int64 {
 	return 150 * MB
 }
 
-func (aws *AwsBackend) getExchangeRate(_ context.Context, c1 string, c2 string) (float64, error) {
+func getExchangeRate(_ context.Context, c1 string, c2 string) (float64, error) {
 	// TODO: should this even exist here?
 	// if yes, then find a way to get costs in Locale's currency
 	if c1 == "USD" && c2 == "INR" {

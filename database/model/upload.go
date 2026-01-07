@@ -16,30 +16,30 @@ const (
 	UPLOAD_STATUS_FAILED    UploadStatus = "FAILED"
 )
 
-const CREATE_UPLOADS_TABLE = `CREATE TABLE IF NOT EXISTS uploads(
-				id INTEGER PRIMARY KEY AUTOINCREMENT,
-				
-				task_id INTEGER NOT NULL UNIQUE,
+const CREATE_UPLOADS_TABLE = `
+CREATE TABLE IF NOT EXISTS uploads(
+id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-				storage_backend_metadata_json TEXT, 
-				storage_backend_metadata_schema_version INTEGER NOT NULL,
-				file_path TEXT NOT NULL,
-				file_size INTEGER NOT NULL,
-				file_last_modified_at TEXT NOT NULL,
+task_id INTEGER NOT NULL UNIQUE,
+storage_backend_metadata_json TEXT,
+storage_backend_metadata_schema_version INTEGER NOT NULL,
+file_path TEXT NOT NULL,
+file_size INTEGER NOT NULL,
+file_last_modified_at TEXT NOT NULL,
 
-				uploaded_bytes INTEGER DEFAULT 0,
-				uploaded_blocks INTEGER DEFAULT 0,
-				total_blocks INTEGER NOT NULL,
-				block_size_in_bytes INTEGER NOT NULL,
+uploaded_bytes INTEGER DEFAULT 0,
+uploaded_blocks INTEGER DEFAULT 0,
+total_blocks INTEGER NOT NULL,
+block_size_in_bytes INTEGER NOT NULL,
 
-				status TEXT NOT NULL DEFAULT "QUEUED",
-				created_at TEXT NOT NULL, 
-				updated_at TEXT NOT NULL,
-				completed_at TEXT,
-				url TEXT,
+status TEXT NOT NULL DEFAULT "QUEUED",
+created_at TEXT NOT NULL,
+updated_at TEXT NOT NULL,
+completed_at TEXT,
+url TEXT,
 
-				UNIQUE(task_id),
-				FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+UNIQUE(task_id),
+FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
 );`
 
 type Upload struct {

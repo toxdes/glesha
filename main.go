@@ -13,7 +13,6 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 	err := cmd.Execute(ctx, os.Args[:])
-
 	select {
 	case <-ctx.Done():
 		L.Debug("Command execution was aborted.")

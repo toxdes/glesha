@@ -22,25 +22,26 @@ const (
 	TASK_STATUS_UPLOAD_COMPLETED  TaskStatus = "UPLOAD_COMPLETED"
 )
 
-const CREATE_TASKS_TABLE = `CREATE TABLE IF NOT EXISTS tasks (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+const CREATE_TASKS_TABLE = `
+CREATE TABLE IF NOT EXISTS tasks (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
 
-				input_path TEXT NOT NULL,
-        output_path TEXT NOT NULL,
-        config_path TEXT NOT NULL,
+input_path TEXT NOT NULL,
+output_path TEXT NOT NULL,
+config_path TEXT NOT NULL,
 
-				provider TEXT NOT NULL,
-        archive_format TEXT NOT NULL,
+provider TEXT NOT NULL,
+archive_format TEXT NOT NULL,
 
-				status TEXT NOT NULL,
+status TEXT NOT NULL,
 
-				created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
+created_at TEXT NOT NULL,
+updated_at TEXT NOT NULL,
 
-				content_hash TEXT NOT NULL,
-        size INTEGER NOT NULL,
-        file_count INTEGER NOT NULL,
-        archived_file_count INTEGER DEFAULT 0
+content_hash TEXT NOT NULL,
+size INTEGER NOT NULL,
+file_count INTEGER NOT NULL,
+archived_file_count INTEGER DEFAULT 0
 );`
 
 type Task struct {

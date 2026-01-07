@@ -69,20 +69,20 @@ func (u uploadRepository) CreateUpload(
 	updatedAt time.Time,
 ) (int64, error) {
 
-	result, err := u.db.D.ExecContext(ctx,
-		`INSERT INTO uploads (
-		task_id,
-		storage_backend_metadata_json,
-		storage_backend_metadata_schema_version,
-		file_path,
-		file_size,
-		file_last_modified_at,
-		total_blocks,
-		block_size_in_bytes,
-		created_at,
-		updated_at
-	) VALUES (?,?,?,?,?,?,?,?,?,?) 
-	 ON CONFLICT(task_id) DO NOTHING`,
+  result, err := u.db.D.ExecContext(ctx,
+    `INSERT INTO uploads (
+    task_id,
+    storage_backend_metadata_json,
+    storage_backend_metadata_schema_version,
+    file_path,
+    file_size,
+    file_last_modified_at,
+    total_blocks,
+    block_size_in_bytes,
+    created_at,
+    updated_at
+    ) VALUES (?,?,?,?,?,?,?,?,?,?)
+    ON CONFLICT(task_id) DO NOTHING`,
 		taskId,
 		storageBackendMetadataJson,
 		storageBackendMetadataSchemaVersion,
@@ -118,23 +118,23 @@ func (u uploadRepository) CreateUpload(
 func (u uploadRepository) GetUploadByTaskId(ctx context.Context, taskId int64) (*model.Upload, error) {
 
 	row := u.db.D.QueryRowContext(ctx, `SELECT
-		id,
-		task_id,
-		storage_backend_metadata_json,
-		storage_backend_metadata_schema_version,
-		file_path,
-		file_size,
-		file_last_modified_at,
-		uploaded_bytes,
-		uploaded_blocks,
-		total_blocks,
-		block_size_in_bytes,
-		status,
-		created_at,
-		updated_at,
-		completed_at,
-		url
-	from uploads WHERE task_id=?`, taskId)
+    id,
+    task_id,
+    storage_backend_metadata_json,
+    storage_backend_metadata_schema_version,
+    file_path,
+    file_size,
+    file_last_modified_at,
+    uploaded_bytes,
+    uploaded_blocks,
+    total_blocks,
+    block_size_in_bytes,
+    status,
+    created_at,
+    updated_at,
+    completed_at,
+    url
+    from uploads WHERE task_id=?`, taskId)
 
 	var upload model.Upload
 	var fileLastModifiedAtStr sql.NullString
@@ -185,23 +185,23 @@ func (u uploadRepository) GetUploadByTaskId(ctx context.Context, taskId int64) (
 func (u uploadRepository) GetUploadById(ctx context.Context, uploadId int64) (*model.Upload, error) {
 
 	row := u.db.D.QueryRowContext(ctx, `SELECT
-		id,
-		task_id,
-		storage_backend_metadata_json,
-		storage_backend_metadata_schema_version,
-		file_path,
-		file_size,
-		file_last_modified_at,
-		uploaded_bytes,
-		uploaded_blocks,
-		total_blocks,
-		block_size_in_bytes,
-		status,
-		created_at,
-		updated_at,
-		completed_at,
-		url
-	from uploads WHERE id=?`, uploadId)
+    id,
+    task_id,
+    storage_backend_metadata_json,
+    storage_backend_metadata_schema_version,
+    file_path,
+    file_size,
+    file_last_modified_at,
+    uploaded_bytes,
+    uploaded_blocks,
+    total_blocks,
+    block_size_in_bytes,
+    status,
+    created_at,
+    updated_at,
+    completed_at,
+    url
+    from uploads WHERE id=?`, uploadId)
 
 	var upload model.Upload
 	var fileLastModifiedAtStr sql.NullString
@@ -250,11 +250,11 @@ func (u uploadRepository) MarkComplete(
 	url string,
 ) error {
 	q := `UPDATE uploads SET
-				status=?,
-				url=?,
-				updated_at=?,
-				completed_at=?
-				WHERE id=?`
+  status=?,
+  url=?,
+  updated_at=?,
+  completed_at=?
+  WHERE id=?`
 	now := database.ToTimeStr(time.Now())
 	_, err := u.db.D.ExecContext(ctx, q, model.UPLOAD_STATUS_COMPLETED, url, now, now, id)
 	if err != nil {
@@ -269,9 +269,9 @@ func (u uploadRepository) UpdateStatus(
 	status model.UploadStatus,
 ) error {
 	q := `UPDATE uploads SET
-				status=?,
-				updated_at=?
-				WHERE id=?`
+  status=?,
+  updated_at=?
+  WHERE id=?`
 	now := database.ToTimeStr(time.Now())
 	_, err := u.db.D.ExecContext(ctx, q, status, now, id)
 	if err != nil {

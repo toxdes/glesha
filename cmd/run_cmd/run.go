@@ -25,6 +25,7 @@ type RunCmdEnv struct {
 	TaskRepo          repository.TaskRepository
 	UploadRepo        repository.UploadRepository
 	UploadBlockRepo   repository.UploadBlockRepository
+	FileCatalogRepo   repository.FileCatalogRepository
 	MaxConcurrentJobs int
 }
 
@@ -56,6 +57,7 @@ func Execute(ctx context.Context, args []string) error {
 	runCmdEnv.TaskRepo = repository.NewTaskRepository(db)
 	runCmdEnv.UploadRepo = repository.NewUploadRepository(db)
 	runCmdEnv.UploadBlockRepo = repository.NewUploadBlockRepository(db)
+	runCmdEnv.FileCatalogRepo = repository.NewFileCatalogRepository(db)
 
 	runCmdEnv.Task, err = runCmdEnv.TaskRepo.GetTaskById(ctx, runCmdEnv.TaskId)
 	if err != nil {
@@ -159,13 +161,18 @@ func runTask(ctx context.Context, runCmdEnv *RunCmdEnv) error {
 
 	if mustRearchive {
 		L.Info("Starting fresh because cannot continue from previous state")
-		err = archiver.Start(ctx)
+		err = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_ARCHIVE_RUNNING)
 		if err != nil {
+			return err
+		}
+		err = archiver.Start(ctx, runCmdEnv.FileCatalogRepo, runCmdEnv.TaskRepo)
+		if err != nil {
+			_ = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_ARCHIVE_ABORTED)
 			return err
 		}
 		select {
 		case <-ctx.Done():
-			L.Println()
+			_ = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_ARCHIVE_ABORTED)
 			return fmt.Errorf("kill signal received, exiting")
 		default:
 		}
@@ -260,6 +267,9 @@ func runTask(ctx context.Context, runCmdEnv *RunCmdEnv) error {
 		return err
 	}
 
+	_ = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_UPLOAD_RUNNING)
+	_ = runCmdEnv.UploadRepo.UpdateStatus(ctx, uploadId, model.UPLOAD_STATUS_RUNNING)
+
 	err = storageBackend.UploadResource(
 		ctx,
 		runCmdEnv.TaskRepo,
@@ -270,8 +280,11 @@ func runTask(ctx context.Context, runCmdEnv *RunCmdEnv) error {
 	)
 
 	if err != nil {
+		_ = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_UPLOAD_ABORTED)
+		_ = runCmdEnv.UploadRepo.UpdateStatus(ctx, uploadId, model.UPLOAD_STATUS_FAILED)
 		return err
 	}
+	_ = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_UPLOAD_COMPLETED)
 	L.Printf("Upload Archive: OK\n")
 	return nil
 }
