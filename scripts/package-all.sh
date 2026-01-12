@@ -9,13 +9,15 @@ for dir in "$BUILD_DIR"/*; do
   os_arch=$(basename "$dir")
   out_dir="$dir/out"
   bin_name="glesha"
+  final_name="glesha"
 
   if [[ "$os_arch" == windows* ]]; then
     bin_name+=".exe"
+    final_name+=".exe"
   fi
 
   if [ -f "$out_dir/$bin_name" ]; then
-    mv "$out_dir/$bin_name" "$dir/glesha"
+    mv "$out_dir/$bin_name" "$dir/$final_name"
     rm -rf "$out_dir"
   else
     echo "Binary not found in $out_dir"
