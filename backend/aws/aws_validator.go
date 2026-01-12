@@ -112,6 +112,8 @@ func GetStorageClassLabel(storageClass AwsStorageClass) string {
 		return "Intelligent Tiering (Auto)"
 	case AWS_SC_STANDARD_IA:
 		return "Standard (Infrequent Access)"
+	case AWS_SC_ONEZONE_IA:
+		return "Standard (One zone)"
 	case AWS_SC_GLACIER_IR:
 		return "Glacier (Instant Retrieval)"
 	case AWS_SC_GLACIER:
