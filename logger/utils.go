@@ -201,7 +201,7 @@ func colorize(s string, colorStyle *lipgloss.Style) string {
 	return noColorStyle.Render(s)
 }
 
-// prints input with mulitple lines with stripped spaces and with prefix for each line
+// prints input with multiple lines with stripped spaces and with prefix for each line
 // returns number of characters printed
 func printMultiline(l *log.Logger, style *lipgloss.Style, v ...any) int {
 	message := fmt.Sprint(v...)
@@ -320,6 +320,10 @@ func printFooter() int {
 	_, style := getLoggerAndStyle(footerLevel)
 	lineCnt := 0
 	for line := range strings.SplitSeq(footerText, "\n") {
+		// Skip empty lines from trailing newlines
+		if len(strings.TrimSpace(line)) == 0 {
+			continue
+		}
 		rendered := style.Render(strings.TrimSpace(line))
 		fmt.Printf("%s\n", rendered)
 		lineCnt++

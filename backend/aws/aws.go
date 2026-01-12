@@ -128,7 +128,6 @@ func (aws *AwsBackend) CreateUploadResource(
 	}
 	L.Info("aws: Estimating costs")
 	L.Print(renderEstimatedCost(
-		ctx,
 		resourceFileInfo.Size,
 		cost,
 		AwsStorageClass(config.Get().Aws.StorageClass), "INR"))

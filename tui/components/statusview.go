@@ -67,13 +67,16 @@ func RenderStatusView(
 
 	if t.Provider == config.PROVIDER_AWS {
 		// task-specific config needs to be loaded
-		_ = config.Parse(t.ConfigPath)
+		err := config.Parse(t.ConfigPath)
+		if err != nil {
+			L.Error("tui: could not parse config: %w", err)
+		}
 		cfg := config.Get()
 
 		if cfg.Aws != nil {
 			cost, err := aws.EstimateCost(ctx, uint64(t.TotalSize), "INR")
 			if err != nil {
-				L.Panic("tui: could not estimate cost for task %d: %w", t.Id, err)
+				L.Error("tui: could not estimate cost for task %d: %w", t.Id, err)
 			}
 			var costRows []Row
 			costKeys := aws.GetAwsStorageClasses()

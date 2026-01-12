@@ -137,7 +137,7 @@ func SetColorMode(cm ColorMode) error {
 	case COLOR_MODE_ALWAYS, COLOR_MODE_NEVER, COLOR_MODE_AUTO:
 		colorMode = cm
 	default:
-		return fmt.Errorf("unsupported color mode: %s", cm)
+		return fmt.Errorf("unsupported color mode: %s", cm.String())
 	}
 	updateLoggerPrefixColors()
 	return nil

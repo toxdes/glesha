@@ -54,7 +54,6 @@ func EstimateCost(ctx context.Context, size uint64, currency string) (map[AwsSto
 }
 
 func renderEstimatedCost(
-	_ context.Context,
 	size uint64,
 	costs map[AwsStorageClass]float64,
 	activeStorageClass AwsStorageClass,

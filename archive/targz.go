@@ -210,7 +210,10 @@ func (tgz *TarGzArchive) archive(
 		// TODO: make this configurable from config.json
 		const CATALOG_BATCH_SIZE int = 1000
 		if len(catalogBatch) >= CATALOG_BATCH_SIZE {
-			catalogRepo.AddMany(ctx, catalogBatch)
+			err := catalogRepo.AddMany(ctx, catalogBatch)
+			if err != nil {
+				return fmt.Errorf("archive: could not add files metadata due to error: %w", err)
+			}
 			catalogBatch = nil
 		}
 
@@ -267,7 +270,10 @@ func (tgz *TarGzArchive) archive(
 	}
 
 	if len(catalogBatch) > 0 {
-		catalogRepo.AddMany(ctx, catalogBatch)
+		err := catalogRepo.AddMany(ctx, catalogBatch)
+		if err != nil {
+			return fmt.Errorf("archive: could not add files metadata to db due to error: %w", err)
+		}
 	}
 
 	if shouldAbort {
