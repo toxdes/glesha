@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"glesha/database/model"
+	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
 	"io"
@@ -103,7 +104,11 @@ func (tgz *TarGzArchive) getTarFile() string {
 		fmt.Sprintf("glesha-%d.tar.gz", tgz.Id))
 }
 
-func (tgz *TarGzArchive) archive(ctx context.Context) error {
+func (tgz *TarGzArchive) archive(
+	ctx context.Context,
+	catalogRepo repository.FileCatalogRepository,
+	taskRepo repository.TaskRepository,
+) error {
 	if tgz.archiveAlreadyExists {
 		L.Printf("Archive already exists for path %s: %s\n",
 			tgz.InputPath, tgz.getTarFile())
@@ -119,6 +124,9 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	gzipWriter := gzip.NewWriter(tarFile)
 	tarGzWriter := tar.NewWriter(gzipWriter)
 	startTime := time.Now()
+
+	var catalogBatch []model.FileCatalogRow
+
 	err = filepath.Walk(tgz.InputPath, func(path string, info fs.FileInfo, walkErr error) error {
 		select {
 		case <-ctx.Done():
@@ -129,7 +137,6 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			}
 		default:
 		}
-		L.Print(L.C_CLEAR_LINE)
 
 		_, ignore := tgz.IgnoredDirs[path]
 
@@ -186,6 +193,30 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 		}
 		header.Name = relPath
 
+		fileType := "file"
+		if info.IsDir() {
+			fileType = "dir"
+		}
+		catalogBatch = append(catalogBatch, model.FileCatalogRow{
+			TaskId:     tgz.Id,
+			FullPath:   relPath,
+			Name:       info.Name(),
+			ParentPath: filepath.Dir(relPath),
+			FileType:   fileType,
+			SizeBytes:  info.Size(),
+			ModifiedAt: info.ModTime(),
+		})
+
+		// TODO: make this configurable from config.json
+		const CATALOG_BATCH_SIZE int = 1000
+		if len(catalogBatch) >= CATALOG_BATCH_SIZE {
+			err := catalogRepo.AddMany(ctx, catalogBatch)
+			if err != nil {
+				return fmt.Errorf("archive: could not add files metadata due to error: %w", err)
+			}
+			catalogBatch = nil
+		}
+
 		if info.Mode().IsRegular() {
 			file, err := os.Open(path)
 			if err != nil {
@@ -199,17 +230,13 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 			if tgz.Progress.Total > 0 {
 				progressPercentage = float64(completedBytes) * 100.0 / float64(tgz.Info.SizeInBytes)
 			}
-			// FIXME: this is clearing lines that shouldn't be cleared sometimes
-			L.Print(L.C_SAVE)
-			L.Printf("\r%sArchiving: %.2f%% %s (%d/%d) [%s - %s]",
-				L.C_CLEAR_LINE,
+			L.Footer(L.NORMAL, fmt.Sprintf("Archiving: %.2f%% %s (%d/%d) [%s - %s]",
 				progressPercentage,
 				L.ProgressBar(progressPercentage, -1),
 				tgz.Progress.Done,
 				tgz.Progress.Total,
 				L.TruncateString(filepath.Base(path), 24, L.TRUNC_CENTER),
-				L.HumanReadableBytes(uint64(info.Size()), 2))
-			L.Print(L.C_RESTORE)
+				L.HumanReadableBytes(uint64(info.Size()), 2)))
 			err = tarGzWriter.WriteHeader(header)
 			if err != nil {
 				L.Warn(fmt.Errorf("archive: skipping %s due to error: %w", path, err))
@@ -221,6 +248,10 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 				return nil
 			}
 			tgz.Progress.Done++
+			// update progress more frequently, because now we will have a tui dashboard
+			if tgz.Progress.Done%10 == 0 {
+				_ = taskRepo.UpdateArchivedFileCount(ctx, tgz.Id, int64(tgz.Progress.Done))
+			}
 			completedBytes += uint64(info.Size())
 			if L.IsVerbose() {
 				L.Debug(fmt.Sprintf("Processed: %s (%s)",
@@ -238,6 +269,13 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 		return err
 	}
 
+	if len(catalogBatch) > 0 {
+		err := catalogRepo.AddMany(ctx, catalogBatch)
+		if err != nil {
+			return fmt.Errorf("archive: could not add files metadata to db due to error: %w", err)
+		}
+	}
+
 	if shouldAbort {
 		tarGzWriter.Close()
 		gzipWriter.Close()
@@ -250,8 +288,8 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	L.Printf("\r%sArchiving: Done (%d/%d) (%s -> %s)\n",
-		L.C_CLEAR_LINE,
+	L.Footer(L.NORMAL, "")
+	L.Printf("Archiving: Done (%d/%d) (%s -> %s)\n",
 		tgz.Progress.Done,
 		tgz.Progress.Total,
 		L.HumanReadableBytes(tgz.Info.SizeInBytes, 2),
@@ -264,8 +302,12 @@ func (tgz *TarGzArchive) archive(ctx context.Context) error {
 	return nil
 }
 
-func (tgz *TarGzArchive) Start(ctx context.Context) error {
-	return tgz.archive(ctx)
+func (tgz *TarGzArchive) Start(
+	ctx context.Context,
+	catalogRepo repository.FileCatalogRepository,
+	taskRepo repository.TaskRepository,
+) error {
+	return tgz.archive(ctx, catalogRepo, taskRepo)
 }
 
 func (tgz *TarGzArchive) GetProgress(ctx context.Context) (*Progress, error) {

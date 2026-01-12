@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"glesha/database/repository"
 	"glesha/file_io"
 )
 
@@ -25,7 +26,7 @@ type Progress struct {
 
 type Archiver interface {
 	Plan(context.Context) error
-	Start(context.Context) error
+	Start(context.Context, repository.FileCatalogRepository, repository.TaskRepository) error
 	Pause(context.Context) error
 	Abort(context.Context) error
 	UpdateStatus(context.Context, ArchiveStatus) error

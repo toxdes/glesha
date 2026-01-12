@@ -70,13 +70,59 @@ func (a *AwsValidator) ValidateBucketName(bucketName string) error {
 	return nil
 }
 
+type AwsStorageClass string
+
+// storage classes: https://docs.aws.amazon.com/AmazonS3/latest/userguide/storage-class-intro.html#sc-compare
+const (
+	AWS_SC_STANDARD            AwsStorageClass = "STANDARD"
+	AWS_SC_INTELLIGENT_TIERING AwsStorageClass = "INTELLIGENT_TIERING"
+	AWS_SC_STANDARD_IA         AwsStorageClass = "STANDARD_IA"
+	AWS_SC_ONEZONE_IA          AwsStorageClass = "ONEZONE_IA"
+	AWS_SC_GLACIER_IR          AwsStorageClass = "GLACIER_IR"
+	AWS_SC_GLACIER             AwsStorageClass = "GLACIER"
+	AWS_SC_DEEP_ARCHIVE        AwsStorageClass = "DEEP_ARCHIVE"
+)
+
+func GetAwsStorageClasses() []AwsStorageClass {
+	return []AwsStorageClass{
+		AWS_SC_STANDARD,
+		AWS_SC_INTELLIGENT_TIERING,
+		AWS_SC_STANDARD_IA,
+		AWS_SC_ONEZONE_IA,
+		AWS_SC_GLACIER_IR,
+		AWS_SC_GLACIER,
+		AWS_SC_DEEP_ARCHIVE,
+	}
+}
+
 func (a *AwsValidator) ValidateStorageClass(storageClass string) error {
-	storageClasses := []string{"STANDARD", "INTELLIGENT_TIERING",
-		"STANDARD_IA", "ONEZONE_IA", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE"}
-	if !slices.Contains(storageClasses, storageClass) {
+	storageClasses := GetAwsStorageClasses()
+	if !slices.Contains(storageClasses, AwsStorageClass(storageClass)) {
 		return fmt.Errorf("aws: invalid storage class %s", storageClass)
 	}
 	return nil
+}
+
+// returns a descriptive short label for each storage class
+func GetStorageClassLabel(storageClass AwsStorageClass) string {
+	switch storageClass {
+	case AWS_SC_STANDARD:
+		return "Standard"
+	case AWS_SC_INTELLIGENT_TIERING:
+		return "Intelligent Tiering (Auto)"
+	case AWS_SC_STANDARD_IA:
+		return "Standard (Infrequent Access)"
+	case AWS_SC_ONEZONE_IA:
+		return "Standard (One zone)"
+	case AWS_SC_GLACIER_IR:
+		return "Glacier (Instant Retrieval)"
+	case AWS_SC_GLACIER:
+		return "Glacier (Flexible Retrieval)"
+	case AWS_SC_DEEP_ARCHIVE:
+		return "Glacier (Deep Archive)"
+	default:
+		return "unknown storage class"
+	}
 }
 
 func (a *AwsValidator) ValidateAccountId(id uint64) error {

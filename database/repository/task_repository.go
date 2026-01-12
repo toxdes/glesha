@@ -49,6 +49,10 @@ type TaskRepository interface {
 		taskId int64,
 		status model.TaskStatus,
 	) error
+
+	UpdateArchivedFileCount(ctx context.Context, taskId int64, count int64) error
+
+	ListTasks(ctx context.Context) ([]*model.Task, error)
 }
 
 type taskRepository struct {
@@ -66,14 +70,26 @@ func (t taskRepository) FindSimilarTask(
 	filesInfo *file_io.FilesInfo,
 	archiveFormat config.ArchiveFormat,
 ) (*model.Task, error) {
-
+	q := `
+  SELECT
+  id,
+  input_path,
+  output_path,
+  config_path,
+  provider,
+  status,
+  created_at,
+  updated_at,
+  content_hash,
+  size,
+  file_count
+  FROM tasks
+  WHERE input_path=? AND provider=? AND content_hash=? AND archive_format=?
+  ORDER BY created_at DESC LIMIT 1
+  `
 	rows, err := t.db.D.QueryContext(
 		ctx,
-		`SELECT
-         id,input_path, output_path, config_path, provider,
-         status, created_at, updated_at, content_hash, size, file_count
-    FROM tasks WHERE input_path=? and provider=? and content_hash=? and archive_format=?
-    ORDER BY created_at DESC LIMIT 1`,
+		q,
 		inputPath, provider, filesInfo.ContentHash, archiveFormat,
 	)
 	if err != nil {
@@ -120,8 +136,20 @@ func (t taskRepository) CreateTask(
 	filesInfo *file_io.FilesInfo,
 ) (int64, error) {
 	result, err := t.db.D.ExecContext(ctx,
-		`INSERT INTO tasks (input_path, output_path, config_path, archive_format, provider,status,created_at,updated_at,content_hash,size,file_count)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO tasks
+    (input_path,
+    output_path,
+    config_path,
+    archive_format,
+    provider,
+    status,
+    created_at,
+    updated_at,
+    content_hash,
+    size,
+    file_count)
+    VALUES
+    (?,?,?,?,?,?,?,?,?,?,?)`,
 		inputPath,
 		outputPath,
 		configPath,
@@ -145,8 +173,27 @@ func (t taskRepository) CreateTask(
 }
 
 func (t taskRepository) GetTaskById(ctx context.Context, taskId int64) (*model.Task, error) {
+	q := `
+  SELECT
+  id,
+  input_path,
+  output_path,
+  config_path,
+  status,
+  provider,
+  archive_format,
+  created_at,
+  updated_at,
+  content_hash,
+  size,
+  file_count,
+  archived_file_count
+  FROM tasks
+  WHERE id=?
+  `
+
 	var task model.Task
-	row := t.db.D.QueryRowContext(ctx, "SELECT id, input_path, output_path, config_path, status, provider, archive_format, created_at, updated_at, content_hash, size, file_count FROM tasks WHERE id=?", taskId)
+	row := t.db.D.QueryRowContext(ctx, q, taskId)
 	var createdAtStr string
 	var updatedAtStr string
 	var providerStr string
@@ -165,6 +212,7 @@ func (t taskRepository) GetTaskById(ctx context.Context, taskId int64) (*model.T
 		&task.ContentHash,
 		&task.TotalSize,
 		&task.TotalFileCount,
+		&task.ArchivedFileCount,
 	)
 
 	if err != nil {
@@ -185,6 +233,47 @@ func (t taskRepository) GetTaskById(ctx context.Context, taskId int64) (*model.T
 		return nil, fmt.Errorf("could not parse archive format %s: %w", archiveFormatStr, err)
 	}
 	return &task, nil
+}
+
+func (t taskRepository) ListTasks(ctx context.Context) ([]*model.Task, error) {
+	q := `
+  SELECT
+  id,
+  input_path,
+  output_path,
+  config_path,
+  status,
+  provider,
+  archive_format,
+  created_at,
+  updated_at,
+  content_hash,
+  size,
+  file_count,
+  archived_file_count
+  FROM tasks
+  ORDER BY id ASC
+  `
+	rows, err := t.db.D.QueryContext(ctx, q)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var tasks []*model.Task
+	for rows.Next() {
+		var task model.Task
+		var createdAtStr, updatedAtStr, providerStr, archiveFormatStr string
+		err := rows.Scan(&task.Id, &task.InputPath, &task.OutputPath, &task.ConfigPath, &task.Status, &providerStr, &archiveFormatStr, &createdAtStr, &updatedAtStr, &task.ContentHash, &task.TotalSize, &task.TotalFileCount, &task.ArchivedFileCount)
+		if err != nil {
+			return nil, err
+		}
+		task.CreatedAt = database.FromTimeStr(createdAtStr)
+		task.UpdatedAt = database.FromTimeStr(updatedAtStr)
+		task.Provider, _ = config.ParseProvider(providerStr)
+		task.ArchiveFormat, _ = config.ParseArchiveFormat(archiveFormatStr)
+		tasks = append(tasks, &task)
+	}
+	return tasks, nil
 }
 
 func (t taskRepository) UpdateTaskStatus(ctx context.Context, taskId int64, status model.TaskStatus) error {
@@ -227,5 +316,10 @@ func (t taskRepository) UpdateTaskContentInfo(ctx context.Context, id int64, inf
 		return fmt.Errorf("was expecting %d row updates, but %d rows were updated", 1, rowsAffected)
 	}
 	L.Debug(fmt.Sprintf("Updated task(%d) contents: content_hash, file_count", id))
+	return err
+}
+
+func (t taskRepository) UpdateArchivedFileCount(ctx context.Context, taskId int64, count int64) error {
+	_, err := t.db.D.ExecContext(ctx, "UPDATE tasks SET archived_file_count = ?, updated_at = ? WHERE id = ?", count, database.ToTimeStr(time.Now()), taskId)
 	return err
 }

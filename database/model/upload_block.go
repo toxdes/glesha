@@ -27,7 +27,7 @@ const CREATE_UPLOAD_BLOCKS_TABLE = `CREATE TABLE IF NOT EXISTS upload_blocks (
 
 // TODO: maybe update completed_at automatically as well?
 // currently we are doing it manually
-const CREATE_UPDATE_UPLOAD_PROGRESS_TRIGGER = `CREATE TRIGGER IF NOT EXISTS 
+const CREATE_UPDATE_UPLOAD_PROGRESS_TRIGGER = `CREATE TRIGGER IF NOT EXISTS
 update_upload_progress
 AFTER UPDATE ON upload_blocks
 FOR EACH ROW
@@ -64,7 +64,7 @@ type UploadBlock struct {
 }
 
 func (ub *UploadBlock) String() string {
-	return fmt.Sprintf("UploadBlock:\n\tId:%d\n\tOffset:%d\n\tSize:%d\n\tStatus:%s\n\tErrorMessage:%v\n\tErrorCount:%d\n",
+	return fmt.Sprintf("[UploadBlock]\n  Id:%d\n  Offset:%d\n  Size:%d\n  Status:%s\n  ErrorMessage:%v\n  ErrorCount:%d\n",
 		ub.Id,
 		ub.FileOffset,
 		ub.Size,

@@ -127,8 +127,13 @@ func (ubr uploadBlockRepo) CreateUploadBlocks(
 		args = append(args, uploadId, offset, size, model.UB_STATUS_QUEUED, now, now)
 	}
 	q := fmt.Sprintf(`INSERT INTO
-										upload_blocks
-										(upload_id, file_offset, size, status, created_at, updated_at)
+	upload_blocks
+	(upload_id,
+	file_offset,
+	size,
+	status,
+	created_at,
+	updated_at)
 										VALUES %s`, strings.Join(rows, ","))
 	res, err := ubr.db.D.ExecContext(ctx, q, args...)
 	if err != nil {

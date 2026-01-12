@@ -118,16 +118,20 @@ func (aws *AwsBackend) CreateUploadResource(
 	if err != nil {
 		return nil, err
 	}
-	L.Info(fmt.Sprintf("Initiating aws upload: %s (%s)",
+	L.Printf("Initiating aws upload: %s (%s)\n",
 		resourceFilePath,
-		L.HumanReadableBytes(resourceFileInfo.Size, 2)))
+		L.HumanReadableBytes(resourceFileInfo.Size, 2))
 
-	cost, err := aws.estimateCost(ctx, resourceFileInfo.Size, "INR")
+	cost, err := EstimateCost(ctx, resourceFileInfo.Size, "INR")
 	if err != nil {
 		return nil, err
 	}
 	L.Info("aws: Estimating costs")
-	L.Print(cost)
+	L.Print(renderEstimatedCost(
+		resourceFileInfo.Size,
+		cost,
+		AwsStorageClass(config.Get().Aws.StorageClass), "INR"))
+
 	readable, err := file_io.IsReadable(resourceFilePath)
 
 	if err != nil || !readable {
@@ -170,10 +174,10 @@ func (aws *AwsBackend) UploadResource(
 	if err != nil {
 		return fmt.Errorf("could not find upload for upload id %d:%w", uploadId, err)
 	}
-	L.Info(fmt.Sprintf(
-		"Using up to %s to upload",
+	L.Printf(
+		"Using up to %s to upload\n",
 		L.HumanReadableCount(maxConcurrentJobs, "job", "jobs"),
-	))
+	)
 	task, err := taskRepo.GetTaskById(ctx, upload.TaskId)
 	taskKey := task.Key()
 	if err != nil {
@@ -298,10 +302,10 @@ func (aws *AwsBackend) UploadResource(
 
 	select {
 	case <-waitCh:
-		L.Printf("%s%s\r", L.C_UP, L.C_CLEAR_LINE)
 		delta := time.Now().UnixMilli() - startTime.UnixMilli()
 		if totalSent.Load() > 0 {
-			L.Info(fmt.Sprintf("Uploading: Done (%s uploaded)\n", L.HumanReadableBytes(totalSent.Load(), 1)))
+			L.Footer(L.NORMAL, "")
+			L.Printf("Uploading: Done (%s uploaded)\n", L.HumanReadableBytes(totalSent.Load(), 1))
 			L.Printf("took %s\n", L.HumanReadableTime(delta))
 		}
 		return aws.completeMultipartUpload(
