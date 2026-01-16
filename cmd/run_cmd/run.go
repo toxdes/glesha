@@ -78,10 +78,16 @@ func Execute(ctx context.Context, args []string) error {
 func parseFlags(args []string, runCmdEnv *RunCmdEnv) error {
 	const DEFAULT_MAX_JOBS = 1
 	runCmd := flag.NewFlagSet("run", flag.ExitOnError)
-	logLevel := runCmd.String("log-level", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
+	defaultLogLevel := L.GetLogLevel().String()
+	defaultColorMode := L.GetColorMode().String()
+
+	logLevel := runCmd.String("log-level", defaultLogLevel, "Set log level: debug info warn error panic")
+	colorMode := runCmd.String("color", defaultColorMode, "Set color mode: auto always never")
+
 	maxConcurrentJobs := runCmd.Int("jobs", DEFAULT_MAX_JOBS, "Set max workers to use for processing")
 	runCmd.IntVar(maxConcurrentJobs, "j", DEFAULT_MAX_JOBS, "Set max workers to use for processing")
-	runCmd.StringVar(logLevel, "L", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
+	runCmd.StringVar(logLevel, "L", defaultLogLevel, "Set log level: debug info warn error panic")
+
 	runCmd.Usage = func() {
 		PrintUsage()
 	}
@@ -89,6 +95,13 @@ func parseFlags(args []string, runCmdEnv *RunCmdEnv) error {
 
 	if err != nil {
 		return err
+	}
+
+	if colorMode != nil {
+		err = L.SetColorModeFromString(*colorMode)
+		if err != nil {
+			return fmt.Errorf("could not set color mode to %s: %w", *colorMode, err)
+		}
 	}
 
 	nArgs := len(runCmd.Args())

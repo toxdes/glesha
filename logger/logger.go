@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // NOTE: populated at build time with -ldflags (-X)
@@ -120,11 +121,11 @@ func SetLevel(l LogLevel) error {
 func SetColorModeFromString(colorModeStr string) error {
 	switch strings.ToLower(colorModeStr) {
 	case "always":
-		colorMode = COLOR_MODE_ALWAYS
+		SetColorMode(COLOR_MODE_ALWAYS)
 	case "never":
-		colorMode = COLOR_MODE_NEVER
+		SetColorMode(COLOR_MODE_NEVER)
 	case "auto":
-		colorMode = COLOR_MODE_AUTO
+		SetColorMode(COLOR_MODE_AUTO)
 	default:
 		return fmt.Errorf("unsupported color mode: %s", colorModeStr)
 	}
@@ -135,6 +136,10 @@ func SetColorModeFromString(colorModeStr string) error {
 func SetColorMode(cm ColorMode) error {
 	switch cm {
 	case COLOR_MODE_ALWAYS, COLOR_MODE_NEVER, COLOR_MODE_AUTO:
+		if cm == COLOR_MODE_ALWAYS {
+			// override default behavior of lipgloss
+			lipgloss.SetColorProfile(termenv.TrueColor)
+		}
 		colorMode = cm
 	default:
 		return fmt.Errorf("unsupported color mode: %s", cm.String())
@@ -204,6 +209,10 @@ func Panic(v ...any) {
 
 func GetLogLevel() LogLevel {
 	return level
+}
+
+func GetColorMode() ColorMode {
+	return colorMode
 }
 
 func IsVerbose() bool {
