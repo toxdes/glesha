@@ -104,6 +104,13 @@ func parseFlags(args []string, runCmdEnv *RunCmdEnv) error {
 	if *colorMode != defaultColorMode {
 		L.Info(fmt.Sprintf("Setting color mode to: %s", strings.ToUpper(*colorMode)))
 	}
+	err = L.SetLevelFromString(*logLevel)
+	if err != nil {
+		return err
+	}
+	if *logLevel != defaultLogLevel {
+		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
+	}
 
 	nArgs := len(runCmd.Args())
 
@@ -117,13 +124,7 @@ func parseFlags(args []string, runCmdEnv *RunCmdEnv) error {
 	if err != nil {
 		return err
 	}
-	err = L.SetLevelFromString(*logLevel)
-	if err != nil {
-		return err
-	}
-	if *logLevel != defaultLogLevel {
-		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
-	}
+
 	runCmdEnv.TaskId = taskId
 	runCmdEnv.MaxConcurrentJobs = *maxConcurrentJobs
 	return err

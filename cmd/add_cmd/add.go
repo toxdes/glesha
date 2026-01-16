@@ -152,6 +152,14 @@ func parseFlags(args []string) error {
 		L.Info(fmt.Sprintf("Setting color mode to: %s", strings.ToUpper(*colorMode)))
 	}
 
+	err = L.SetLevelFromString(*logLevel)
+	if err != nil {
+		return err
+	}
+	if *logLevel != defaultLogLevel {
+		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
+	}
+
 	nArgs := len(addCmd.Args())
 
 	if nArgs < 1 {
@@ -163,14 +171,6 @@ func parseFlags(args []string) error {
 	}
 
 	inputPathArg := addCmd.Arg(0)
-
-	err = L.SetLevelFromString(*logLevel)
-	if err != nil {
-		return err
-	}
-	if *logLevel != defaultLogLevel {
-		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
-	}
 
 	if len(inputPathArg) == 0 {
 		return fmt.Errorf("PATH is not valid")
