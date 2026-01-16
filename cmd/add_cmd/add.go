@@ -115,22 +115,25 @@ func parseFlags(args []string) error {
 		return err
 	}
 	defaultOutputPath := globalWorkDir
+	defaultLogLevel := L.GetLogLevel().String()
+	defaultColorMode := L.GetColorMode().String()
 
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
 	outputPath := addCmd.String("output", defaultOutputPath, "Path to file or directory to archive (required)")
 	configPath := addCmd.String("config", "", "Path to file or directory to archive (required)")
 	provider := addCmd.String("provider", "", "Which provider to use for uploading")
 	archiveFormat := addCmd.String("archive-format", "", "Which archive format to use for archiving")
-	logLevel := addCmd.String("log-level", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
+	logLevel := addCmd.String("log-level", defaultLogLevel, "Set log level: debug info warn error panic")
+	colorMode := addCmd.String("color", defaultColorMode, "Set color mode: auto always never")
 
 	var assumeYes bool
-
 	addCmd.StringVar(outputPath, "o", defaultOutputPath, "alias to -output")
 	addCmd.StringVar(configPath, "c", "", "alias to -config")
 	addCmd.StringVar(provider, "p", "", "alias to -provider")
 	addCmd.StringVar(archiveFormat, "a", "", "alias to -archive-format")
-	addCmd.StringVar(logLevel, "L", L.GetLogLevel().String(), "Set log level: debug info warn error panic")
+	addCmd.StringVar(logLevel, "L", defaultLogLevel, "Set log level: debug info warn error panic")
 	addCmd.BoolVar(&assumeYes, "assume-yes", false, "Assume yes to all yes/no prompts")
+
 	addCmd.Usage = func() {
 		PrintUsage()
 	}
@@ -139,6 +142,22 @@ func parseFlags(args []string) error {
 
 	if err != nil {
 		return fmt.Errorf("could not parse args for 'add' command")
+	}
+
+	err = L.SetColorModeFromString(*colorMode)
+	if err != nil {
+		return fmt.Errorf("could not set color mode to %s: %w", *colorMode, err)
+	}
+	if *colorMode != defaultColorMode {
+		L.Info(fmt.Sprintf("Setting color mode to: %s", strings.ToUpper(*colorMode)))
+	}
+
+	err = L.SetLevelFromString(*logLevel)
+	if err != nil {
+		return err
+	}
+	if *logLevel != defaultLogLevel {
+		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
 	}
 
 	nArgs := len(addCmd.Args())
@@ -152,13 +171,6 @@ func parseFlags(args []string) error {
 	}
 
 	inputPathArg := addCmd.Arg(0)
-
-	if logLevel != nil {
-		err = L.SetLevelFromString(*logLevel)
-		if err != nil {
-			return err
-		}
-	}
 
 	if len(inputPathArg) == 0 {
 		return fmt.Errorf("PATH is not valid")
