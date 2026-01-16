@@ -48,7 +48,7 @@ Default: auto
 Accepted values: auto, always, never
 1. auto:    automatically determine if colors are supported
 2. always:  always use colored output
-3. never:   use only 1 color
+3. never:   never use colored output
 
 PATH
 Directory path that should be archived

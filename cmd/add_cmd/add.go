@@ -144,11 +144,12 @@ func parseFlags(args []string) error {
 		return fmt.Errorf("could not parse args for 'add' command")
 	}
 
-	if colorMode != nil {
-		err := L.SetColorModeFromString(*colorMode)
-		if err != nil {
-			return fmt.Errorf("could not set color mode to %s: %w", *colorMode, err)
-		}
+	err = L.SetColorModeFromString(*colorMode)
+	if err != nil {
+		return fmt.Errorf("could not set color mode to %s: %w", *colorMode, err)
+	}
+	if *colorMode != defaultColorMode {
+		L.Info(fmt.Sprintf("Setting color mode to: %s", strings.ToUpper(*colorMode)))
 	}
 
 	nArgs := len(addCmd.Args())
@@ -163,11 +164,12 @@ func parseFlags(args []string) error {
 
 	inputPathArg := addCmd.Arg(0)
 
-	if logLevel != nil {
-		err = L.SetLevelFromString(*logLevel)
-		if err != nil {
-			return err
-		}
+	err = L.SetLevelFromString(*logLevel)
+	if err != nil {
+		return err
+	}
+	if *logLevel != defaultLogLevel {
+		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
 	}
 
 	if len(inputPathArg) == 0 {

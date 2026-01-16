@@ -129,17 +129,19 @@ func SetColorModeFromString(colorModeStr string) error {
 	default:
 		return fmt.Errorf("unsupported color mode: %s", colorModeStr)
 	}
-	updateLoggerPrefixColors()
 	return nil
 }
 
 func SetColorMode(cm ColorMode) error {
 	switch cm {
-	case COLOR_MODE_ALWAYS, COLOR_MODE_NEVER, COLOR_MODE_AUTO:
-		if cm == COLOR_MODE_ALWAYS {
-			// override default behavior of lipgloss
-			lipgloss.SetColorProfile(termenv.TrueColor)
-		}
+	case COLOR_MODE_ALWAYS:
+		// override default behavior of lipgloss
+		lipgloss.SetColorProfile(termenv.TrueColor)
+		colorMode = cm
+	case COLOR_MODE_NEVER, COLOR_MODE_AUTO:
+		// we use noColorStyle to print non-colored output, so setting "auto"
+		// to "never" case is fine
+		lipgloss.SetColorProfile(termenv.EnvColorProfile())
 		colorMode = cm
 	default:
 		return fmt.Errorf("unsupported color mode: %s", cm.String())
