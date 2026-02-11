@@ -117,10 +117,15 @@ func parseFlags(args []string) error {
 	defaultOutputPath := globalWorkDir
 	defaultLogLevel := L.GetLogLevel().String()
 	defaultColorMode := L.GetColorMode().String()
+	defaultConfigPath, err := config.GetDefaultConfigPath()
+
+	if err != nil {
+		return fmt.Errorf("could not get default config path: %w", err)
+	}
 
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
 	outputPath := addCmd.String("output", defaultOutputPath, "Path to file or directory to archive (required)")
-	configPath := addCmd.String("config", "", "Path to file or directory to archive (required)")
+	configPath := addCmd.String("config", defaultConfigPath, fmt.Sprintf("path to config.json to be used, defaults to: %s", defaultConfigPath))
 	provider := addCmd.String("provider", "", "Which provider to use for uploading")
 	archiveFormat := addCmd.String("archive-format", "", "Which archive format to use for archiving")
 	logLevel := addCmd.String("log-level", defaultLogLevel, "Set log level: debug info warn error panic")
@@ -224,18 +229,12 @@ func parseFlags(args []string) error {
 		configPath = &expandedConfigPath
 	}
 
-	if configPath != nil && *configPath != "" {
+	if *configPath != "" {
 		readable, err := file_io.IsReadable(*configPath)
 
 		if err != nil || !readable {
 			return fmt.Errorf("config is not readable: %s", *configPath)
 		}
-	} else {
-		defaultConfigPath, err := config.GetDefaultConfigPath()
-		if err != nil {
-			return err
-		}
-		configPath = &defaultConfigPath
 	}
 	configPathAbs, err := filepath.Abs(*configPath)
 	if err != nil {
