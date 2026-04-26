@@ -229,12 +229,12 @@ func parseFlags(args []string) error {
 		configPath = &expandedConfigPath
 	}
 
-	if *configPath != "" {
-		readable, err := file_io.IsReadable(*configPath)
-
-		if err != nil || !readable {
-			return fmt.Errorf("config is not readable: %s", *configPath)
-		}
+	if *configPath == "" {
+		return fmt.Errorf("config path is empty")
+	}
+	readable, err := file_io.IsReadable(*configPath)
+	if err != nil || !readable {
+		return fmt.Errorf("config is not readable: %s", *configPath)
 	}
 	configPathAbs, err := filepath.Abs(*configPath)
 	if err != nil {

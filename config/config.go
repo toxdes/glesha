@@ -112,6 +112,9 @@ func (c *Config) ToJson() (string, error) {
 }
 
 func Save() error {
+	if configPath == "" {
+		return fmt.Errorf("config path is empty: call Parse() first")
+	}
 	jsonStr, err := config.ToJson()
 	if err != nil {
 		return err

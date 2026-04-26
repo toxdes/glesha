@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -26,7 +27,7 @@ func collectRedactTags(typ reflect.Type, prefix string) {
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		jsonName := strings.Split(field.Tag.Get("json"), ",")[0]
-		if jsonName == "" {
+		if jsonName == "" || jsonName == "-" {
 			continue
 		}
 		path := jsonName
@@ -55,10 +56,11 @@ func (r RedactLevel) Apply(val any) string {
 		return "<redacted>"
 	case RedactMask:
 		s := fmt.Sprintf("%v", val)
-		if len(s) <= 3 {
-			return strings.Repeat("*", len(s))
+		r := []rune(s)
+		if len(r) <= 3 {
+			return strings.Repeat("*", len(r))
 		}
-		return s[:3] + strings.Repeat("*", len(s)-3)
+		return string(r[:3]) + strings.Repeat("*", len(r)-3)
 	default:
 		return fmt.Sprintf("%v", val)
 	}
@@ -78,7 +80,7 @@ func ToRedactedJSON(cfg *Config) (string, error) {
 		return "", err
 	}
 	var m map[string]any
-	dec := json.NewDecoder(strings.NewReader(string(data)))
+	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
 	if err := dec.Decode(&m); err != nil {
 		return "", err

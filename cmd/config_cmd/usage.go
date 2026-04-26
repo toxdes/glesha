@@ -15,7 +15,6 @@ SUBCOMMANDS
 get         Get a configuration value
 set         Set a configuration value
 dump        Print entire configuration as JSON (with redaction)
---interactive Interactive mode: prompt for each config value
 
 OPTIONS
 --file, -F <path>
