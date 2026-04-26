@@ -4,6 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strconv"
+	"strings"
+	"time"
+
 	"glesha/archive"
 	"glesha/backend"
 	"glesha/backend/aws"
@@ -13,9 +17,6 @@ import (
 	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
-	"strconv"
-	"strings"
-	"time"
 )
 
 type RunCmdEnv struct {

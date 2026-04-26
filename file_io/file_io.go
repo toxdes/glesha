@@ -3,8 +3,6 @@ package file_io
 import (
 	"context"
 	"fmt"
-	"glesha/checksum"
-	L "glesha/logger"
 	"io"
 	"io/fs"
 	"os"
@@ -13,6 +11,9 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"glesha/checksum"
+	L "glesha/logger"
 )
 
 type FilesInfo struct {

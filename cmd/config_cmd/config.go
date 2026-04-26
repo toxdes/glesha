@@ -5,14 +5,15 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"glesha/backend/aws"
-	"glesha/config"
-	"glesha/file_io"
-	L "glesha/logger"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"glesha/backend/aws"
+	"glesha/config"
+	"glesha/file_io"
+	L "glesha/logger"
 )
 
 type ConfigCmdEnv struct {
@@ -144,7 +145,7 @@ func parseFlags(args []string) error {
 		return err
 	}
 
-		err = config.Parse(configPathAbs)
+	err = config.Parse(configPathAbs)
 	if err != nil {
 		return err
 	}

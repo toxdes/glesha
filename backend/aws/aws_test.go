@@ -3,11 +3,12 @@ package aws
 import (
 	"context"
 	"fmt"
-	"glesha/config"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"testing"
+
+	"glesha/config"
 
 	"github.com/stretchr/testify/assert"
 )

@@ -4,9 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
+
 	"glesha/database"
 	"glesha/database/model"
-	"time"
 )
 
 type UploadRepository interface {
@@ -69,8 +70,8 @@ func (u uploadRepository) CreateUpload(
 	updatedAt time.Time,
 ) (int64, error) {
 
-  result, err := u.db.D.ExecContext(ctx,
-    `INSERT INTO uploads (
+	result, err := u.db.D.ExecContext(ctx,
+		`INSERT INTO uploads (
     task_id,
     storage_backend_metadata_json,
     storage_backend_metadata_schema_version,

@@ -3,11 +3,12 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"glesha/file_io"
-	L "glesha/logger"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"glesha/file_io"
+	L "glesha/logger"
 )
 
 type Aws struct {

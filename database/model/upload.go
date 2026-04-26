@@ -2,8 +2,9 @@ package model
 
 import (
 	"fmt"
-	L "glesha/logger"
 	"time"
+
+	L "glesha/logger"
 )
 
 type UploadStatus string
