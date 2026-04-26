@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"glesha/cmd/add_cmd"
+	"glesha/cmd/config_cmd"
 	"glesha/cmd/help_cmd"
 	"glesha/cmd/run_cmd"
 	"glesha/cmd/tui_cmd"
@@ -26,6 +27,8 @@ func Execute(ctx context.Context, args []string) error {
 	switch os.Args[1] {
 	case "add":
 		return add_cmd.Execute(ctx, args[2:])
+	case "config":
+		return config_cmd.Execute(ctx, args[2:])
 	case "run":
 		return run_cmd.Execute(ctx, args[2:])
 	case "tui":

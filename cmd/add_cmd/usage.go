@@ -34,7 +34,7 @@ Default is: ~/.glesha-cache
 --config, -c
 Path to config.json file
 Default is: ~/.config/glesha/config.json
-Use "glesha help config" for more information on configuring glesha.
+Use "glesha help config" for more info.
 
 --log-level, -L <log-level>
 Specify log output level
