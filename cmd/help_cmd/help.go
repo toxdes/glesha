@@ -6,7 +6,6 @@ import (
 
 	"glesha/cmd/add_cmd"
 	"glesha/cmd/run_cmd"
-	"glesha/cmd/tui_cmd"
 )
 
 func Execute(ctx context.Context, args []string) error {
@@ -20,8 +19,6 @@ func Execute(ctx context.Context, args []string) error {
 		add_cmd.PrintUsage()
 	case "run":
 		run_cmd.PrintUsage()
-	case "tui":
-		tui_cmd.PrintUsage()
 	case "help":
 		PrintUsage()
 	case "config":

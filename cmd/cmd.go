@@ -8,7 +8,6 @@ import (
 	"glesha/cmd/config_cmd"
 	"glesha/cmd/help_cmd"
 	"glesha/cmd/run_cmd"
-	"glesha/cmd/tui_cmd"
 	"glesha/cmd/version_cmd"
 )
 
@@ -32,8 +31,6 @@ func Execute(ctx context.Context, args []string) error {
 		return config_cmd.Execute(ctx, args[2:])
 	case "run":
 		return run_cmd.Execute(ctx, args[2:])
-	case "tui":
-		return tui_cmd.Execute(ctx, args[2:])
 	case "help":
 		return help_cmd.Execute(ctx, args[2:])
 	case "version", "--version", "-v":
