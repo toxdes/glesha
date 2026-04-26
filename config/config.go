@@ -11,9 +11,9 @@ import (
 )
 
 type Aws struct {
-	AccessKey    string `json:"access_key"`
-	SecretKey    string `json:"secret_key"`
-	AccountId    uint64 `json:"account_id"`
+	AccessKey    string `json:"access_key" redact:"mask"`
+	SecretKey    string `json:"secret_key" redact:"full"`
+	AccountId    uint64 `json:"account_id" redact:"mask"`
 	Region       string `json:"region"`
 	BucketName   string `json:"bucket_name"`
 	StorageClass string `json:"storage_class"`

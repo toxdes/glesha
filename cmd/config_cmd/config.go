@@ -21,6 +21,7 @@ type ConfigCmdEnv struct {
 	Path        string
 	Value       string
 	Interactive bool
+	Raw         bool
 }
 
 type ConfigChange struct {
@@ -52,6 +53,8 @@ func Execute(ctx context.Context, args []string) error {
 		return handleGet(cfg)
 	case "set":
 		return handleSet(cfg)
+	case "dump":
+		return handleDump(cfg)
 	default:
 		PrintUsage()
 		return nil
@@ -71,10 +74,12 @@ func parseFlags(args []string) error {
 	logLevel := configCmd.String("log-level", defaultLogLevel, "Set log level: debug info warn error panic")
 	colorMode := configCmd.String("color", defaultColorMode, "Set color mode: auto always never")
 	interactive := configCmd.Bool("interactive", false, "Interactive mode: prompt for each config value")
+	raw := configCmd.Bool("raw", false, "Print raw values without redaction")
 
 	configCmd.StringVar(configPath, "F", defaultConfigPath, "alias to -file")
 	configCmd.StringVar(logLevel, "L", defaultLogLevel, "Set log level: debug info warn error panic")
 	configCmd.BoolVar(interactive, "i", false, "alias to -interactive")
+	configCmd.BoolVar(raw, "r", false, "alias to -raw")
 
 	configCmd.Usage = func() {
 		PrintUsage()
@@ -110,8 +115,12 @@ func parseFlags(args []string) error {
 	if nArgs >= 1 {
 		subcommand = configCmd.Arg(0)
 	}
-	if !*interactive && subcommand != "get" && subcommand != "set" {
-		return fmt.Errorf("invalid subcommand: %s. Use 'get' or 'set'", subcommand)
+	if !*interactive {
+		switch subcommand {
+		case "get", "set", "dump":
+		default:
+			return fmt.Errorf("invalid subcommand: %s. Use 'get', 'set', or 'dump'", subcommand)
+		}
 	}
 
 	if strings.HasPrefix(*configPath, "~/") {
@@ -135,7 +144,7 @@ func parseFlags(args []string) error {
 		return err
 	}
 
-	err = config.Parse(configPathAbs)
+		err = config.Parse(configPathAbs)
 	if err != nil {
 		return err
 	}
@@ -145,6 +154,7 @@ func parseFlags(args []string) error {
 			ConfigPath:  configPathAbs,
 			Subcommand:  subcommand,
 			Interactive: true,
+			Raw:         *raw,
 		}
 		return nil
 	}
@@ -163,6 +173,7 @@ func parseFlags(args []string) error {
 			Subcommand:  subcommand,
 			Path:        path,
 			Interactive: false,
+			Raw:         *raw,
 		}
 	case "set":
 		if nArgs < 3 {
@@ -179,6 +190,17 @@ func parseFlags(args []string) error {
 			Path:        path,
 			Value:       value,
 			Interactive: false,
+			Raw:         *raw,
+		}
+	case "dump":
+		if nArgs > 1 {
+			return fmt.Errorf("too many arguments for 'dump' command")
+		}
+		configCmdEnv = &ConfigCmdEnv{
+			ConfigPath:  configPathAbs,
+			Subcommand:  subcommand,
+			Interactive: false,
+			Raw:         *raw,
 		}
 	}
 
@@ -189,6 +211,12 @@ func handleGet(cfg *config.Config) error {
 	value, err := config.GetValueByPath(cfg, configCmdEnv.Path)
 	if err != nil {
 		return err
+	}
+
+	if !configCmdEnv.Raw {
+		segments, _ := config.ParsePath(configCmdEnv.Path)
+		level := config.GetFieldRedactLevel(segments)
+		value = level.Apply(value)
 	}
 
 	key := strings.TrimPrefix(strings.TrimPrefix(configCmdEnv.Path, "$"), ".")
@@ -209,6 +237,21 @@ func handleSet(cfg *config.Config) error {
 
 	key := strings.TrimPrefix(strings.TrimPrefix(configCmdEnv.Path, "$"), ".")
 	L.Printf("%s: set to %s\n", key, configCmdEnv.Value)
+	return nil
+}
+
+func handleDump(cfg *config.Config) error {
+	var jsonStr string
+	var err error
+	if configCmdEnv.Raw {
+		jsonStr, err = cfg.ToJson()
+	} else {
+		jsonStr, err = config.ToRedactedJSON(cfg)
+	}
+	if err != nil {
+		return fmt.Errorf("could not marshal config: %w", err)
+	}
+	L.Println(jsonStr)
 	return nil
 }
 
