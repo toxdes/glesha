@@ -45,7 +45,7 @@ func Parse(configPathArg string) error {
 		return fmt.Errorf("config: could not validate config: %w", err)
 	}
 
-	configPath, err = filepath.Abs(configPath)
+	configPath, err = filepath.Abs(configPathArg)
 	if err != nil {
 		return err
 	}
@@ -111,6 +111,15 @@ func (c *Config) ToJson() (string, error) {
 	return string(data), nil
 }
 
+func Save() error {
+	jsonStr, err := config.ToJson()
+	if err != nil {
+		return err
+	}
+	_, err = file_io.WriteToFile(configPath, []byte(jsonStr), file_io.WRITE_OVERWRITE)
+	return err
+}
+
 func DumpDefaultConfig() string {
 	defaultConfig := Config{
 		ArchiveFormat: AF_TARGZ,
@@ -133,13 +142,12 @@ func DumpDefaultConfig() string {
 }
 
 func validate(c *Config) error {
-	if !slices.Contains([]ArchiveFormat{AF_TARGZ}, c.ArchiveFormat) {
+	if !slices.Contains([]ArchiveFormat{AF_TARGZ, AF_ZIP}, c.ArchiveFormat) {
 		return fmt.Errorf("unknown archive format")
 	}
 	if !slices.Contains([]Provider{PROVIDER_AWS}, c.Provider) {
 		return fmt.Errorf("unknown provider")
 	}
-	// NOTE: aws specific keys are validated in aws_validator.go
 	return nil
 }
 
