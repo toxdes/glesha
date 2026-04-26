@@ -31,7 +31,6 @@ USAGE
    help       Help about a subcommand
    add        Creates a glesha archive and upload task
    run        Runs a glesha task
-   tui        Interactive terminal user interface
    ls         Lists all available glesha tasks
    rm         Deletes a glesha task, and relevant cache files
    cleanup    Cleans up cache, unwanted files created by glesha.
@@ -69,7 +68,6 @@ USAGE
 - [x] Store files metadata storage using SQLite
 - [x] Multipart concurrent uploads to AWS Glacier Deep Archive
 - [x] Resumable upload support for flaky networks
-- [ ] Basic TUI
 - [ ] `glesha config ...` for editing config from CLI
 - [ ] `glesha ls` for listing tasks
 - [ ] `glesha sync` for incremental backup of the same task

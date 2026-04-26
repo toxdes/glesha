@@ -249,7 +249,6 @@ func (tgz *TarGzArchive) archive(
 				return nil
 			}
 			tgz.Progress.Done++
-			// update progress more frequently, because now we will have a tui dashboard
 			if tgz.Progress.Done%10 == 0 {
 				_ = taskRepo.UpdateArchivedFileCount(ctx, tgz.Id, int64(tgz.Progress.Done))
 			}
