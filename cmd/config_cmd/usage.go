@@ -9,12 +9,13 @@ glesha config [OPTIONS] <subcommand> [<args>]
 DESCRIPTION
 Manage glesha configuration. Get, set, or dump configuration values using JSONPath
 syntax. Sensitive fields (e.g. access_key, secret_key) are automatically redacted
-in output. Use --raw to show raw values.
+in output. Redacted output is for human readability and may change data types
+(e.g. numbers become strings). Use --raw for type-stable, machine-consumable JSON.
 
 SUBCOMMANDS
 get         Get a configuration value
 set         Set a configuration value
-dump        Print entire configuration as JSON (with redaction)
+dump        Print entire configuration as JSON (redacted, types may change)
 
 OPTIONS
 --file, -F <path>
@@ -30,7 +31,7 @@ OPTIONS
     Default: auto
 
 --raw, -r
-    Show raw values without redaction (default: redacted)
+    Show raw values without redaction (default: redacted, types may change)
 
 --interactive, -i
     Interactive mode: prompts for each config value

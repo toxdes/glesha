@@ -41,13 +41,9 @@ func (archiveFormat *ArchiveFormat) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	t := ArchiveFormat(maybeArchiveFormat)
-	switch t {
-	case AF_TARGZ, AF_ZIP:
-		{
-			*archiveFormat = t
-			return nil
-		}
-	default:
-		return fmt.Errorf("unknown archive_type: %s. supported archive types: %s", maybeArchiveFormat, AF_TARGZ)
+	if t == AF_TARGZ {
+		*archiveFormat = t
+		return nil
 	}
+	return fmt.Errorf("unknown archive_type: %s. supported archive types: %s", maybeArchiveFormat, AF_TARGZ)
 }

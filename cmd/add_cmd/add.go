@@ -117,15 +117,10 @@ func parseFlags(args []string) error {
 	defaultOutputPath := globalWorkDir
 	defaultLogLevel := L.GetLogLevel().String()
 	defaultColorMode := L.GetColorMode().String()
-	defaultConfigPath, err := config.GetDefaultConfigPath()
-
-	if err != nil {
-		return fmt.Errorf("could not get default config path: %w", err)
-	}
 
 	addCmd := flag.NewFlagSet("add", flag.ExitOnError)
 	outputPath := addCmd.String("output", defaultOutputPath, "Path to file or directory to archive (required)")
-	configPath := addCmd.String("config", defaultConfigPath, fmt.Sprintf("path to config.json to be used, defaults to: %s", defaultConfigPath))
+	configPath := addCmd.String("config", "", "path to config.json to be used")
 	provider := addCmd.String("provider", "", "Which provider to use for uploading")
 	archiveFormat := addCmd.String("archive-format", "", "Which archive format to use for archiving")
 	logLevel := addCmd.String("log-level", defaultLogLevel, "Set log level: debug info warn error panic")
@@ -133,7 +128,7 @@ func parseFlags(args []string) error {
 
 	var assumeYes bool
 	addCmd.StringVar(outputPath, "o", defaultOutputPath, "alias to -output")
-	addCmd.StringVar(configPath, "c", defaultConfigPath, "alias to -config")
+	addCmd.StringVar(configPath, "c", "", "alias to -config")
 	addCmd.StringVar(provider, "p", "", "alias to -provider")
 	addCmd.StringVar(archiveFormat, "a", "", "alias to -archive-format")
 	addCmd.StringVar(logLevel, "L", defaultLogLevel, "Set log level: debug info warn error panic")
@@ -163,6 +158,14 @@ func parseFlags(args []string) error {
 	}
 	if *logLevel != defaultLogLevel {
 		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
+	}
+
+	if *configPath == "" {
+		defaultConfigPath, err := config.GetDefaultConfigPath()
+		if err != nil {
+			return fmt.Errorf("could not get default config path: %w", err)
+		}
+		configPath = &defaultConfigPath
 	}
 
 	nArgs := len(addCmd.Args())

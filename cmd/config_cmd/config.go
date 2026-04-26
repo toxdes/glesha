@@ -388,7 +388,7 @@ func promptBool(reader *bufio.Reader, key string, currentValue bool) (bool, bool
 }
 
 func promptArchiveFormat(reader *bufio.Reader, currentValue config.ArchiveFormat) (config.ArchiveFormat, bool) {
-	L.Printf("archive_format [%s] (targz, zip): ", currentValue)
+	L.Printf("archive_format [%s] (targz): ", currentValue)
 	input, _ := reader.ReadString('\n')
 	input = strings.TrimSpace(input)
 	if input == "" {

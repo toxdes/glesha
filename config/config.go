@@ -145,7 +145,7 @@ func DumpDefaultConfig() string {
 }
 
 func validate(c *Config) error {
-	if !slices.Contains([]ArchiveFormat{AF_TARGZ, AF_ZIP}, c.ArchiveFormat) {
+	if c.ArchiveFormat != AF_TARGZ {
 		return fmt.Errorf("unknown archive format")
 	}
 	if !slices.Contains([]Provider{PROVIDER_AWS}, c.Provider) {
