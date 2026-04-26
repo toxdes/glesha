@@ -133,7 +133,7 @@ func parseFlags(args []string) error {
 
 	var assumeYes bool
 	addCmd.StringVar(outputPath, "o", defaultOutputPath, "alias to -output")
-	addCmd.StringVar(configPath, "c", "", "alias to -config")
+	addCmd.StringVar(configPath, "c", defaultConfigPath, "alias to -config")
 	addCmd.StringVar(provider, "p", "", "alias to -provider")
 	addCmd.StringVar(archiveFormat, "a", "", "alias to -archive-format")
 	addCmd.StringVar(logLevel, "L", defaultLogLevel, "Set log level: debug info warn error panic")

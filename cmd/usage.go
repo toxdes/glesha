@@ -13,6 +13,7 @@ COMMANDS
 These are common glesha commands used in various situations -
 help       Help about a subcommand
 add        Creates a glesha archive and upload task
+config     Manage glesha configuration
 run        Runs a glesha task
 tui        Interactive terminal user interface
 ls         Lists all available glesha tasks
@@ -24,7 +25,8 @@ See 'glesha help <command>' to read about a specific subcommand.
 
 SEE ALSO
 1. glesha help add
-2. glesha help ls
+2. glesha help config
+3. glesha help run
 `
 
 func Usage() string {
