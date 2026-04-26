@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"glesha/cmd"
-	L "glesha/logger"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"glesha/cmd"
+	L "glesha/logger"
 )
 
 func main() {

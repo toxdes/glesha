@@ -1,9 +1,10 @@
 package tui
 
 import (
+	"strings"
+
 	"glesha/database/model"
 	"glesha/tui/components"
-	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 )

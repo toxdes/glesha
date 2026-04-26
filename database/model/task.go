@@ -2,10 +2,11 @@ package model
 
 import (
 	"fmt"
+	"time"
+
 	"glesha/checksum"
 	"glesha/config"
 	L "glesha/logger"
-	"time"
 )
 
 type TaskStatus string

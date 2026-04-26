@@ -2,17 +2,19 @@ package add_cmd
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"glesha/config"
 	"glesha/database"
 	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
-	"os"
-	"path/filepath"
-	"strings"
-	"time"
 )
 
 type AddCmdEnv struct {
@@ -33,7 +35,7 @@ type AddCmdEnv struct {
 
 var addCmdEnv *AddCmdEnv
 
-var ErrNoExistingTask error
+var ErrNoExistingTask = errors.New("no existing task")
 
 func Execute(ctx context.Context, args []string) error {
 	// parse cli args

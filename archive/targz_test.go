@@ -5,12 +5,13 @@ import (
 	"compress/gzip"
 	"context"
 	"fmt"
-	"glesha/database"
-	"glesha/database/model"
-	"glesha/database/repository"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"glesha/database"
+	"glesha/database/model"
+	"glesha/database/repository"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -157,14 +158,14 @@ func TestTarGzArchive_Archive(t *testing.T) {
 
 		err = archiver.Plan(context.Background())
 		assert.NoError(t, err)
-		
+
 		// create in-memory database for test
 		db, err := database.NewDB(":memory:")
 		assert.NoError(t, err)
 		defer db.Close(context.Background())
 		err = db.Init(context.Background())
 		assert.NoError(t, err)
-		
+
 		catalogRepo := repository.NewFileCatalogRepository(db)
 		taskRepo := repository.NewTaskRepository(db)
 		err = archiver.archive(context.Background(), catalogRepo, taskRepo)

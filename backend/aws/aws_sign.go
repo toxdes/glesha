@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"crypto/hmac"
 	"fmt"
-	"glesha/checksum"
-	"glesha/database"
 	"net/http"
 	"net/url"
 	"sort"
 	"strings"
 	"time"
+
+	"glesha/checksum"
+	"glesha/database"
 )
 
 func hmacSha256(key []byte, data []byte) []byte {

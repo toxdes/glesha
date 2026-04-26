@@ -5,15 +5,16 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"net/http"
+	"sync"
+	"sync/atomic"
+
 	"glesha/checksum"
 	"glesha/database/model"
 	"glesha/database/repository"
 	"glesha/file_io"
 	L "glesha/logger"
-	"io"
-	"net/http"
-	"sync"
-	"sync/atomic"
 )
 
 type CreateMultipartUploadResult struct {

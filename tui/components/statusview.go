@@ -3,10 +3,11 @@ package components
 import (
 	"context"
 	"fmt"
-	"glesha/backend/aws"
-	"glesha/config"
 	"path/filepath"
 	"strings"
+
+	"glesha/backend/aws"
+	"glesha/config"
 
 	L "glesha/logger"
 

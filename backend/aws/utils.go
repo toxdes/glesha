@@ -3,9 +3,10 @@ package aws
 import (
 	"context"
 	"fmt"
-	L "glesha/logger"
 	"strings"
 	"sync"
+
+	L "glesha/logger"
 )
 
 func (aws *AwsBackend) getProgressLine(progress *sync.Map) string {

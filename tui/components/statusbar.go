@@ -2,8 +2,9 @@ package components
 
 import (
 	"fmt"
-	"glesha/database/model"
 	"strings"
+
+	"glesha/database/model"
 
 	L "glesha/logger"
 )
