@@ -18,11 +18,11 @@
 - Follow existing project directory structure
 - Use flag parsing with `flag.NewFlagSet()`
 - Use `file_io` package wherever possible, if new file io operations are needed that aren't supported by current `file_io`, extend `file_io` package to include that functionality.
-- Package level reusable functions can go in `utils.go`, only if they have >=2 callers
+- Package-level reusable functions can go in `utils.go`, only if they have >=2 callers
 - Always prefer idiomatic golang.
 - Expand `~` in paths using `os.UserHomeDir()`
 - Validate file readability using `file_io.IsReadable()`
-- Import ordering: stdlib → external → internal, with no blank lines between groups
+- Import ordering: stdlib → external → internal groups, with blank lines separating each group
 - If a function might involve async work, accept `ctx context.Context` as its first parameter for future-proofing
 - Use `defer` for cleanup (closing db, files, etc.)
 - Use `*CmdEnv` naming for command environment structs, stored as package-level singleton (`var addCmdEnv *AddCmdEnv`)
@@ -35,7 +35,7 @@
 - Return descriptive errors
 - Use `fmt.Errorf` with context
 - Validate inputs before processing
-- Use exported `Err*` variables for package-level sentinel errors (e.g., `var ErrNoExistingTask error`)
+- Use exported `Err*` variables for package-level sentinel errors (e.g., `var ErrNoExistingTask = errors.New("no existing task")`)
 - Error message format: `"package: descriptive message: %w"` (e.g., `"aws: could not create storage bucket: %w"`)
 
 ## Avoid Duplication
