@@ -19,7 +19,7 @@ import (
 	L "glesha/logger"
 )
 
-type RunCmdEnv struct {
+type runCmdEnv struct {
 	DB                *database.DB
 	TaskId            int64
 	Task              *model.Task
@@ -70,7 +70,7 @@ func NewRunCmd() *cobra.Command {
 				return err
 			}
 
-			runCmdEnv := &RunCmdEnv{
+			runCmdEnv := &runCmdEnv{
 				DB:                db,
 				TaskId:            taskId,
 				MaxConcurrentJobs: maxConcurrentJobs,
@@ -106,7 +106,7 @@ func NewRunCmd() *cobra.Command {
 	return cmd
 }
 
-func runTask(ctx context.Context, runCmdEnv *RunCmdEnv) error {
+func runTask(ctx context.Context, runCmdEnv *runCmdEnv) error {
 	t := runCmdEnv.Task
 	if t == nil {
 		return fmt.Errorf("no task to run")
