@@ -7,7 +7,7 @@ VERSION=$(cat version.txt)
 TAG="v$VERSION"
 GH_API="https://api.github.com/repos/$REPO"
 GH_UPLOAD="https://uploads.github.com/repos/$REPO/releases"
-LD_FLAGS="-X 'glesha/cmd/version_cmd.version=$(cat version.txt)' -X 'glesha/cmd/version_cmd.commitHash=$(git rev-parse --short HEAD)'"
+LD_FLAGS="-X 'glesha/cmd.Version=$(cat version.txt)' -X 'glesha/cmd.CommitHash=$(git rev-parse --short HEAD)'"
 BIN_NAME="glesha"
 
 # RELEASE

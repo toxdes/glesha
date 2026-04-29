@@ -7,9 +7,7 @@ import (
 
 	"glesha/cmd/add_cmd"
 	"glesha/cmd/config_cmd"
-	"glesha/cmd/help_cmd"
 	"glesha/cmd/run_cmd"
-	"glesha/cmd/version_cmd"
 	L "glesha/logger"
 )
 
@@ -24,6 +22,9 @@ var rootCmd = &cobra.Command{
 	Short:         "Cross-platform archive and upload utility",
 	SilenceUsage:  true,
 	SilenceErrors: true,
+	CompletionOptions: cobra.CompletionOptions{
+		DisableDefaultCmd: true,
+	},
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		logLevel, _ := cmd.Flags().GetString("log-level")
 		if err := L.SetLevelFromString(logLevel); err != nil {
@@ -35,6 +36,9 @@ var rootCmd = &cobra.Command{
 		}
 		return nil
 	},
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return cmd.Help()
+	},
 }
 
 func init() {
@@ -43,38 +47,18 @@ func init() {
 	rootCmd.PersistentFlags().String("color", L.GetColorMode().String(),
 		"Set color mode: auto always never")
 
-	// bridge adapters — call existing Execute() unchanged
-	// DisableFlagParsing so cobra doesn't interfere with internal flag.Parse()
-
 	rootCmd.AddCommand(add_cmd.NewAddCmd())
-
 	rootCmd.AddCommand(run_cmd.NewRunCmd())
-
 	rootCmd.AddCommand(config_cmd.NewConfigCmd())
 
-	helpCmd := &cobra.Command{
-		Use:                "help",
-		Short:              "Help about a subcommand",
-		Long:               help_cmd.Usage(),
-		DisableFlagParsing: true,
+	rootCmd.AddCommand(&cobra.Command{
+		Use:   "version",
+		Short: "Print version information",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return help_cmd.Execute(cmd.Context(), args)
+			L.Printf("%s version v%s, build %s\n", cmd.Root().Name(), Version, CommitHash)
+			return nil
 		},
-	}
-	rootCmd.AddCommand(helpCmd)
-
-	versionCmd := &cobra.Command{
-		Use:                "version",
-		Short:              "Print version information",
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := context.WithValue(cmd.Context(), "values", map[string]string{
-				"binary_name": cmd.Root().Name(),
-			})
-			return version_cmd.Execute(ctx, args)
-		},
-	}
-	rootCmd.AddCommand(versionCmd)
+	})
 }
 
 func Execute(ctx context.Context) error {
