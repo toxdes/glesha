@@ -2,28 +2,19 @@ package config_cmd
 
 import (
 	"bufio"
-	"context"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"glesha/backend/aws"
 	"glesha/config"
 	"glesha/file_io"
 	L "glesha/logger"
 )
-
-type ConfigCmdEnv struct {
-	ConfigPath  string
-	Subcommand  string
-	Path        string
-	Value       string
-	Interactive bool
-	Raw         bool
-}
 
 type ConfigChange struct {
 	Path     string
@@ -35,198 +26,123 @@ type ConfigChange struct {
 type StringValidator func(string) error
 type Uint64Validator func(uint64) error
 
-var configCmdEnv *ConfigCmdEnv
+func NewConfigCmd() *cobra.Command {
+	var configPath string
+	var raw bool
 
-func Execute(ctx context.Context, args []string) error {
-	err := parseFlags(args)
-	if err != nil {
-		return err
-	}
-
-	cfg := config.Get()
-
-	if configCmdEnv.Interactive {
-		return handleInteractive(cfg)
-	}
-
-	switch configCmdEnv.Subcommand {
-	case "get":
-		return handleGet(cfg)
-	case "set":
-		return handleSet(cfg)
-	case "dump":
-		return handleDump(cfg)
-	default:
-		PrintUsage()
-		return nil
-	}
-}
-
-func parseFlags(args []string) error {
-	defaultLogLevel := L.GetLogLevel().String()
-	defaultColorMode := L.GetColorMode().String()
 	defaultConfigPath, err := config.GetDefaultConfigPath()
 	if err != nil {
-		return fmt.Errorf("could not get default config path: %w", err)
+		L.Panic(fmt.Errorf("could not get default config path: %w", err))
 	}
 
-	configCmd := flag.NewFlagSet("config", flag.ExitOnError)
-	configPath := configCmd.String("file", defaultConfigPath, fmt.Sprintf("path to config.json, defaults to: %s", defaultConfigPath))
-	logLevel := configCmd.String("log-level", defaultLogLevel, "Set log level: debug info warn error panic")
-	colorMode := configCmd.String("color", defaultColorMode, "Set color mode: auto always never")
-	interactive := configCmd.Bool("interactive", false, "Interactive mode: prompt for each config value")
-	raw := configCmd.Bool("raw", false, "Print raw values without redaction")
+	configCmd := &cobra.Command{
+		Use:   "config",
+		Short: "Manage glesha configuration",
+		Long:  Usage(),
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if strings.HasPrefix(configPath, "~/") {
+				homeDir, err := os.UserHomeDir()
+				if err != nil {
+					return fmt.Errorf("cannot expand ~ for configPath: %w", err)
+				}
+				configPath = filepath.Join(homeDir, configPath[2:])
+			}
 
-	configCmd.StringVar(configPath, "F", defaultConfigPath, "alias to -file")
-	configCmd.StringVar(logLevel, "L", defaultLogLevel, "Set log level: debug info warn error panic")
-	configCmd.BoolVar(interactive, "i", false, "alias to -interactive")
-	configCmd.BoolVar(raw, "r", false, "alias to -raw")
+			if configPath != "" {
+				readable, err := file_io.IsReadable(configPath)
+				if err != nil || !readable {
+					return fmt.Errorf("config is not readable: %s", configPath)
+				}
+			}
 
-	configCmd.Usage = func() {
-		PrintUsage()
-	}
-
-	err = configCmd.Parse(args)
-	if err != nil {
-		return fmt.Errorf("could not parse args for 'config' command")
-	}
-
-	err = L.SetColorModeFromString(*colorMode)
-	if err != nil {
-		return fmt.Errorf("could not set color mode to %s: %w", *colorMode, err)
-	}
-	if *colorMode != defaultColorMode {
-		L.Info(fmt.Sprintf("Setting color mode to: %s", strings.ToUpper(*colorMode)))
-	}
-
-	err = L.SetLevelFromString(*logLevel)
-	if err != nil {
-		return err
-	}
-	if *logLevel != defaultLogLevel {
-		L.Info(fmt.Sprintf("Setting log level to: %s", strings.ToUpper(*logLevel)))
+			configPathAbs, err := filepath.Abs(configPath)
+			if err != nil {
+				return err
+			}
+			configPath = configPathAbs
+			return config.Parse(configPathAbs)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return cmd.Help()
+		},
 	}
 
-	nArgs := len(configCmd.Args())
-	if nArgs < 1 && !*interactive {
-		return fmt.Errorf("subcommand not provided. For more information check 'glesha help config'")
-	}
+	configCmd.PersistentFlags().StringVarP(&configPath, "file", "F", defaultConfigPath,
+		fmt.Sprintf("path to config.json, defaults to: %s", defaultConfigPath))
+	configCmd.PersistentFlags().BoolVarP(&raw, "raw", "r", false,
+		"Print raw values without redaction")
 
-	subcommand := ""
-	if nArgs >= 1 {
-		subcommand = configCmd.Arg(0)
-	}
-	if !*interactive {
-		switch subcommand {
-		case "get", "set", "dump":
-		default:
-			return fmt.Errorf("invalid subcommand: %s. Use 'get', 'set', or 'dump'", subcommand)
-		}
-	}
+	configCmd.AddCommand(newGetCmd(&raw))
+	configCmd.AddCommand(newSetCmd())
+	configCmd.AddCommand(newDumpCmd(&raw))
+	configCmd.AddCommand(newInteractiveCmd(&configPath))
 
-	if strings.HasPrefix(*configPath, "~/") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return fmt.Errorf("cannot expand ~ for configPath: %w", err)
-		}
-		expandedConfigPath := filepath.Join(homeDir, (*configPath)[2:])
-		configPath = &expandedConfigPath
-	}
-
-	if *configPath != "" {
-		readable, err := file_io.IsReadable(*configPath)
-		if err != nil || !readable {
-			return fmt.Errorf("config is not readable: %s", *configPath)
-		}
-	}
-
-	configPathAbs, err := filepath.Abs(*configPath)
-	if err != nil {
-		return err
-	}
-
-	err = config.Parse(configPathAbs)
-	if err != nil {
-		return err
-	}
-
-	if *interactive {
-		configCmdEnv = &ConfigCmdEnv{
-			ConfigPath:  configPathAbs,
-			Subcommand:  subcommand,
-			Interactive: true,
-			Raw:         *raw,
-		}
-		return nil
-	}
-
-	switch subcommand {
-	case "get":
-		if nArgs < 2 {
-			return fmt.Errorf("path not provided for 'get' command")
-		}
-		if nArgs > 2 {
-			return fmt.Errorf("too many arguments for 'get' command")
-		}
-		path := configCmd.Arg(1)
-		configCmdEnv = &ConfigCmdEnv{
-			ConfigPath:  configPathAbs,
-			Subcommand:  subcommand,
-			Path:        path,
-			Interactive: false,
-			Raw:         *raw,
-		}
-	case "set":
-		if nArgs < 3 {
-			return fmt.Errorf("path and value not provided for 'set' command")
-		}
-		if nArgs > 3 {
-			return fmt.Errorf("too many arguments for 'set' command")
-		}
-		path := configCmd.Arg(1)
-		value := configCmd.Arg(2)
-		configCmdEnv = &ConfigCmdEnv{
-			ConfigPath:  configPathAbs,
-			Subcommand:  subcommand,
-			Path:        path,
-			Value:       value,
-			Interactive: false,
-			Raw:         *raw,
-		}
-	case "dump":
-		if nArgs > 1 {
-			return fmt.Errorf("too many arguments for 'dump' command")
-		}
-		configCmdEnv = &ConfigCmdEnv{
-			ConfigPath:  configPathAbs,
-			Subcommand:  subcommand,
-			Interactive: false,
-			Raw:         *raw,
-		}
-	}
-
-	return nil
+	return configCmd
 }
 
-func handleGet(cfg *config.Config) error {
-	value, err := config.GetValueByPath(cfg, configCmdEnv.Path)
+func newGetCmd(raw *bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   "get <path>",
+		Short: "Get a configuration value",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleGet(config.Get(), args[0], *raw)
+		},
+	}
+}
+
+func newSetCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "set <path> <value>",
+		Short: "Set a configuration value",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleSet(config.Get(), args[0], args[1])
+		},
+	}
+}
+
+func newDumpCmd(raw *bool) *cobra.Command {
+	return &cobra.Command{
+		Use:   "dump",
+		Short: "Print entire configuration as JSON",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleDump(config.Get(), *raw)
+		},
+	}
+}
+
+func newInteractiveCmd(configPath *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "interactive",
+		Short: "Interactive mode: prompt for each config value",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return handleInteractive(config.Get(), *configPath)
+		},
+	}
+}
+
+func handleGet(cfg *config.Config, path string, raw bool) error {
+	value, err := config.GetValueByPath(cfg, path)
 	if err != nil {
 		return err
 	}
 
-	if !configCmdEnv.Raw {
-		segments, _ := config.ParsePath(configCmdEnv.Path)
+	if !raw {
+		segments, _ := config.ParsePath(path)
 		level := config.GetFieldRedactLevel(segments)
 		value = level.Apply(value)
 	}
 
-	key := strings.TrimPrefix(strings.TrimPrefix(configCmdEnv.Path, "$"), ".")
+	key := strings.TrimPrefix(strings.TrimPrefix(path, "$"), ".")
 	L.Printf("%s: %v\n", key, value)
 	return nil
 }
 
-func handleSet(cfg *config.Config) error {
-	err := config.SetValueByPath(cfg, configCmdEnv.Path, configCmdEnv.Value)
+func handleSet(cfg *config.Config, path string, value string) error {
+	err := config.SetValueByPath(cfg, path, value)
 	if err != nil {
 		return err
 	}
@@ -236,15 +152,15 @@ func handleSet(cfg *config.Config) error {
 		return fmt.Errorf("could not save config: %w", err)
 	}
 
-	key := strings.TrimPrefix(strings.TrimPrefix(configCmdEnv.Path, "$"), ".")
-	L.Printf("%s: set to %s\n", key, configCmdEnv.Value)
+	key := strings.TrimPrefix(strings.TrimPrefix(path, "$"), ".")
+	L.Printf("%s: set to %s\n", key, value)
 	return nil
 }
 
-func handleDump(cfg *config.Config) error {
+func handleDump(cfg *config.Config, raw bool) error {
 	var jsonStr string
 	var err error
-	if configCmdEnv.Raw {
+	if raw {
 		jsonStr, err = cfg.ToJson()
 	} else {
 		jsonStr, err = config.ToRedactedJSON(cfg)
@@ -256,13 +172,13 @@ func handleDump(cfg *config.Config) error {
 	return nil
 }
 
-func handleInteractive(cfg *config.Config) error {
+func handleInteractive(cfg *config.Config, configPath string) error {
 	reader := bufio.NewReader(os.Stdin)
 	changes := []ConfigChange{}
 	validator := aws.AwsValidator{}
 
 	L.Println("\nInteractive Config Editor")
-	L.Printf("Config file: %s\n\n", configCmdEnv.ConfigPath)
+	L.Printf("Config file: %s\n\n", configPath)
 
 	archiveFormatVal, changed := promptArchiveFormat(reader, cfg.ArchiveFormat)
 	changes = append(changes, ConfigChange{Path: "$.archive_format", OldValue: cfg.ArchiveFormat, NewValue: archiveFormatVal, Changed: changed})
@@ -312,7 +228,7 @@ func handleInteractive(cfg *config.Config) error {
 		return nil
 	}
 
-	L.Printf("Config file: %s\n", configCmdEnv.ConfigPath)
+	L.Printf("Config file: %s\n", configPath)
 	confirmed := promptConfirmation(reader, "\nDo you want to save these changes? (yes/no): ")
 	if !confirmed {
 		L.Println("Changes discarded.")

@@ -68,16 +68,7 @@ func init() {
 	}
 	rootCmd.AddCommand(runCmd)
 
-	configCmd := &cobra.Command{
-		Use:                "config",
-		Short:              "Manage glesha configuration",
-		Long:               config_cmd.Usage(),
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return config_cmd.Execute(cmd.Context(), args)
-		},
-	}
-	rootCmd.AddCommand(configCmd)
+	rootCmd.AddCommand(config_cmd.NewConfigCmd())
 
 	helpCmd := &cobra.Command{
 		Use:                "help",
