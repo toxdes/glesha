@@ -95,12 +95,15 @@ func init() {
 		Short:              "Print version information",
 		DisableFlagParsing: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return version_cmd.Execute(cmd.Context(), args)
+			ctx := context.WithValue(cmd.Context(), "values", map[string]string{
+				"binary_name": cmd.Root().Name(),
+			})
+			return version_cmd.Execute(ctx, args)
 		},
 	}
 	rootCmd.AddCommand(versionCmd)
 }
 
-func ExecuteCobra(ctx context.Context) error {
+func Execute(ctx context.Context) error {
 	return rootCmd.ExecuteContext(ctx)
 }
