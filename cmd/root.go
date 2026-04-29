@@ -46,16 +46,7 @@ func init() {
 	// bridge adapters — call existing Execute() unchanged
 	// DisableFlagParsing so cobra doesn't interfere with internal flag.Parse()
 
-	addCmd := &cobra.Command{
-		Use:                "add",
-		Short:              "Creates a glesha archive and upload task",
-		Long:               add_cmd.Usage(),
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return add_cmd.Execute(cmd.Context(), args)
-		},
-	}
-	rootCmd.AddCommand(addCmd)
+	rootCmd.AddCommand(add_cmd.NewAddCmd())
 
 	runCmd := &cobra.Command{
 		Use:                "run",
