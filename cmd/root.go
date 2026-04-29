@@ -48,16 +48,7 @@ func init() {
 
 	rootCmd.AddCommand(add_cmd.NewAddCmd())
 
-	runCmd := &cobra.Command{
-		Use:                "run",
-		Short:              "Runs a glesha task",
-		Long:               run_cmd.Usage(),
-		DisableFlagParsing: true,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return run_cmd.Execute(cmd.Context(), args)
-		},
-	}
-	rootCmd.AddCommand(runCmd)
+	rootCmd.AddCommand(run_cmd.NewRunCmd())
 
 	rootCmd.AddCommand(config_cmd.NewConfigCmd())
 
