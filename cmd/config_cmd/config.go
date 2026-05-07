@@ -26,9 +26,15 @@ type ConfigChange struct {
 type StringValidator func(string) error
 type Uint64Validator func(uint64) error
 
+type ConfigCmdEnv struct {
+	ConfigPath string
+	Raw        bool
+}
+
+var configCmdEnv *ConfigCmdEnv
+
 func NewConfigCmd() *cobra.Command {
-	var configPath string
-	var raw bool
+	configCmdEnv = &ConfigCmdEnv{}
 
 	defaultConfigPath, err := config.GetDefaultConfigPath()
 	if err != nil {
@@ -40,26 +46,31 @@ func NewConfigCmd() *cobra.Command {
 		Short: "Manage glesha configuration",
 		Long:  Usage(),
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if strings.HasPrefix(configPath, "~/") {
-				homeDir, err := os.UserHomeDir()
-				if err != nil {
-					return fmt.Errorf("cannot expand ~ for configPath: %w", err)
-				}
-				configPath = filepath.Join(homeDir, configPath[2:])
-			}
-
-			if configPath != "" {
-				readable, err := file_io.IsReadable(configPath)
-				if err != nil || !readable {
-					return fmt.Errorf("config is not readable: %s", configPath)
-				}
-			}
-
-			configPathAbs, err := filepath.Abs(configPath)
+			expanded, err := file_io.ExpandTilde(configCmdEnv.ConfigPath)
 			if err != nil {
-				return err
+				return fmt.Errorf("cannot expand ~ for configPath: %w", err)
 			}
-			configPath = configPathAbs
+			configCmdEnv.ConfigPath = expanded
+
+			if len(args) == 0 {
+				return nil
+			}
+
+		if configCmdEnv.ConfigPath != "" {
+			readable, err := file_io.IsReadable(configCmdEnv.ConfigPath)
+			if err != nil {
+				return fmt.Errorf("config: config %q not readable: %w", configCmdEnv.ConfigPath, err)
+			}
+			if !readable {
+				return fmt.Errorf("config: config %q is not readable", configCmdEnv.ConfigPath)
+			}
+		}
+
+		configPathAbs, err := filepath.Abs(configCmdEnv.ConfigPath)
+		if err != nil {
+			return fmt.Errorf("config: failed to get absolute path for %q: %w", configCmdEnv.ConfigPath, err)
+		}
+			configCmdEnv.ConfigPath = configPathAbs
 			return config.Parse(configPathAbs)
 		},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -67,26 +78,26 @@ func NewConfigCmd() *cobra.Command {
 		},
 	}
 
-	configCmd.PersistentFlags().StringVarP(&configPath, "file", "F", defaultConfigPath,
+	configCmd.PersistentFlags().StringVarP(&configCmdEnv.ConfigPath, "file", "F", defaultConfigPath,
 		fmt.Sprintf("path to config.json, defaults to: %s", defaultConfigPath))
-	configCmd.PersistentFlags().BoolVarP(&raw, "raw", "r", false,
+	configCmd.PersistentFlags().BoolVarP(&configCmdEnv.Raw, "raw", "r", false,
 		"Print raw values without redaction")
 
-	configCmd.AddCommand(newGetCmd(&raw))
+	configCmd.AddCommand(newGetCmd())
 	configCmd.AddCommand(newSetCmd())
-	configCmd.AddCommand(newDumpCmd(&raw))
-	configCmd.AddCommand(newInteractiveCmd(&configPath))
+	configCmd.AddCommand(newDumpCmd())
+	configCmd.AddCommand(newInteractiveCmd())
 
 	return configCmd
 }
 
-func newGetCmd(raw *bool) *cobra.Command {
+func newGetCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "get <path>",
 		Short: "Get a configuration value",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleGet(config.Get(), args[0], *raw)
+			return handleGet(config.Get(), args[0], configCmdEnv.Raw)
 		},
 	}
 }
@@ -102,24 +113,24 @@ func newSetCmd() *cobra.Command {
 	}
 }
 
-func newDumpCmd(raw *bool) *cobra.Command {
+func newDumpCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "dump",
 		Short: "Print entire configuration as JSON",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleDump(config.Get(), *raw)
+			return handleDump(config.Get(), configCmdEnv.Raw)
 		},
 	}
 }
 
-func newInteractiveCmd(configPath *string) *cobra.Command {
+func newInteractiveCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "interactive",
 		Short: "Interactive mode: prompt for each config value",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return handleInteractive(config.Get(), *configPath)
+			return handleInteractive(config.Get(), configCmdEnv.ConfigPath)
 		},
 	}
 }

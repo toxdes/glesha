@@ -7,9 +7,6 @@ VERSION=$(cat version.txt)
 TAG="v$VERSION"
 GH_API="https://api.github.com/repos/$REPO"
 GH_UPLOAD="https://uploads.github.com/repos/$REPO/releases"
-LD_FLAGS="-X 'glesha/cmd.Version=$(cat version.txt)' -X 'glesha/cmd.CommitHash=$(git rev-parse --short HEAD)'"
-BIN_NAME="glesha"
-
 # RELEASE
 echo "Creating GitHub release $TAG..."
 
@@ -28,11 +25,11 @@ fi
 for file in dist/*; do
   filename=$(basename "$file")
   echo ""
-  echo "Uploading to Github release: $(basename "$file")..."
+  echo "Uploading to Github release: $filename..."
   curl -s -X POST -H "Authorization: token $GH_TOKEN" \
        -H "Content-Type: application/octet-stream" \
        --data-binary @"$file" \
-       "$GH_UPLOAD/$release_id/assets?name=$(basename "$file")&label=$(basename "$file")"
+       "$GH_UPLOAD/$release_id/assets?name=$filename&label=$filename"
 done
 
 echo "Release $TAG created and binaries uploaded successfully."

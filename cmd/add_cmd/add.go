@@ -4,9 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -22,6 +20,7 @@ type addCmdEnv struct {
 	InputPath     string
 	OutputPath    string
 	ConfigPath    string
+	WorkDir       string
 	AssumeYes     bool
 	Provider      config.Provider
 	ArchiveFormat config.ArchiveFormat
@@ -36,12 +35,8 @@ func NewAddCmd() *cobra.Command {
 		provider      string
 		archiveFormat string
 		assumeYes     bool
+		workDir       string
 	)
-
-	workDir, err := file_io.GetGlobalWorkDir()
-	if err != nil {
-		L.Panic(fmt.Errorf("could not get global work dir: %w", err))
-	}
 
 	cmd := &cobra.Command{
 		Use:   "add PATH",
@@ -57,12 +52,10 @@ func NewAddCmd() *cobra.Command {
 
 			inputPath := args[0]
 
-			if strings.HasPrefix(inputPath, "~/") {
-				homeDir, err := os.UserHomeDir()
-				if err != nil {
-					return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
-				}
-				inputPath = filepath.Join(homeDir, inputPath[2:])
+			var err error
+			inputPath, err = file_io.ExpandTilde(inputPath)
+			if err != nil {
+				return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
 			}
 			args[0] = inputPath
 
@@ -70,12 +63,23 @@ func NewAddCmd() *cobra.Command {
 				return fmt.Errorf("PATH is not valid")
 			}
 
-			if strings.HasPrefix(outputPath, "~/") {
-				homeDir, err := os.UserHomeDir()
-				if err != nil {
-					return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
-				}
-				outputPath = filepath.Join(homeDir, outputPath[2:])
+			readable, err := file_io.IsReadable(inputPath)
+			if err != nil || !readable {
+				return fmt.Errorf("input path is not readable: %s", inputPath)
+			}
+
+			workDir, err = file_io.GetGlobalWorkDir()
+			if err != nil {
+				return fmt.Errorf("could not get global work dir: %w", err)
+			}
+
+			if outputPath == "" {
+				outputPath = workDir
+			}
+
+			outputPath, err = file_io.ExpandTilde(outputPath)
+			if err != nil {
+				return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
 			}
 
 			if outputPath == "" {
@@ -90,18 +94,15 @@ func NewAddCmd() *cobra.Command {
 				configPath = defaultConfigPath
 			}
 
-			if strings.HasPrefix(configPath, "~/") {
-				homeDir, err := os.UserHomeDir()
-				if err != nil {
-					return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
-				}
-				configPath = filepath.Join(homeDir, configPath[2:])
+			configPath, err = file_io.ExpandTilde(configPath)
+			if err != nil {
+				return fmt.Errorf("cannot expand ~ for inputPath: %w", err)
 			}
 
 			if configPath == "" {
 				return fmt.Errorf("config path is empty")
 			}
-			readable, err := file_io.IsReadable(configPath)
+			readable, err = file_io.IsReadable(configPath)
 			if err != nil || !readable {
 				return fmt.Errorf("config is not readable: %s", configPath)
 			}
@@ -170,6 +171,7 @@ func NewAddCmd() *cobra.Command {
 				InputPath:     inputPathAbs,
 				OutputPath:    outputPathAbs,
 				ConfigPath:    configPath,
+				WorkDir:       workDir,
 				AssumeYes:     assumeYes,
 				ArchiveFormat: config.Get().ArchiveFormat,
 				Provider:      config.Get().Provider,
@@ -192,7 +194,7 @@ func NewAddCmd() *cobra.Command {
 			L.Info(fmt.Sprintf("Checking if files are changed in %s", env.InputPath))
 
 			ignoredDirs := map[string]bool{
-				filepath.Base(workDir): true,
+				filepath.Base(env.WorkDir): true,
 			}
 			filesInfo, err := file_io.ComputeFilesInfo(ctx, env.InputPath, ignoredDirs)
 			if err != nil {
@@ -204,8 +206,8 @@ func NewAddCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringVarP(&outputPath, "output", "o", workDir,
-		"Path to file or directory to archive (required)")
+	cmd.Flags().StringVarP(&outputPath, "output", "o", "",
+		"Path to directory where archive should be generated")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "",
 		"path to config.json to be used")
 	cmd.Flags().StringVarP(&provider, "provider", "p", "",
