@@ -62,7 +62,7 @@
 - Status lifecycle: set RUNNING → do work → on error set ABORTED/FAILED → on success set COMPLETED
 
 ## Build 
-use `./scripts/build.sh` to build. the binary will be created at `./build/glesha` which can be used for further testing.
+- never ever use `go build ...` for checking if the project builds or not, always use `./scripts/build.sh` to build. the binary will be created at `./build/glesha` which can be used for further testing.
 
 ## Testing
 - use `./scripts/test.sh` to run tests
