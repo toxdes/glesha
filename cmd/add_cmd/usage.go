@@ -1,7 +1,5 @@
 package add_cmd
 
-import L "glesha/logger"
-
 const usageStr string = `
 USAGE
 glesha add [OPTIONS] PATH
@@ -67,8 +65,4 @@ SEE ALSO
 
 func Usage() string {
 	return usageStr
-}
-
-func PrintUsage() {
-	L.Print(usageStr)
 }

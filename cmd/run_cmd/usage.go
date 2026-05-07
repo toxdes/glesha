@@ -1,7 +1,5 @@
 package run_cmd
 
-import L "glesha/logger"
-
 const usageStr string = `
 USAGE
 glesha run [OPTIONS] ID
@@ -46,8 +44,4 @@ SEE ALSO
 
 func Usage() string {
 	return usageStr
-}
-
-func PrintUsage() {
-	L.Print(usageStr)
 }

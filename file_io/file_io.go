@@ -215,6 +215,24 @@ func WriteToFile(filePath string, data []byte, mode WriteMode) (int, error) {
 	return file.Write(data)
 }
 
+func ExpandTilde(path string) (string, error) {
+	if path == "~" {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot expand ~: %w", err)
+		}
+		return homeDir, nil
+	}
+	if strings.HasPrefix(path, "~/") {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("cannot expand ~: %w", err)
+		}
+		return filepath.Join(homeDir, path[2:]), nil
+	}
+	return path, nil
+}
+
 func GetGlobalWorkDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
