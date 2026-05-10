@@ -41,11 +41,11 @@ func (cm ColorMode) String() string {
 func SetColorModeFromString(colorModeStr string) error {
 	switch strings.ToLower(colorModeStr) {
 	case "always":
-		SetColorMode(COLOR_MODE_ALWAYS)
+		_ = SetColorMode(COLOR_MODE_ALWAYS)
 	case "never":
-		SetColorMode(COLOR_MODE_NEVER)
+		_ = SetColorMode(COLOR_MODE_NEVER)
 	case "auto":
-		SetColorMode(COLOR_MODE_AUTO)
+		_ = SetColorMode(COLOR_MODE_AUTO)
 	default:
 		return fmt.Errorf("unsupported color mode: %s", colorModeStr)
 	}
@@ -69,10 +69,10 @@ func GetColorMode() ColorMode {
 
 // renders text with ansi color code if colors are enabled
 func colorize(s string, color string) string {
-	if shouldUseColors(colorMode) {
-		return color + s + ansiReset
+	if color == "" || !shouldUseColors(colorMode) {
+		return s
 	}
-	return s
+	return color + s + ansiReset
 }
 
 // updates all logger prefixes by colorizing them

@@ -21,10 +21,13 @@ func shouldUseColors(cm ColorMode) bool {
 		return cm == COLOR_MODE_ALWAYS
 	}
 
+	if f := os.Getenv("CLICOLOR_FORCE"); f != "" && f != "0" {
+		return true
+	}
 	if os.Getenv("NO_COLOR") != "" {
 		return false
 	}
-	if os.Getenv("CLICOLOR") == "0" && os.Getenv("CLICOLOR_FORCE") == "" {
+	if os.Getenv("CLICOLOR") == "0" {
 		return false
 	}
 	if !isatty.IsTerminal(os.Stdout.Fd()) {

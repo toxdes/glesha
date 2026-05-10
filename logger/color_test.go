@@ -2,7 +2,6 @@ package L
 
 import (
 	"log"
-	"os"
 	"testing"
 )
 
@@ -56,6 +55,9 @@ func TestSetColorModeFromString(t *testing.T) {
 }
 
 func TestSetColorMode(t *testing.T) {
+	origColorMode := colorMode
+	defer func() { SetColorMode(origColorMode) }()
+
 	for _, cm := range []ColorMode{COLOR_MODE_AUTO, COLOR_MODE_ALWAYS, COLOR_MODE_NEVER} {
 		err := SetColorMode(cm)
 		if err != nil {
@@ -73,35 +75,21 @@ func TestSetColorMode(t *testing.T) {
 }
 
 func TestShouldUseColors(t *testing.T) {
-	// save and restore state
 	origColorMode := colorMode
-	origNoColor := os.Getenv("NO_COLOR")
-	origClicolor := os.Getenv("CLICOLOR")
-	origClicolorForce := os.Getenv("CLICOLOR_FORCE")
-	origCI := os.Getenv("CI")
-	origTerm := os.Getenv("TERM")
-	defer func() {
-		colorMode = origColorMode
-		os.Setenv("NO_COLOR", origNoColor)
-		os.Setenv("CLICOLOR", origClicolor)
-		os.Setenv("CLICOLOR_FORCE", origClicolorForce)
-		os.Setenv("CI", origCI)
-		os.Setenv("TERM", origTerm)
-	}()
+	defer func() { colorMode = origColorMode }()
 
-	// clear env for predictable tests
-	os.Unsetenv("NO_COLOR")
-	os.Unsetenv("CLICOLOR")
-	os.Unsetenv("CLICOLOR_FORCE")
-	os.Unsetenv("CI")
-	os.Unsetenv("TERM")
+	// baseline: clear all color-related env vars
+	t.Setenv("NO_COLOR", "")
+	t.Setenv("CLICOLOR", "")
+	t.Setenv("CLICOLOR_FORCE", "")
+	t.Setenv("CI", "")
+	t.Setenv("TERM", "")
 
 	tests := []struct {
-		name      string
-		mode      ColorMode
-		setEnv    map[string]string
-		unsetEnv  []string
-		want      bool
+		name   string
+		mode   ColorMode
+		setEnv map[string]string
+		want   bool
 	}{
 		{
 			name: "always",
@@ -114,34 +102,34 @@ func TestShouldUseColors(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "auto with NO_COLOR",
-			mode: COLOR_MODE_AUTO,
+			name:   "auto with NO_COLOR",
+			mode:   COLOR_MODE_AUTO,
 			setEnv: map[string]string{"NO_COLOR": "1"},
-			want: false,
+			want:   false,
 		},
 		{
-			name: "auto with CLICOLOR=0",
-			mode: COLOR_MODE_AUTO,
+			name:   "auto with CLICOLOR=0",
+			mode:   COLOR_MODE_AUTO,
 			setEnv: map[string]string{"CLICOLOR": "0"},
-			want: false,
+			want:   false,
 		},
 		{
-			name: "auto with CLICOLOR=0 and CLICOLOR_FORCE",
-			mode: COLOR_MODE_AUTO,
+			name:   "auto with CLICOLOR_FORCE forces on",
+			mode:   COLOR_MODE_AUTO,
 			setEnv: map[string]string{"CLICOLOR": "0", "CLICOLOR_FORCE": "1"},
-			want: false, // still false: TTY check fails in test env
+			want:   true,
 		},
 		{
-			name: "auto with CI",
-			mode: COLOR_MODE_AUTO,
+			name:   "auto with CI",
+			mode:   COLOR_MODE_AUTO,
 			setEnv: map[string]string{"CI": "true"},
-			want: false,
+			want:   false,
 		},
 		{
-			name: "auto with TERM=dumb",
-			mode: COLOR_MODE_AUTO,
+			name:   "auto with TERM=dumb",
+			mode:   COLOR_MODE_AUTO,
 			setEnv: map[string]string{"TERM": "dumb"},
-			want: false,
+			want:   false,
 		},
 	}
 
@@ -149,10 +137,7 @@ func TestShouldUseColors(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			colorMode = tt.mode
 			for k, v := range tt.setEnv {
-				os.Setenv(k, v)
-			}
-			for _, k := range tt.unsetEnv {
-				os.Unsetenv(k)
+				t.Setenv(k, v)
 			}
 
 			got := shouldUseColors(colorMode)
@@ -188,7 +173,7 @@ func TestColorize(t *testing.T) {
 	t.Run("empty color returns plain", func(t *testing.T) {
 		colorMode = COLOR_MODE_ALWAYS
 		got := colorize("hello", ansiNone)
-		want := "hello" + ansiReset
+		want := "hello"
 		if got != want {
 			t.Errorf("colorize() = %q, want %q", got, want)
 		}
