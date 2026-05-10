@@ -16,7 +16,6 @@ type LogLevel byte
 
 const (
 	DEBUG LogLevel = iota
-	INFO
 	NORMAL
 	WARN
 	ERROR
@@ -26,19 +25,17 @@ const (
 
 // prefixes
 const (
-	debugPrefix  string = "DBG  "
-	infoPrefix   string = "INF  "
-	normalPrefix string = "     "
-	warnPrefix   string = "WRN  "
-	errorPrefix  string = "ERR  "
-	panicPrefix  string = "PNC  "
+	debugPrefix  string = "debug: "
+	normalPrefix string = ""
+	warnPrefix   string = "warn: "
+	errorPrefix  string = "error: "
+	panicPrefix  string = "panic: "
 )
 
 var (
-	level        = INFO
+	level        = WARN
 	colorMode    = COLOR_MODE_AUTO
 	debugLogger  = log.New(os.Stdout, colorize(debugPrefix, ansiBlue), log.Lmsgprefix)
-	infoLogger   = log.New(os.Stdout, colorize(infoPrefix, ansiGreen), log.Lmsgprefix)
 	normalLogger = log.New(os.Stdout, colorize(normalPrefix, ansiNone), log.Lmsgprefix)
 	warnLogger   = log.New(os.Stdout, colorize(warnPrefix, ansiYellow), log.Lmsgprefix)
 	errorLogger  = log.New(os.Stderr, colorize(errorPrefix, ansiRed), log.Lmsgprefix)
@@ -46,15 +43,13 @@ var (
 	footerMutex  = &sync.Mutex{}
 	footerText   = ""
 	footerLines  = 0
-	footerLevel  = INFO
+	footerLevel  = WARN
 )
 
 func SetLevelFromString(l string) error {
 	switch strings.ToLower(l) {
 	case "debug":
 		level = DEBUG
-	case "info":
-		level = INFO
 	case "warn":
 		level = WARN
 	case "error":
@@ -71,7 +66,7 @@ func SetLevelFromString(l string) error {
 
 func SetLevel(l LogLevel) error {
 	switch l {
-	case DEBUG, INFO, WARN, ERROR, PANIC, SILENT:
+	case DEBUG, WARN, ERROR, PANIC, SILENT:
 		level = l
 	default:
 		return fmt.Errorf("unsupported log level: %d", l)
@@ -88,14 +83,6 @@ func Debug(v ...any) {
 		} else {
 			printMultiline(debugLogger, ansiBlue, fmt.Sprintf("%s\n", v...))
 		}
-		printFooter()
-	}
-}
-
-func Info(v ...any) {
-	if level <= INFO {
-		clearFooter()
-		printMultiline(infoLogger, ansiGreen, fmt.Sprintf("%s\n", v...))
 		printFooter()
 	}
 }
@@ -130,15 +117,13 @@ func GetLogLevel() LogLevel {
 }
 
 func IsVerbose() bool {
-	return level < INFO
+	return level <= DEBUG
 }
 
 func (l LogLevel) String() string {
 	switch l {
 	case DEBUG:
 		return "debug"
-	case INFO:
-		return "info"
 	case WARN:
 		return "warn"
 	case ERROR:

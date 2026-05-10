@@ -237,4 +237,3 @@ func printWithCallerLocation(l *log.Logger, s string, v ...any) int {
 
 	return printMultiline(l, s, msg)
 }
-

@@ -28,9 +28,9 @@ func TestColorModeString(t *testing.T) {
 
 func TestSetColorModeFromString(t *testing.T) {
 	tests := []struct {
-		input      string
-		wantMode   ColorMode
-		wantErr    bool
+		input    string
+		wantMode ColorMode
+		wantErr  bool
 	}{
 		{"auto", COLOR_MODE_AUTO, false},
 		{"always", COLOR_MODE_ALWAYS, false},
@@ -187,12 +187,11 @@ func TestGetLoggerAndStyle(t *testing.T) {
 		wantColor  string
 	}{
 		{DEBUG, debugLogger, ansiBlue},
-		{INFO, infoLogger, ansiGreen},
-	{NORMAL, normalLogger, ansiNone},
-	{WARN, warnLogger, ansiYellow},
-	{ERROR, errorLogger, ansiRed},
-	{PANIC, panicLogger, ansiRed},
-	{LogLevel(99), infoLogger, ansiNone},
+		{NORMAL, normalLogger, ansiNone},
+		{WARN, warnLogger, ansiYellow},
+		{ERROR, errorLogger, ansiRed},
+		{PANIC, panicLogger, ansiRed},
+		{LogLevel(99), normalLogger, ansiNone},
 	}
 
 	for _, tt := range tests {

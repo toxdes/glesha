@@ -121,7 +121,7 @@ func runTask(ctx context.Context, runCmdEnv *runCmdEnv) error {
 			return err
 		}
 		archivePath := archiver.GetArchiveFilePath(ctx)
-		L.Info("Planning archive")
+		L.Println("Planning archive")
 		err = archiver.Plan(ctx)
 		if err != nil {
 			return err
@@ -135,7 +135,7 @@ func runTask(ctx context.Context, runCmdEnv *runCmdEnv) error {
 		}
 		info := archiver.GetInfo(ctx)
 		if int64(info.SizeInBytes) != t.TotalSize {
-			L.Info("Rearchiving because input_path contents have changed since last run")
+			L.Println("Rearchiving because input_path contents have changed since last run")
 			mustRearchive = true
 		}
 	default:
@@ -143,7 +143,7 @@ func runTask(ctx context.Context, runCmdEnv *runCmdEnv) error {
 	}
 
 	if mustRearchive {
-		L.Info("Starting fresh because cannot continue from previous state")
+		L.Println("Starting fresh because cannot continue from previous state")
 		err = runCmdEnv.TaskRepo.UpdateTaskStatus(ctx, runCmdEnv.TaskId, model.TASK_STATUS_ARCHIVE_RUNNING)
 		if err != nil {
 			return err
@@ -170,7 +170,7 @@ func runTask(ctx context.Context, runCmdEnv *runCmdEnv) error {
 		}
 		L.Println("Create Archive: OK")
 	} else {
-		L.Info("Skipping Archiving because input_path contents have not changed since last run")
+		L.Println("Skipping Archiving because input_path contents have not changed since last run")
 	}
 
 	archivePath := archiver.GetArchiveFilePath(ctx)
@@ -242,7 +242,7 @@ func runTask(ctx context.Context, runCmdEnv *runCmdEnv) error {
 	} else if err != nil {
 		return fmt.Errorf("could not get upload for task id %d: %w", runCmdEnv.TaskId, err)
 	} else {
-		L.Info("Skipping creating a new upload because upload already exists for a task")
+		L.Println("Skipping creating a new upload because upload already exists for a task")
 		uploadId = existingUpload.Id
 	}
 	L.Println(fmt.Sprintf("Task(%d) now has upload Id: %d", runCmdEnv.TaskId, uploadId))

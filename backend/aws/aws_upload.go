@@ -52,7 +52,7 @@ func (aws *AwsBackend) createS3Bucket(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	L.Info(fmt.Sprintf("Creating Aws bucket: %s", aws.bucketName))
+	L.Printf("Creating Aws bucket: %s\n", aws.bucketName)
 	resp, err := aws.client.Do(req)
 	if err != nil {
 		return err
@@ -118,7 +118,7 @@ func (aws *AwsBackend) createMultipartUpload(
 	if err != nil {
 		return nil, fmt.Errorf("aws: could not sign CreateMultipartUpload request for task key %s: %w", taskKey, err)
 	}
-	L.Info("Creating AWS Multipart Upload")
+	L.Println("Creating AWS Multipart Upload")
 	resp, err := aws.client.Do(req)
 	if err != nil {
 		return nil, err
@@ -408,7 +408,7 @@ func (aws *AwsBackend) completeMultipartUpload(
 		return fmt.Errorf("could not sign aws::CompleteMultipartUpload request: %w", err)
 	}
 
-	L.Info("Completing AWS upload")
+	L.Println("Completing AWS upload")
 	resp, err := aws.client.Do(req)
 	if err != nil {
 		return err

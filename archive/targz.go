@@ -84,7 +84,7 @@ func (tgz *TarGzArchive) UpdateStatus(ctx context.Context, newStatus ArchiveStat
 
 func (tgz *TarGzArchive) Plan(ctx context.Context) error {
 	tgz.UpdateStatus(ctx, STATUS_PLANNING)
-	L.Info(fmt.Sprintf("Checking if files are changed in %s", tgz.InputPath))
+	L.Printf("Checking if files are changed in %s\n", tgz.InputPath)
 	fileInfo, err := file_io.ComputeFilesInfo(ctx, tgz.InputPath, tgz.IgnoredDirs)
 	if err != nil {
 		return err

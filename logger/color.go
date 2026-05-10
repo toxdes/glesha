@@ -9,7 +9,6 @@ import (
 // ANSI foreground color codes
 const (
 	ansiRed    = "\033[31m"
-	ansiGreen  = "\033[32m"
 	ansiYellow = "\033[33m"
 	ansiBlue   = "\033[34m"
 	ansiReset  = "\033[0m"
@@ -76,9 +75,9 @@ func colorize(s string, color string) string {
 }
 
 // updates all logger prefixes by colorizing them
+// ideally this should be called whenever 'colorMode' changes
 func updateLoggerPrefixColors() {
 	debugLogger.SetPrefix(colorize(debugPrefix, ansiBlue))
-	infoLogger.SetPrefix(colorize(infoPrefix, ansiGreen))
 	normalLogger.SetPrefix(colorize(normalPrefix, ansiNone))
 	warnLogger.SetPrefix(colorize(warnPrefix, ansiYellow))
 	errorLogger.SetPrefix(colorize(errorPrefix, ansiRed))
@@ -90,8 +89,6 @@ func getLoggerAndStyle(l LogLevel) (*log.Logger, string) {
 	switch l {
 	case DEBUG:
 		return debugLogger, ansiBlue
-	case INFO:
-		return infoLogger, ansiGreen
 	case NORMAL:
 		return normalLogger, ansiNone
 	case WARN:
@@ -101,6 +98,6 @@ func getLoggerAndStyle(l LogLevel) (*log.Logger, string) {
 	case PANIC:
 		return panicLogger, ansiRed
 	default:
-		return infoLogger, ansiNone
+		return normalLogger, ansiNone
 	}
 }
