@@ -3,7 +3,7 @@ module glesha
 go 1.24.3
 
 require (
-	github.com/mattn/go-isatty v0.0.20
+	github.com/mattn/go-isatty v0.0.22
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
 	modernc.org/sqlite v1.37.1
