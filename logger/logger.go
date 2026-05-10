@@ -50,6 +50,8 @@ func SetLevelFromString(l string) error {
 	switch strings.ToLower(l) {
 	case "debug":
 		level = DEBUG
+	case "normal":
+		level = NORMAL
 	case "warn":
 		level = WARN
 	case "error":
@@ -66,7 +68,7 @@ func SetLevelFromString(l string) error {
 
 func SetLevel(l LogLevel) error {
 	switch l {
-	case DEBUG, WARN, ERROR, PANIC, SILENT:
+	case DEBUG, NORMAL, WARN, ERROR, PANIC, SILENT:
 		level = l
 	default:
 		return fmt.Errorf("unsupported log level: %d", l)
@@ -124,12 +126,16 @@ func (l LogLevel) String() string {
 	switch l {
 	case DEBUG:
 		return "debug"
+	case NORMAL:
+		return "normal"
 	case WARN:
 		return "warn"
 	case ERROR:
 		return "error"
 	case SILENT:
 		return "silent"
+	case PANIC:
+		return "panic"
 	default:
 		return "Unknown log level, indicates a bug. Please report"
 	}
