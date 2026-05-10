@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"os"
 
 	"github.com/spf13/cobra"
 
@@ -34,6 +35,11 @@ var rootCmd = &cobra.Command{
 		if err := L.SetColorModeFromString(colorMode); err != nil {
 			return err
 		}
+		version, _ := cmd.Flags().GetBool("version")
+		if version {
+			printVersion(cmd, Version, CommitHash)
+			os.Exit(0)
+		}
 		return nil
 	},
 	RunE: func(cmd *cobra.Command, args []string) error {
@@ -41,21 +47,26 @@ var rootCmd = &cobra.Command{
 	},
 }
 
+func printVersion(cmd *cobra.Command, version, commitHash string) {
+	L.Printf("%s version v%s, build %s\n", cmd.Root().Name(), version, commitHash)
+}
+
 func init() {
 	rootCmd.PersistentFlags().StringP("log-level", "L", L.GetLogLevel().String(),
-		"Set log level: debug info warn error panic")
+		"Set log level: debug warn error panic silent")
 	rootCmd.PersistentFlags().String("color", L.GetColorMode().String(),
 		"Set color mode: auto always never")
+
+	rootCmd.Flags().BoolP("version", "v", false, "Prints version information")
 
 	rootCmd.AddCommand(add_cmd.NewAddCmd())
 	rootCmd.AddCommand(run_cmd.NewRunCmd())
 	rootCmd.AddCommand(config_cmd.NewConfigCmd())
-
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			L.Printf("%s version v%s, build %s\n", cmd.Root().Name(), Version, CommitHash)
+			printVersion(cmd, Version, CommitHash)
 			return nil
 		},
 	})

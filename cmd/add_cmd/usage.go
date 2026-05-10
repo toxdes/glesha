@@ -38,7 +38,7 @@ Use "glesha help config" for more info.
 Specify log output level
 Default: debug
 Accepted values (in order of increasing amount of output) -
-debug, info, warn, error, silent
+silent, panic, error, warn, debug
 
 --color <color-mode>
 Specify output color mode.

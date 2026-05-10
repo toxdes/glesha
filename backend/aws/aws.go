@@ -127,7 +127,7 @@ func (aws *AwsBackend) CreateUploadResource(
 	if err != nil {
 		return nil, err
 	}
-	L.Info("aws: Estimating costs")
+	L.Println("aws: Estimating costs")
 	L.Print(renderEstimatedCost(
 		resourceFileInfo.Size,
 		cost,
@@ -194,7 +194,7 @@ func (aws *AwsBackend) UploadResource(
 		return err
 	}
 	if resetCnt > 0 {
-		L.Info(fmt.Sprintf("Resetting %d dirty blocks from previous unfinished run", resetCnt))
+		L.Printf("Resetting %d dirty blocks from previous unfinished run\n", resetCnt)
 	}
 	createdCnt, err := uploadBlockRepo.CreateUploadBlocks(
 		ctx,
@@ -239,7 +239,7 @@ func (aws *AwsBackend) UploadResource(
 			}
 			L.Debug(fmt.Sprintf("Claimed blocks to run: %v", ids))
 			if len(ids) == 0 {
-				L.Info("Skipping UploadBlock(s) because all blocks are finished uploading.")
+				L.Println("Skipping UploadBlock(s) because all blocks are finished uploading.")
 				break
 			}
 

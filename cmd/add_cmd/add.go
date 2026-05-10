@@ -191,7 +191,7 @@ func NewAddCmd() *cobra.Command {
 			}
 			defer db.Close(ctx)
 
-			L.Info(fmt.Sprintf("Checking if files are changed in %s", env.InputPath))
+			L.Printf("Checking if files are changed in %s\n", env.InputPath)
 
 			ignoredDirs := map[string]bool{
 				filepath.Base(env.WorkDir): true,

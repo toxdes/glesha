@@ -90,7 +90,7 @@ func (ubr uploadBlockRepo) CreateUploadBlocks(
 		return -1, err
 	}
 	if size == fileSizeInBytes {
-		L.Info("Skipping creating upload blocks because blocks already exist")
+		L.Println("Skipping creating upload blocks because blocks already exist")
 		return 0, nil
 	}
 
