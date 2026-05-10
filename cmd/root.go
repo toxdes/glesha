@@ -53,7 +53,7 @@ func printVersion(cmd *cobra.Command, version, commitHash string) {
 
 func init() {
 	rootCmd.PersistentFlags().StringP("log-level", "L", L.GetLogLevel().String(),
-		"Set log level: debug info warn error panic")
+		"Set log level: debug warn error panic silent")
 	rootCmd.PersistentFlags().String("color", L.GetColorMode().String(),
 		"Set color mode: auto always never")
 
