@@ -39,7 +39,7 @@ var (
 	colorMode    = COLOR_MODE_AUTO
 	debugLogger  = log.New(os.Stdout, colorize(debugPrefix, ansiBlue), log.Lmsgprefix)
 	infoLogger   = log.New(os.Stdout, colorize(infoPrefix, ansiGreen), log.Lmsgprefix)
-	normalLogger = log.New(os.Stdout, colorize(normalPrefix, ""), log.Lmsgprefix)
+	normalLogger = log.New(os.Stdout, colorize(normalPrefix, ansiNone), log.Lmsgprefix)
 	warnLogger   = log.New(os.Stdout, colorize(warnPrefix, ansiYellow), log.Lmsgprefix)
 	errorLogger  = log.New(os.Stderr, colorize(errorPrefix, ansiRed), log.Lmsgprefix)
 	panicLogger  = log.New(os.Stderr, colorize(panicPrefix, ansiRed), log.Lmsgprefix)
@@ -152,21 +152,21 @@ func (l LogLevel) String() string {
 
 func Printf(format string, v ...any) (int, error) {
 	if level < SILENT {
-		return printMultiline(normalLogger, "", fmt.Sprintf(format, v...)), nil
+		return printMultiline(normalLogger, ansiNone, fmt.Sprintf(format, v...)), nil
 	}
 	return 0, nil
 }
 
 func Print(a ...any) (int, error) {
 	if level < SILENT {
-		return printMultiline(normalLogger, "", fmt.Sprint(a...)), nil
+		return printMultiline(normalLogger, ansiNone, fmt.Sprint(a...)), nil
 	}
 	return 0, nil
 }
 
 func Println(a ...any) (int, error) {
 	if level < SILENT {
-		return printMultiline(normalLogger, "", fmt.Sprintln(a...)), nil
+		return printMultiline(normalLogger, ansiNone, fmt.Sprintln(a...)), nil
 	}
 	return 0, nil
 }

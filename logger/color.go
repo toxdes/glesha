@@ -13,6 +13,7 @@ const (
 	ansiYellow = "\033[33m"
 	ansiBlue   = "\033[34m"
 	ansiReset  = "\033[0m"
+	ansiNone   = ""
 )
 
 // color modes
@@ -78,7 +79,7 @@ func colorize(s string, color string) string {
 func updateLoggerPrefixColors() {
 	debugLogger.SetPrefix(colorize(debugPrefix, ansiBlue))
 	infoLogger.SetPrefix(colorize(infoPrefix, ansiGreen))
-	normalLogger.SetPrefix(colorize(normalPrefix, ""))
+	normalLogger.SetPrefix(colorize(normalPrefix, ansiNone))
 	warnLogger.SetPrefix(colorize(warnPrefix, ansiYellow))
 	errorLogger.SetPrefix(colorize(errorPrefix, ansiRed))
 	panicLogger.SetPrefix(colorize(panicPrefix, ansiRed))
@@ -92,7 +93,7 @@ func getLoggerAndStyle(l LogLevel) (*log.Logger, string) {
 	case INFO:
 		return infoLogger, ansiGreen
 	case NORMAL:
-		return normalLogger, ""
+		return normalLogger, ansiNone
 	case WARN:
 		return warnLogger, ansiYellow
 	case ERROR:
@@ -100,6 +101,6 @@ func getLoggerAndStyle(l LogLevel) (*log.Logger, string) {
 	case PANIC:
 		return panicLogger, ansiRed
 	default:
-		return infoLogger, ""
+		return infoLogger, ansiNone
 	}
 }
