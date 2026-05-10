@@ -6,9 +6,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 // NOTE: populated at build time with -ldflags (-X)
@@ -27,35 +24,6 @@ const (
 	SILENT
 )
 
-// color modes
-type ColorMode int
-
-const (
-	COLOR_MODE_AUTO ColorMode = iota
-	COLOR_MODE_ALWAYS
-	COLOR_MODE_NEVER
-)
-
-// styles
-// debug - blue
-var debugStyle = lipgloss.NewStyle().Padding(0).Margin(0).
-	Foreground(lipgloss.Color("4"))
-
-// info - green
-var infoStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("2"))
-
-// no color - normal
-var noColorStyle = lipgloss.NewStyle()
-
-// warn - yellow
-var warnStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("3"))
-
-// error,panic - red
-var errorStyle = lipgloss.NewStyle().
-	Foreground(lipgloss.Color("1"))
-
 // prefixes
 const (
 	debugPrefix  string = "DBG  "
@@ -69,23 +37,16 @@ const (
 var (
 	level        = INFO
 	colorMode    = COLOR_MODE_AUTO
-	debugLogger  = log.New(os.Stdout, colorize(debugPrefix, &debugStyle), log.Lmsgprefix)
-	infoLogger   = log.New(os.Stdout, colorize(infoPrefix, &infoStyle), log.Lmsgprefix)
-	normalLogger = log.New(os.Stdout, colorize(normalPrefix, &noColorStyle), log.Lmsgprefix)
-	warnLogger   = log.New(os.Stdout, colorize(warnPrefix, &warnStyle), log.Lmsgprefix)
-	errorLogger  = log.New(os.Stderr, colorize(errorPrefix, &errorStyle), log.Lmsgprefix)
-	panicLogger  = log.New(os.Stderr, colorize(panicPrefix, &errorStyle), log.Lmsgprefix)
+	debugLogger  = log.New(os.Stdout, colorize(debugPrefix, ansiBlue), log.Lmsgprefix)
+	infoLogger   = log.New(os.Stdout, colorize(infoPrefix, ansiGreen), log.Lmsgprefix)
+	normalLogger = log.New(os.Stdout, colorize(normalPrefix, ""), log.Lmsgprefix)
+	warnLogger   = log.New(os.Stdout, colorize(warnPrefix, ansiYellow), log.Lmsgprefix)
+	errorLogger  = log.New(os.Stderr, colorize(errorPrefix, ansiRed), log.Lmsgprefix)
+	panicLogger  = log.New(os.Stderr, colorize(panicPrefix, ansiRed), log.Lmsgprefix)
 	footerMutex  = &sync.Mutex{}
 	footerText   = ""
 	footerLines  = 0
 	footerLevel  = INFO
-)
-
-// cursor sequences
-const (
-	c_escape     string = "\x1B"
-	c_clear_line string = c_escape + "[2K"
-	c_up         string = c_escape + "[1A"
 )
 
 func SetLevelFromString(l string) error {
@@ -118,59 +79,14 @@ func SetLevel(l LogLevel) error {
 	return nil
 }
 
-func SetColorModeFromString(colorModeStr string) error {
-	switch strings.ToLower(colorModeStr) {
-	case "always":
-		SetColorMode(COLOR_MODE_ALWAYS)
-	case "never":
-		SetColorMode(COLOR_MODE_NEVER)
-	case "auto":
-		SetColorMode(COLOR_MODE_AUTO)
-	default:
-		return fmt.Errorf("unsupported color mode: %s", colorModeStr)
-	}
-	return nil
-}
-
-func SetColorMode(cm ColorMode) error {
-	switch cm {
-	case COLOR_MODE_ALWAYS:
-		// override default behavior of lipgloss
-		lipgloss.SetColorProfile(termenv.TrueColor)
-		colorMode = cm
-	case COLOR_MODE_NEVER, COLOR_MODE_AUTO:
-		// we use noColorStyle to print non-colored output, so setting "auto"
-		// to "never" case is fine
-		lipgloss.SetColorProfile(termenv.EnvColorProfile())
-		colorMode = cm
-	default:
-		return fmt.Errorf("unsupported color mode: %s", cm.String())
-	}
-	updateLoggerPrefixColors()
-	return nil
-}
-
-func (cm ColorMode) String() string {
-	switch cm {
-	case COLOR_MODE_ALWAYS:
-		return "always"
-	case COLOR_MODE_NEVER:
-		return "never"
-	case COLOR_MODE_AUTO:
-		return "auto"
-	default:
-		return "auto"
-	}
-}
-
 func Debug(v ...any) {
 	if level <= DEBUG {
 		// FIXME: race conditions
 		clearFooter()
 		if printCallerLocation == "true" {
-			printWithCallerLocation(debugLogger, &debugStyle, fmt.Sprintf("%s\n", v...))
+			printWithCallerLocation(debugLogger, ansiBlue, fmt.Sprintf("%s\n", v...))
 		} else {
-			printMultiline(debugLogger, &debugStyle, fmt.Sprintf("%s\n", v...))
+			printMultiline(debugLogger, ansiBlue, fmt.Sprintf("%s\n", v...))
 		}
 		printFooter()
 	}
@@ -179,7 +95,7 @@ func Debug(v ...any) {
 func Info(v ...any) {
 	if level <= INFO {
 		clearFooter()
-		printMultiline(infoLogger, &infoStyle, fmt.Sprintf("%s\n", v...))
+		printMultiline(infoLogger, ansiGreen, fmt.Sprintf("%s\n", v...))
 		printFooter()
 	}
 }
@@ -187,7 +103,7 @@ func Info(v ...any) {
 func Warn(v ...any) {
 	if level <= WARN {
 		clearFooter()
-		printMultiline(warnLogger, &warnStyle, fmt.Sprintf("%s\n", v...))
+		printMultiline(warnLogger, ansiYellow, fmt.Sprintf("%s\n", v...))
 		printFooter()
 	}
 }
@@ -196,25 +112,21 @@ func Error(v ...any) {
 	if level <= ERROR {
 		clearFooter()
 		if printCallerLocation == "true" {
-			printWithCallerLocation(errorLogger, &errorStyle, fmt.Sprintf("%s\n", v...))
+			printWithCallerLocation(errorLogger, ansiRed, fmt.Sprintf("%s\n", v...))
 		} else {
-			printMultiline(errorLogger, &errorStyle, fmt.Sprintf("%s\n", v...))
+			printMultiline(errorLogger, ansiRed, fmt.Sprintf("%s\n", v...))
 		}
 		printFooter()
 	}
 }
 
 func Panic(v ...any) {
-	printMultiline(panicLogger, &errorStyle, fmt.Sprintf("%s\n", v...))
+	printMultiline(panicLogger, ansiRed, fmt.Sprintf("%s\n", v...))
 	os.Exit(1)
 }
 
 func GetLogLevel() LogLevel {
 	return level
-}
-
-func GetColorMode() ColorMode {
-	return colorMode
 }
 
 func IsVerbose() bool {
@@ -240,21 +152,21 @@ func (l LogLevel) String() string {
 
 func Printf(format string, v ...any) (int, error) {
 	if level < SILENT {
-		return printMultiline(normalLogger, &noColorStyle, fmt.Sprintf(format, v...)), nil
+		return printMultiline(normalLogger, "", fmt.Sprintf(format, v...)), nil
 	}
 	return 0, nil
 }
 
 func Print(a ...any) (int, error) {
 	if level < SILENT {
-		return printMultiline(normalLogger, &noColorStyle, fmt.Sprint(a...)), nil
+		return printMultiline(normalLogger, "", fmt.Sprint(a...)), nil
 	}
 	return 0, nil
 }
 
 func Println(a ...any) (int, error) {
 	if level < SILENT {
-		return printMultiline(normalLogger, &noColorStyle, fmt.Sprintln(a...)), nil
+		return printMultiline(normalLogger, "", fmt.Sprintln(a...)), nil
 	}
 	return 0, nil
 }

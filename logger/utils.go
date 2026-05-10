@@ -12,9 +12,6 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
-
-	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 )
 
 func HumanReadableBytes(bytes uint64, precision int) string {
@@ -185,25 +182,9 @@ func HumanReadableCount(
 	return fmt.Sprintf("%d %s", count, plural)
 }
 
-// decides if colors should be enabled based on "cm" and terminal color profile
-func shouldUseColors(cm ColorMode) bool {
-	if cm != COLOR_MODE_AUTO {
-		return cm == COLOR_MODE_ALWAYS
-	}
-	return lipgloss.DefaultRenderer().ColorProfile() != termenv.Ascii
-}
-
-// renders "s" with "colorStyle" if colors are enabled, otherwise with noColorStyle
-func colorize(s string, colorStyle *lipgloss.Style) string {
-	if shouldUseColors(colorMode) {
-		return colorStyle.Render(s)
-	}
-	return noColorStyle.Render(s)
-}
-
 // prints input with multiple lines with stripped spaces and with prefix for each line
 // returns number of characters printed
-func printMultiline(l *log.Logger, style *lipgloss.Style, v ...any) int {
+func printMultiline(l *log.Logger, style string, v ...any) int {
 	message := fmt.Sprint(v...)
 
 	// Track if original message ended with newline
@@ -240,7 +221,7 @@ func printMultiline(l *log.Logger, style *lipgloss.Style, v ...any) int {
 }
 
 // appends "rel_path:line" to the log msg and prints the result to logger "l" with style "s"
-func printWithCallerLocation(l *log.Logger, s *lipgloss.Style, v ...any) int {
+func printWithCallerLocation(l *log.Logger, s string, v ...any) int {
 	_, file, line, _ := runtime.Caller(2)
 	cwd, err := os.Getwd()
 	relPath := file
@@ -257,76 +238,3 @@ func printWithCallerLocation(l *log.Logger, s *lipgloss.Style, v ...any) int {
 	return printMultiline(l, s, msg)
 }
 
-// updates all logger prefixes by colorizing them with their styles
-// ideally this should be called whenever 'colorMode' changes
-func updateLoggerPrefixColors() {
-	debugLogger.SetPrefix(colorize(debugPrefix, &debugStyle))
-	infoLogger.SetPrefix(colorize(infoPrefix, &infoStyle))
-	normalLogger.SetPrefix(colorize(normalPrefix, &noColorStyle))
-	warnLogger.SetPrefix(colorize(warnPrefix, &warnStyle))
-	errorLogger.SetPrefix(colorize(errorPrefix, &errorStyle))
-	panicLogger.SetPrefix(colorize(panicPrefix, &errorStyle))
-}
-
-// returns logger,style for LogLevel "l"
-func getLoggerAndStyle(l LogLevel) (*log.Logger, *lipgloss.Style) {
-	switch l {
-	case DEBUG:
-		return debugLogger, &debugStyle
-	case INFO:
-		return infoLogger, &infoStyle
-	case NORMAL:
-		return normalLogger, &noColorStyle
-	case WARN:
-		return warnLogger, &warnStyle
-	case ERROR:
-		return errorLogger, &errorStyle
-	case PANIC:
-		return panicLogger, &errorStyle
-	default:
-		return infoLogger, &noColorStyle
-	}
-}
-
-// removes the current footer from terminal
-// Must be called while holding footerMutex
-func clearFooter() {
-	if footerLines == 0 {
-		return
-	}
-
-	// Move cursor up to start of footer
-	for i := 0; i < footerLines; i++ {
-		fmt.Printf("%s", c_up)
-	}
-
-	// Clear each footer line
-	for i := 0; i < footerLines; i++ {
-		fmt.Printf("\r%s\n", c_clear_line)
-	}
-
-	// Move cursor back up to where footer started
-	for i := 0; i < footerLines; i++ {
-		fmt.Printf("%s", c_up)
-	}
-}
-
-// reprints the footer after a log message
-// must be called while holding `footerMutex`
-func printFooter() int {
-	if len(footerText) == 0 {
-		return 0
-	}
-	_, style := getLoggerAndStyle(footerLevel)
-	lineCnt := 0
-	for line := range strings.SplitSeq(footerText, "\n") {
-		// Skip empty lines from trailing newlines
-		if len(strings.TrimSpace(line)) == 0 {
-			continue
-		}
-		rendered := style.Render(strings.TrimSpace(line))
-		fmt.Printf("%s\n", rendered)
-		lineCnt++
-	}
-	return lineCnt
-}
