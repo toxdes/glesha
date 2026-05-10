@@ -60,7 +60,6 @@ func renderEstimatedCost(
 	activeStorageClass AwsStorageClass,
 	currency string) string {
 	var sb strings.Builder
-	// TODO: maybe use lipgloss/table instead of handwaving this
 	emptySpaceHeader := 32
 	headerLine := fmt.Sprintf(
 		"AWS S3 Storage Class%sStorage cost for %s/year",
