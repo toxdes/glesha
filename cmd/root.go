@@ -2,76 +2,80 @@ package cmd
 
 import (
 	"context"
-	"os"
 
-	"github.com/spf13/cobra"
-
-	"glesha/cmd/add_cmd"
-	"glesha/cmd/config_cmd"
+	"glesha/cmd/app_cmd"
+	"glesha/cmd/archive_cmd"
+	"glesha/cmd/browse_cmd"
+	"glesha/cmd/catalog_cmd"
+	"glesha/cmd/check_cmd"
+	"glesha/cmd/configure_cmd"
+	"glesha/cmd/create_cmd"
+	"glesha/cmd/decrypt_cmd"
+	"glesha/cmd/download_cmd"
+	"glesha/cmd/extract_cmd"
+	"glesha/cmd/help_cmd"
+	"glesha/cmd/history_cmd"
+	"glesha/cmd/import_cmd"
+	"glesha/cmd/list_cmd"
+	"glesha/cmd/move_cmd"
+	"glesha/cmd/restore_cmd"
+	"glesha/cmd/retry_cmd"
 	"glesha/cmd/run_cmd"
-	L "glesha/logger"
+	"glesha/cmd/status_cmd"
+	"glesha/cmd/storage_class_cmd"
+	"glesha/cmd/upload_cmd"
+	"glesha/cmd/version_cmd"
 )
 
-// NOTE: populated at build time with -ldflags (-X)
-var Version string
-
-// NOTE: populated at build time with -ldflags (-X)
-var CommitHash string
-
-var rootCmd = &cobra.Command{
-	Use:           "glesha",
-	Short:         "Cross-platform archive and upload utility",
-	SilenceUsage:  true,
-	SilenceErrors: true,
-	CompletionOptions: cobra.CompletionOptions{
-		DisableDefaultCmd: true,
-	},
-	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		logLevel, _ := cmd.Flags().GetString("log-level")
-		if err := L.SetLevelFromString(logLevel); err != nil {
-			return err
-		}
-		colorMode, _ := cmd.Flags().GetString("color")
-		if err := L.SetColorModeFromString(colorMode); err != nil {
-			return err
-		}
-		version, _ := cmd.Flags().GetBool("version")
-		if version {
-			printVersion(cmd, Version, CommitHash)
-			os.Exit(0)
-		}
-		return nil
-	},
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return cmd.Help()
-	},
+func Execute(ctx context.Context, args []string, version, sha string) error {
+	name, rest, err := app_cmd.ResolveCommand(args)
+	if err != nil {
+		return err
+	}
+	switch name {
+	case "version":
+		return version_cmd.Execute(ctx, rest, version, sha)
+	case "help":
+		return help_cmd.Execute(ctx, rest, version, sha)
+	case "create":
+		return create_cmd.Execute(ctx, rest, version, sha)
+	case "configure":
+		return configure_cmd.Execute(ctx, rest, version, sha)
+	case "run":
+		return run_cmd.Execute(ctx, rest, version, sha)
+	case "retry":
+		return retry_cmd.Execute(ctx, rest, version, sha)
+	case "list":
+		return list_cmd.Execute(ctx, rest, version, sha)
+	case "status":
+		return status_cmd.Execute(ctx, rest, version, sha)
+	case "history":
+		return history_cmd.Execute(ctx, rest, version, sha)
+	case "browse":
+		return browse_cmd.Execute(ctx, rest, version, sha)
+	case "restore":
+		return restore_cmd.Execute(ctx, rest, version, sha)
+	case "import":
+		return import_cmd.Execute(ctx, rest, version, sha)
+	case "move":
+		return move_cmd.Execute(ctx, rest, version, sha)
+	case "archive":
+		return archive_cmd.Execute(ctx, rest, version, sha)
+	case "decrypt":
+		return decrypt_cmd.Execute(ctx, rest, version, sha)
+	case "extract":
+		return extract_cmd.Execute(ctx, rest, version, sha)
+	case "upload":
+		return upload_cmd.Execute(ctx, rest, version, sha)
+	case "download":
+		return download_cmd.Execute(ctx, rest, version, sha)
+	case "catalog":
+		return catalog_cmd.Execute(ctx, rest, version, sha)
+	case "storage-class":
+		return storage_class_cmd.Execute(ctx, rest, version, sha)
+	case "check":
+		return check_cmd.Execute(ctx, rest, version, sha)
+	}
+	return app_cmd.Execute(ctx, args, version, sha)
 }
-
-func printVersion(cmd *cobra.Command, version, commitHash string) {
-	L.Printf("%s version v%s, build %s\n", cmd.Root().Name(), version, commitHash)
-}
-
-func init() {
-	rootCmd.PersistentFlags().StringP("log-level", "L", L.GetLogLevel().String(),
-		"Set log level: debug warn error panic silent")
-	rootCmd.PersistentFlags().String("color", L.GetColorMode().String(),
-		"Set color mode: auto always never")
-
-	rootCmd.Flags().BoolP("version", "v", false, "Prints version information")
-
-	rootCmd.AddCommand(add_cmd.NewAddCmd())
-	rootCmd.AddCommand(run_cmd.NewRunCmd())
-	rootCmd.AddCommand(config_cmd.NewConfigCmd())
-	rootCmd.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "Print version information",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			printVersion(cmd, Version, CommitHash)
-			return nil
-		},
-	})
-}
-
-func Execute(ctx context.Context) error {
-	return rootCmd.ExecuteContext(ctx)
-}
+func ExitCode(err error) int { return app_cmd.ExitCode(err) }

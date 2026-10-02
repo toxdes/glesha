@@ -1,0 +1,26 @@
+[project]
+id = "glesha"
+name = "glesha"
+description = "Encrypted archives and indexed cloud backups"
+version_file = "version.txt"
+maintainer = "vaib <toxdes@users.noreply.github.com>"
+homepage = "https://github.com/toxdes/glesha"
+repository = "https://github.com/toxdes/glesha"
+license = "MIT"
+
+[build]
+dockerfile = "Dockerfile"
+context = "."
+output_dir = "dist"
+platforms = ["linux/amd64", "linux/arm64"]
+
+[package]
+binary = "glesha"
+
+[deb]
+architectures = ["amd64", "arm64"]
+section = "utils"
+priority = "optional"
+
+[rpm]
+release = "1"

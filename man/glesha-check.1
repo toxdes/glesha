@@ -1,0 +1,92 @@
+.TH "GLESHA-CHECK" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-check \- check selected providers using metadata and an owned temporary write/read/delete operation
+.SH SYNOPSIS
+.B glesha check \-\-to REMOTE... [options]
+.SH DESCRIPTION
+Test selected providers with an owned temporary object. Print separate safety, write, metadata, read and cleanup results, then a summary. A failed provider does not stop checks of the remaining selections.
+.SH OPTIONS
+.TP
+.B \-\-json
+Print versioned JSON provider results and the final summary.
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-h
+show help
+.TP
+.B \-\-hash\-workers INT
+hash workers
+.TP
+.B \-\-help
+show help
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-memory\-max STRING
+managed memory budget
+.TP
+.B \-\-to VALUE
+remote names; comma\-separated or repeated
+.TP
+.B \-j, \-\-jobs N
+Alias for \-\-transfer\-workers. Limits concurrent transfer workers; the memory budget may reduce the limit.
+.TP
+.B \-\-transfer\-workers INT
+transfer workers
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+.SH EXAMPLES
+.nf
+glesha check \-\-to b2 \-\-env /secure/cloud.env
+glesha check \-\-to aws,b2 \-\-env /secure/cloud.env
+
+glesha check \-\-to b2 \-\-json \-\-env /secure/cloud.env
+.fi
+.SH RESULTS
+OK means the step completed successfully. FAILED includes its error. SKIPPED
+means no access claim is made because the step was not attempted.
+A bucket with default Object Lock retention is checked without uploading an
+undeletable temporary object. Cleanup targets the owned object version. If cleanup
+fails, the output identifies the remaining key and version. No existing object
+is replaced or deleted. The command exits nonzero if any selected provider fails.
+.SH OUTPUT
+Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
+or --color=no to disable them. The earlier always and never names remain aliases.
+Interactive stderr displays a progress bar, readable byte counts and average speed.
+Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
+Archiving shows processed/total uncompressed file bytes and a percentage.
+Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
+progress and adapt to about 80 percent of terminal width. Upload progress includes
+in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
+that final validation or catalog publication has finished.
+Use --log-level=debug for operation and worker-budget diagnostics.
+Human sizes use binary units (KiB, MiB, GiB). JSON retains integer byte counts.
+.SH COMPATIBILITY
+Existing encb gzip/OpenPGP archives are read without recompression or replacement.
+Compression is detected from the decrypted stream, independent of filenames.
+Passwords are never stored. Archive passwords and the catalog secret are separate.
+Database and JSON formats are versioned. Unsupported catalog schemas are rejected
+without modifying the file; old catalogs are neither migrated nor deleted implicitly.
+.SH EXIT STATUS
+0: success. 1: operation failure. 2: invalid usage or missing selection.
+3: pending work or cold retrieval. 4: conflicting remote history.
+.SH SEE ALSO
+.BR glesha (1),
+.BR glesha-help (1)

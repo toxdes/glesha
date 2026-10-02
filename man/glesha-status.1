@@ -1,0 +1,81 @@
+.TH "GLESHA-STATUS" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-status \- show local backup state
+.SH SYNOPSIS
+.B glesha status [SET] [options]
+.SH DESCRIPTION
+Show catalog availability, stored archive copies, remote metadata size, last upload and estimated annual storage cost in USD. Without SET, show an overview ASCII table. With SET, show sources, snapshot identity and separate archive/metadata estimates.
+Plain status uses local records and cached sizes without cloud requests. With \-\-refresh, inspect recorded archive metadata and list current metadata objects. This does not pull catalogs or request cold retrieval.
+.SH OPTIONS
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-from VALUE
+ordered source remotes; comma\-separated or repeated
+.TP
+.B \-\-h
+show help
+.TP
+.B \-\-help
+show help
+.TP
+.B \-\-json
+versioned JSON output
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-refresh
+check live metadata without requesting retrieval
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+.SH EXAMPLES
+.nf
+glesha status
+
+glesha status docs \-\-refresh \-\-env /secure/cloud.env
+.fi
+.SH ESTIMATES
+Rates are embedded and dated 2026-10-01. Annual estimates assume current recorded copies remain unchanged for twelve months. Unknown regions, classes or sizes mark the estimate partial with an asterisk.
+Local SQLite size differs from compressed/encrypted remote metadata size. Older catalogs without size records require \-\-refresh. Cached catalog availability means previously synchronized or published, not guaranteed current.
+Estimates exclude API requests, retrievals, egress, temporary restored copies, taxes, discounts, free tiers, pending/untracked objects and untracked older object versions. Future backup growth is not predicted. Intelligent-Tiering assumes Frequent Access unless archive access is observed.
+Last upload includes recorded archive uploads and catalog publication writes; unavailable values appear as a dash. Estimation assumptions are documented here rather than printed after every status table.
+.SH OUTPUT
+Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
+or --color=no to disable them. The earlier always and never names remain aliases.
+Interactive stderr displays a progress bar, readable byte counts and average speed.
+Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
+Archiving shows processed/total uncompressed file bytes and a percentage.
+Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
+progress and adapt to about 80 percent of terminal width. Upload progress includes
+in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
+that final validation or catalog publication has finished.
+Use --log-level=debug for operation and worker-budget diagnostics.
+Human sizes use binary units (KiB, MiB, GiB). JSON retains integer byte counts.
+.SH COMPATIBILITY
+Existing encb gzip/OpenPGP archives are read without recompression or replacement.
+Compression is detected from the decrypted stream, independent of filenames.
+Passwords are never stored. Archive passwords and the catalog secret are separate.
+Database and JSON formats are versioned. Unsupported catalog schemas are rejected
+without modifying the file; old catalogs are neither migrated nor deleted implicitly.
+.SH EXIT STATUS
+0: success. 1: operation failure. 2: invalid usage or missing selection.
+3: pending work or cold retrieval. 4: conflicting remote history.
+.SH SEE ALSO
+.BR glesha (1),
+.BR glesha-help (1)

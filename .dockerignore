@@ -1,0 +1,10 @@
+.git
+.worktrees
+build
+dist
+*.db
+*.sqlite
+*.gpg
+.env
+*.env
+findings-*.md

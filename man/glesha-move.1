@@ -1,0 +1,99 @@
+.TH "GLESHA-MOVE" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-move \- copy and verify the complete set history before switching providers
+.SH SYNOPSIS
+.B glesha move SET \-\-to REMOTE [options]
+.SH DESCRIPTION
+Copy and verify the complete set history before switching providers. Existing source copies are retained.
+.SH OPTIONS
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-assume\-yes
+approve user\-data removal confirmations
+.TP
+.B \-\-catalog\-passphrase\-file STRING
+separate catalog passphrase file
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-days INT
+readable\-copy availability days
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-h
+show help
+.TP
+.B \-\-hash\-workers INT
+hash workers
+.TP
+.B \-\-help
+show help
+.TP
+.B \-\-json
+versioned JSON output
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-memory\-max STRING
+managed memory budget
+.TP
+.B \-\-request\-retrieval
+explicitly authorize retrieval charges
+.TP
+.B \-\-retrieval STRING
+bulk, standard or expedited (default "bulk")
+.TP
+.B \-\-to VALUE
+remote names; comma\-separated or repeated
+.TP
+.B \-j, \-\-jobs N
+Alias for \-\-transfer\-workers. Limits concurrent transfer workers; the memory budget may reduce the limit.
+.TP
+.B \-\-transfer\-workers INT
+transfer workers
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+.SH EXAMPLES
+.nf
+glesha move docs \-\-to b2
+
+glesha move docs \-\-to other\-remote \-\-request\-retrieval \-\-retrieval bulk
+.fi
+.SH OUTPUT
+Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
+or --color=no to disable them. The earlier always and never names remain aliases.
+Interactive stderr displays a progress bar, readable byte counts and average speed.
+Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
+Archiving shows processed/total uncompressed file bytes and a percentage.
+Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
+progress and adapt to about 80 percent of terminal width. Upload progress includes
+in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
+that final validation or catalog publication has finished.
+Use --log-level=debug for operation and worker-budget diagnostics.
+Human sizes use binary units (KiB, MiB, GiB). JSON retains integer byte counts.
+.SH COMPATIBILITY
+Existing encb gzip/OpenPGP archives are read without recompression or replacement.
+Compression is detected from the decrypted stream, independent of filenames.
+Passwords are never stored. Archive passwords and the catalog secret are separate.
+Database and JSON formats are versioned. Unsupported catalog schemas are rejected
+without modifying the file; old catalogs are neither migrated nor deleted implicitly.
+.SH EXIT STATUS
+0: success. 1: operation failure. 2: invalid usage or missing selection.
+3: pending work or cold retrieval. 4: conflicting remote history.
+.SH SEE ALSO
+.BR glesha (1),
+.BR glesha-help (1)

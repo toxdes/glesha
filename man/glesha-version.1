@@ -1,0 +1,52 @@
+.TH "GLESHA-VERSION" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-version \- show the executable version and build revision
+.SH SYNOPSIS
+.B glesha version [GLOBAL OPTIONS]
+.br
+.B glesha \-v
+.br
+.B glesha \-version
+.br
+.B glesha \-\-version
+.SH DESCRIPTION
+All forms print glesha VERSION (GIT_SHA) and exit successfully.
+Development builds print glesha dev (unknown) unless values were embedded
+at build time. This command does not load configuration or credentials and
+makes no cloud requests. Extra positional arguments are rejected.
+.SH OPTIONS
+.TP
+.B \-\-config FILE
+Accepted without loading the file.
+.TP
+.B \-\-env FILE
+Accepted without reading credentials.
+.TP
+.B \-L, \-\-log\-level LEVEL
+Accepted; no operation diagnostics are produced.
+.TP
+.B \-\-color MODE
+Accepted; version output is plain ASCII.
+.TP
+.B \-h, \-\-help
+Show command help and examples.
+.TP
+.B \-v, \-version, \-\-version
+Print the executable version and build revision.
+.SH EXAMPLES
+.nf
+glesha version
+
+glesha \-v
+
+glesha \-version
+
+glesha \-\-version
+
+glesha help version
+.fi
+.SH EXIT STATUS
+0 on success. 2 for invalid usage.
+.SH SEE ALSO
+.BR glesha (1),
+.BR glesha-help (1)

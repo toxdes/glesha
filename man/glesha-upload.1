@@ -1,0 +1,90 @@
+.TH "GLESHA-UPLOAD" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-upload \- upload an existing file
+.SH SYNOPSIS
+.B glesha upload FILE \-\-to REMOTE... [options]
+.SH DESCRIPTION
+Upload an existing file. Replacing an existing object key requires \-\-force.
+.SH OPTIONS
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-force
+explicitly replace an existing remote key
+.TP
+.B \-\-h
+show help
+.TP
+.B \-\-hash\-workers INT
+hash workers
+.TP
+.B \-\-help
+show help
+.TP
+.B \-\-key STRING
+remote key (default filename)
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-memory\-max STRING
+managed memory budget
+.TP
+.B \-\-storage\-class STRING
+AWS storage class
+.TP
+.B \-\-to VALUE
+remote names; comma\-separated or repeated
+.TP
+.B \-j, \-\-jobs N
+Alias for \-\-transfer\-workers. Limits concurrent transfer workers; the memory budget may reduce the limit.
+.TP
+.B \-\-transfer\-workers INT
+transfer workers
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+.SH EXAMPLES
+.nf
+glesha upload personal.tar.xz.gpg \-\-to b2
+
+glesha upload personal.tar.xz.gpg \-\-to aws,b2 \-\-key backups/personal.tar.xz.gpg
+.fi
+.SH OUTPUT
+Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
+or --color=no to disable them. The earlier always and never names remain aliases.
+Interactive stderr displays a progress bar, readable byte counts and average speed.
+Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
+Archiving shows processed/total uncompressed file bytes and a percentage.
+Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
+progress and adapt to about 80 percent of terminal width. Upload progress includes
+in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
+that final validation or catalog publication has finished.
+Use --log-level=debug for operation and worker-budget diagnostics.
+Human sizes use binary units (KiB, MiB, GiB). JSON retains integer byte counts.
+.SH COMPATIBILITY
+Existing encb gzip/OpenPGP archives are read without recompression or replacement.
+Compression is detected from the decrypted stream, independent of filenames.
+Passwords are never stored. Archive passwords and the catalog secret are separate.
+Database and JSON formats are versioned. Unsupported catalog schemas are rejected
+without modifying the file; old catalogs are neither migrated nor deleted implicitly.
+.SH EXIT STATUS
+0: success. 1: operation failure. 2: invalid usage or missing selection.
+3: pending work or cold retrieval. 4: conflicting remote history.
+.SH SEE ALSO
+.BR glesha (1),
+.BR glesha-help (1)

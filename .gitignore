@@ -1,11 +1,14 @@
 # Ignore compiled binaries
 build/
 dist/
-# Ignore Go modules files
-/go.sum
+/glesha
 
 # Ignore local config files
 /config.json
+/config.toml
+.env
+.env.*
+*.env
 
 # Ignore IDE/editor settings
 .idea/
@@ -24,3 +27,11 @@ dist/
 
 # Ignore temporary files created during dev
 *.dat
+
+.worktrees/
+
+*.sqlite
+*.sqlite-journal
+*.gpg
+!archive/testdata/*.gpg
+findings-*.md
