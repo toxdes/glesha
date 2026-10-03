@@ -7,283 +7,80 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"sync/atomic"
-	"time"
-
-	"glesha/checksum"
-	L "glesha/logger"
 )
 
-type FilesInfo struct {
-	TotalFileCount    uint64
-	SizeInBytes       uint64
-	ReadableFileCount uint64
-	ContentHash       string
-}
-
-type ProgressReader struct {
-	R                         io.ReadSeeker
-	OnProgress                func(sent int64)
-	bytesReadInCurrentAttempt atomic.Int64 // FIXME: does this need to be atomic?
-}
-
-func (pr *ProgressReader) Read(p []byte) (n int, err error) {
-	n, err = pr.R.Read(p)
-	pr.bytesReadInCurrentAttempt.Add(int64(n))
-	if pr.OnProgress != nil {
-		pr.OnProgress(int64(n))
+func Expand(p string) (string, error) {
+	if p == "~" || strings.HasPrefix(p, "~/") || strings.HasPrefix(p, "~\\") {
+		h, e := os.UserHomeDir()
+		if e != nil {
+			return "", e
+		}
+		return filepath.Join(h, strings.TrimPrefix(strings.TrimPrefix(p, "~"), string(filepath.Separator))), nil
 	}
-	return n, err
+	return p, nil
 }
-
-func (pr *ProgressReader) Seek(offset int64, whence int) (int64, error) {
-	L.Debug(fmt.Sprintf("Seek happened: offset: %d, whence: %d", offset, whence))
-	if offset == 0 && whence == io.SeekStart {
-		if pr.OnProgress != nil {
-			pr.OnProgress(-pr.bytesReadInCurrentAttempt.Load())
-		}
-		pr.bytesReadInCurrentAttempt.Store(0)
+func IsReadable(p string) bool {
+	f, e := os.Open(p)
+	if e != nil {
+		return false
 	}
-	return pr.R.Seek(offset, whence)
+	return f.Close() == nil
 }
-
-func ComputeFilesInfo(ctx context.Context, inputPath string, ignorePaths map[string]bool) (*FilesInfo, error) {
-	filesInfo := &FilesInfo{TotalFileCount: 0, SizeInBytes: 0, ReadableFileCount: 0, ContentHash: ""}
-	contentHashWriter := checksum.NewSha256()
-	err := filepath.WalkDir(inputPath, func(path string, d fs.DirEntry, walkError error) error {
-		select {
-		case <-ctx.Done():
-			return fs.SkipAll
-		default:
+func WriteToFile(p string, b []byte) error { return os.WriteFile(p, b, 0600) }
+func Walk(ctx context.Context, p string, fn func(string, fs.FileInfo) error) error {
+	if e := ctx.Err(); e != nil {
+		return e
+	}
+	info, e := os.Lstat(p)
+	if e != nil {
+		return e
+	}
+	if e = fn(p, info); e == fs.SkipDir {
+		return nil
+	} else if e != nil {
+		return e
+	}
+	if !info.IsDir() {
+		return nil
+	}
+	f, e := os.Open(p)
+	if e != nil {
+		return e
+	}
+	defer f.Close()
+	for {
+		entries, e := f.ReadDir(128)
+		if e != nil && e != io.EOF {
+			return e
 		}
-
-		if walkError != nil {
-			return fs.SkipDir
-		}
-		_, exists := ignorePaths[path]
-
-		if exists {
-			L.Debug(fmt.Sprintf("ComputeFileInfo: Ignoring %s", path))
-			return fs.SkipDir
-		}
-
-		isSpecialPath := strings.HasPrefix(path, "/proc") ||
-			strings.HasPrefix(path, "/dev") ||
-			strings.HasPrefix(path, "/sys")
-
-		if isSpecialPath {
-			info, _ := d.Info()
-			if info.IsDir() {
-				L.Debug(fmt.Sprintf("Archive: skipping potentially problematic dir: %s", path))
-				return fs.SkipDir
-			} else {
-				L.Debug(fmt.Sprintf("Archive: skipping potentially problematic file: %s", path))
-				return nil
+		for _, entry := range entries {
+			if e := Walk(ctx, filepath.Join(p, entry.Name()), fn); e != nil {
+				return e
 			}
 		}
-
-		info, err := d.Info()
-		if err != nil {
+		if e == io.EOF {
 			return nil
 		}
-		if d.Type().IsRegular() {
-			filesInfo.TotalFileCount++
-			readable, err := IsReadable(path)
-			if err != nil || !readable {
-				L.Debug(fmt.Errorf("could not read: %s", path))
-				return nil
-			}
-
-			filesInfo.SizeInBytes += uint64(info.Size())
-			filesInfo.ReadableFileCount++
-		}
-		contentHashWriter.Write([]byte(path))
-		contentHashWriter.Write([]byte(strconv.FormatInt(info.Size(), 10)))
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	filesInfo.ContentHash = checksum.Base64EncodeStr(contentHashWriter.Sum([]byte{}))
-	return filesInfo, nil
-}
-
-func IsReadable(filePath string) (bool, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return false, err
-	}
-	defer file.Close()
-	return true, nil
-}
-
-func IsWritable(inputPath string) (bool, error) {
-
-	info, err := os.Stat(inputPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, fmt.Errorf("path does not exist: %s", inputPath)
-		}
-		return false, fmt.Errorf("failed to stat path: %s", inputPath)
-	}
-
-	if info.IsDir() {
-		return isDirWritable(inputPath)
-	} else {
-		return isFileWritable(inputPath)
 	}
 }
 
-func isDirWritable(inputDirPath string) (bool, error) {
-	tempFilePath := filepath.Join(inputDirPath, ".write-test-"+strconv.Itoa(int(time.Now().UnixNano())))
-	tempFile, err := os.Create(tempFilePath)
-	if err != nil {
-		return false, err
-	}
-	_ = tempFile.Close()
-	_ = os.Remove(tempFilePath)
-	return true, nil
+type ContextReader struct {
+	Ctx    context.Context
+	Reader io.Reader
 }
 
-func isFileWritable(inputFilePath string) (bool, error) {
-	inputFile, err := os.OpenFile(inputFilePath, os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		return false, err
+func (r ContextReader) Read(p []byte) (int, error) {
+	if e := r.Ctx.Err(); e != nil {
+		return 0, e
 	}
-	_ = inputFile.Close()
-	return true, nil
+	return r.Reader.Read(p)
 }
-
-func Exists(inputFilePath string) (bool, error) {
-	info, err := os.Stat(inputFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
+func Publish(temp, dest string) error {
+	// hard-link publication cannot overwrite an existing output
+	if e := os.Link(temp, dest); e != nil {
+		return fmt.Errorf("file_io: publish %s: %w", dest, e)
 	}
-	if info.IsDir() {
-		return false, fmt.Errorf("%s is a directory", inputFilePath)
-	}
-	return true, nil
+	return os.Remove(temp)
 }
-
-type FileInfo struct {
-	Size       uint64
-	ModifiedAt time.Time
-}
-
-// return filesize in bytes and last modified timestamp
-func GetFileInfo(inputFilePath string) (*FileInfo, error) {
-	stat, err := os.Stat(inputFilePath)
-	if err != nil {
-		return nil, err
-	}
-	if stat.IsDir() {
-		return nil, fmt.Errorf("could not find size: %s is a directory", inputFilePath)
-	}
-	return &FileInfo{Size: uint64(stat.Size()), ModifiedAt: stat.ModTime()}, nil
-}
-
-type WriteMode uint8
-
-const (
-	WRITE_APPEND WriteMode = iota
-	WRITE_OVERWRITE
-)
-
-func WriteToFile(filePath string, data []byte, mode WriteMode) (int, error) {
-	var flags int
-	switch mode {
-	case WRITE_APPEND:
-		flags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	case WRITE_OVERWRITE:
-		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	}
-	parent := filepath.Dir(filePath)
-	err := os.MkdirAll(parent, os.ModePerm)
-	if err != nil {
-		return 0, err
-	}
-	file, err := os.OpenFile(filePath, flags, 0644)
-	if err != nil {
-		return 0, err
-	}
-	defer file.Close()
-	return file.Write(data)
-}
-
-func ExpandTilde(path string) (string, error) {
-	if path == "~" {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot expand ~: %w", err)
-		}
-		return homeDir, nil
-	}
-	if strings.HasPrefix(path, "~/") {
-		homeDir, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot expand ~: %w", err)
-		}
-		return filepath.Join(homeDir, path[2:]), nil
-	}
-	return path, nil
-}
-
-func GetGlobalWorkDir() (string, error) {
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	absPath, err := filepath.Abs(filepath.Join(homeDir, ".glesha-cache"))
-	if err != nil {
-		return "", err
-	}
-	err = os.MkdirAll(absPath, os.ModePerm)
-	if err != nil {
-		return "", err
-	}
-	return absPath, nil
-}
-
-func ReadFromOffset(ctx context.Context, filePath string, offset int64, buf []byte) (readBytes int64, err error) {
-	readBytes = -1
-	select {
-	case <-ctx.Done():
-		return -1, ctx.Err()
-	default:
-	}
-	absFilePath, err := filepath.Abs(filePath)
-	if err != nil {
-		return -1, fmt.Errorf("could not get abs path for path %s: %w", filePath, err)
-	}
-
-	file, err := os.Open(absFilePath)
-
-	if err != nil {
-		return -1, fmt.Errorf("could not open file %s:%w", absFilePath, err)
-	}
-	defer file.Close()
-
-	type result struct {
-		readCnt int
-		err     error
-	}
-
-	resultChannel := make(chan result, 1)
-	defer close(resultChannel)
-	go func() {
-		readCnt, err := file.ReadAt(buf, offset)
-		resultChannel <- result{readCnt, err}
-	}()
-
-	select {
-	case res := <-resultChannel:
-		return int64(res.readCnt), res.err
-	case <-ctx.Done():
-		return 0, ctx.Err()
-	}
-}
+func Temp(dir string) (*os.File, error) { return os.CreateTemp(dir, ".glesha-*") }

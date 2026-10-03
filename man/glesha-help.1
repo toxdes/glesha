@@ -1,0 +1,47 @@
+.TH "GLESHA-HELP" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-help \- show command options and examples
+.SH SYNOPSIS
+.B glesha help [COMMAND]
+.SH DESCRIPTION
+Without a command, show general help. With a command, show its options and examples.
+The catalog operations pull, push, reconcile and abandon accept a second help word.
+Help does not load configuration, read credentials or contact providers.
+.SH OPTIONS
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-help
+show help
+.TP
+.B \-h
+Alias for \-\-help.
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+.SH EXAMPLES
+.nf
+glesha help
+
+glesha help run
+
+glesha help catalog pull
+.fi
+.SH SEE ALSO
+.BR glesha (1)

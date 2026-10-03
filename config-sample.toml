@@ -1,0 +1,38 @@
+[archive]
+prefix = "glesha"
+compression = "xz"
+compression_level = 6
+mode = "auto"
+
+[memory]
+max = "512MiB"
+
+[workers]
+hash = 4
+transfer = 4
+
+[aws]
+bucket = ""
+region = "us-east-1"
+storage_class = "STANDARD"
+
+[b2]
+bucket = ""
+region = "us-west-004"
+endpoint = "https://s3.us-west-004.backblazeb2.com"
+
+# Additional names select one of the current adapters; credentials stay in env.
+# [remotes.secondary]
+# kind = "b2"
+# bucket = "another-bucket"
+# region = "us-west-004"
+# endpoint = "https://s3.us-west-004.backblazeb2.com"
+
+[catalog]
+encrypted = true
+prefix = "glesha/v2"
+# directory = "/path/to/local/state-v2"
+
+[cold]
+days = 7
+tier = "Bulk"

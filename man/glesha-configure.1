@@ -1,0 +1,104 @@
+.TH "GLESHA-CONFIGURE" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-configure \- change a set's saved settings or map imported roots
+.SH SYNOPSIS
+.B glesha configure SET [options]
+.SH DESCRIPTION
+Change a set's saved settings or map imported roots. Previously bound source paths cannot be replaced.
+.SH OPTIONS
+.TP
+.B \-\-chunked
+Use independent encrypted chunks with bounded local spool space. \-\-chunked=false selects a single archive.
+.TP
+.B \-\-spool\-max SIZE
+Maximum chunk spool space (default 128MiB); accepts 128M, 1.1G and binary MiB/GiB units.
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-baseline STRING
+explicit snapshot baseline
+.TP
+.B \-\-catalog\-to STRING
+catalog remote or local
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-compression STRING
+xz, gzip or bzip2
+.TP
+.B \-\-compression\-level INT
+compression level 1..9
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-h
+show help
+.TP
+.B \-\-help
+show help
+.TP
+.B \-\-incremental\-storage\-class STRING
+AWS incremental storage class
+.TP
+.B \-\-json
+versioned JSON output
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-prefix STRING
+glesha or encb
+.TP
+.B \-\-root VALUE
+archive root NAME=source PATH
+.TP
+.B \-\-storage\-class STRING
+AWS storage class
+.TP
+.B \-\-to VALUE
+remote names; comma\-separated or repeated
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+.SH EXAMPLES
+.nf
+glesha configure docs \-\-compression gzip
+
+glesha configure imported \-\-root Documents=~/Documents \-\-to b2 \-\-catalog\-to b2
+.fi
+.SH OUTPUT
+Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
+or --color=no to disable them. The earlier always and never names remain aliases.
+Interactive stderr displays a progress bar, readable byte counts and average speed.
+Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
+Archiving shows processed/total uncompressed file bytes and a percentage.
+Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
+progress and adapt to about 80 percent of terminal width. Upload progress includes
+in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
+that final validation or catalog publication has finished.
+Use --log-level=debug for operation and worker-budget diagnostics.
+Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
+Explicit worker flags show the effective worker count; archiving and individual
+downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
+.SH COMPATIBILITY
+Existing encb gzip/OpenPGP archives are read without recompression or replacement.
+Compression is detected from the decrypted stream, independent of filenames.
+Passwords are never stored. Archive passwords and the catalog secret are separate.
+Database and JSON formats are versioned. Unsupported catalog schemas are rejected
+without modifying the file; old catalogs are neither migrated nor deleted implicitly.
+.SH EXIT STATUS
+0: success. 1: operation failure. 2: invalid usage or missing selection.
+3: pending work or cold retrieval. 4: conflicting remote history.
+.SH SEE ALSO
+.BR glesha (1),
+.BR glesha-help (1)

@@ -10,18 +10,14 @@ import (
 	L "glesha/logger"
 )
 
+var VERSION = "dev"
+var GIT_SHA = "unknown"
+
 func main() {
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	err := cmd.Execute(ctx)
-	select {
-	case <-ctx.Done():
-		L.Debug("Command execution was aborted.")
-	default:
-		L.Debug("Command execution complete.")
+	if e := cmd.Execute(ctx, os.Args[1:], VERSION, GIT_SHA); e != nil {
+		L.Error(e.Error())
+		os.Exit(cmd.ExitCode(e))
 	}
-	if err != nil {
-		L.Panic(err)
-	}
-	os.Exit(0)
 }

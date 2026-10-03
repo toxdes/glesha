@@ -1,0 +1,56 @@
+glesha - Linux installation
+
+This archive contains bin/glesha, share/man/man1/, a sample TOML file, and LICENSE.
+The executable includes its runtime dependencies. No GPG, tar or compression
+program is required to run glesha.
+
+1. Choose amd64 for x86_64, or arm64 for aarch64 (uname -m).
+2. Verify the archive against its published .sha256 checksum:
+
+   sha256sum -c glesha_VERSION_ARCH.tar.gz.sha256
+
+3. Extract it into a new staging directory:
+
+   mkdir glesha-unpacked
+   tar -xzf glesha_VERSION_ARCH.tar.gz -C glesha-unpacked
+   cd glesha-unpacked
+
+4. Choose one installation prefix. These commands replace an installed glesha
+   executable and its matching manual pages when upgrading.
+
+   Current user:
+     install -d "$HOME/.local/bin" "$HOME/.local/share/man/man1"
+     install -m 755 bin/glesha "$HOME/.local/bin/glesha"
+     install -m 644 share/man/man1/glesha*.1 "$HOME/.local/share/man/man1/"
+
+   System-wide:
+     sudo install -d /usr/local/bin /usr/local/share/man/man1
+     sudo install -m 755 bin/glesha /usr/local/bin/glesha
+     sudo install -m 644 share/man/man1/glesha*.1 /usr/local/share/man/man1/
+
+5. Ensure your chosen bin directory is in PATH, then run:
+
+   glesha version
+   glesha help
+   man glesha
+
+If user-installed manuals are not found, run:
+   man -M "$HOME/.local/share/man" glesha
+
+Configuration is optional; glesha uses platform defaults. The sample is at
+share/doc/glesha/config-sample.toml. Keep passwords and provider credentials out
+of TOML; pass an existing credential file with --env or use environment variables.
+Do not replace an existing configuration or copy credentials into this archive.
+
+First backup (after provider credentials and bucket configuration):
+   glesha check --to b2 --env /path/to/cloud.env
+   glesha create docs ~/Documents --to b2
+   glesha run docs --env /path/to/cloud.env
+
+Successful backups remove automatically named local archives. Use --keep-archive
+to retain one. Failed runs retain their archive and recorded upload progress;
+repeat run or use glesha retry docs.
+
+Uninstall only these installed program files and manpages. Keep glesha's state
+directory, configuration and remote backup objects unless you intend to remove
+your backups. Release archive compression does not select backup compression.
