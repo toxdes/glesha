@@ -60,6 +60,8 @@ func (m *mappings) Set(value string) error {
 }
 
 type AppCmdEnv struct {
+	Chunked                                                                                                                                                                                                               bool
+	SpoolMax                                                                                                                                                                                                              string
 	Config, Env, LogLevel, Color, Output, Into, File, Archive, Key, CatalogTo, Compression, Prefix, Mode, Class, IncrementalClass, Snapshot, Filter, Memory, PasswordFile, CatalogPasswordFile, Date, Baseline, Retrieval string
 	To, From                                                                                                                                                                                                              destinations
 	Roots, Passwords                                                                                                                                                                                                      mappings
@@ -196,6 +198,10 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	if command == "retry" {
 		f.StringVar(&e.Archive, "archive", "", "relocated completed archive")
 	}
+	if allowed("create configure run") {
+		f.BoolVar(&e.Chunked, "chunked", false, "upload independent chunks using bounded temporary storage")
+		f.StringVar(&e.SpoolMax, "spool-max", "", "maximum temporary chunk payload storage (default 128MiB)")
+	}
 	if command == "run" {
 		f.BoolVar(&e.Incremental, "incremental", false, "require a baseline on one remote")
 		f.BoolVar(&e.Full, "full", false, "explicit full snapshot")
@@ -242,8 +248,8 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	}
 	if allowed("run archive import restore upload download move check") {
 		f.IntVar(&e.HashWorkers, "hash-workers", 0, "hash workers")
-		f.IntVar(&e.TransferWorkers, "transfer-workers", 0, "transfer workers")
-		f.IntVar(&e.TransferWorkers, "jobs", 0, "alias for --transfer-workers; memory budget may lower this limit")
+		f.IntVar(&e.TransferWorkers, "transfer-workers", 0, "maximum concurrent transfer workers")
+		f.IntVar(&e.TransferWorkers, "jobs", 0, "use up to N transfer workers; memory budget may lower the limit")
 		f.IntVar(&e.TransferWorkers, "j", 0, "alias for --jobs")
 	}
 	return f
@@ -417,6 +423,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		return err
 	}
 	defer registry.Close()
+	ctx = L.WithWorkerDetails(ctx, e.present["j"] || e.present["jobs"] || e.present["transfer-workers"] || e.present["hash-workers"])
 	r := &runtime{ctx: ctx, env: e, config: c, budget: budget, registry: registry, root: root, out: os.Stdout, limit: make(chan struct{}, budget.TransferWorkers)}
 	if !e.JSON && term.IsTerminal(int(os.Stderr.Fd())) && L.ProgressEnabled() {
 		renderer := L.NewProgressRenderer(os.Stderr, L.ColorEnabled(true))

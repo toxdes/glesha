@@ -124,6 +124,9 @@ type RunOptions struct {
 	To                                       []string
 	Incremental, Full                        bool
 	KeepArchive                              bool
+	Chunked                                  bool
+	ChunkedSet                               bool
+	SpoolMax                                 int64
 	autoCleanup                              bool
 	Output, Compression, Class, Mode, Prefix string
 	Level                                    int
@@ -133,6 +136,8 @@ type RunOptions struct {
 type runRequest struct {
 	To                               []string `json:"to"`
 	Incremental                      bool     `json:"incremental"`
+	Chunked                          bool     `json:"chunked,omitempty"`
+	SpoolMax                         int64    `json:"spool_max,omitempty"`
 	AutoCleanup                      bool     `json:"auto_cleanup,omitempty"`
 	Compression, Class, Mode, Prefix string
 	Level                            int
@@ -141,6 +146,26 @@ type runRequest struct {
 func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error) {
 	if s.Pending() {
 		return s.resumeRun(ctx, o)
+	}
+	chunked := s.Set.Chunked
+	if o.ChunkedSet || o.Chunked {
+		chunked = o.Chunked
+	}
+	spool := o.SpoolMax
+	if spool == 0 {
+		spool = s.Set.SpoolMax
+	}
+	if spool == 0 {
+		spool = DefaultSpoolMax
+	}
+	if chunked && (o.KeepArchive || o.Output != "" || o.Mode == "memory") {
+		return model.Snapshot{}, fmt.Errorf("backup: chunked mode cannot use --keep-archive, --output or memory archive mode")
+	}
+	if !chunked && o.SpoolMax > 0 {
+		return model.Snapshot{}, fmt.Errorf("backup: --spool-max requires --chunked")
+	}
+	if chunked && spool < MinimumSpoolMax {
+		return model.Snapshot{}, fmt.Errorf("backup: chunked spool requires at least 2MiB")
 	}
 	if o.Full && o.Incremental {
 		return model.Snapshot{}, fmt.Errorf("backup: --full and --incremental are mutually exclusive")
@@ -190,6 +215,10 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 		return model.Snapshot{}, err
 	}
 	v := model.Snapshot{Manifest: model.Manifest{Version: 1, Set: s.Set.ID, ID: uuid.NewString(), Full: !o.Incremental, Roots: s.Set.Roots, Compression: s.Set.Compression, InitialClass: s.Set.Class}, Created: now(), Status: model.STATUS_RUNNING, Destinations: strings.Join(to, ",")}
+	if chunked {
+		v.Layout = "chunked"
+		v.Version = 2
+	}
 	if o.Compression != "" {
 		v.Compression = o.Compression
 	}
@@ -279,7 +308,7 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 			os.Remove(s.pending())
 		}
 	}()
-	request := runRequest{To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: mode, Level: level, Prefix: o.Prefix}
+	request := runRequest{Chunked: chunked, SpoolMax: spool, To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: mode, Level: level, Prefix: o.Prefix}
 	b, _ := json.Marshal(request)
 	for k, value := range map[string]string{"operation": "run", "request": string(b), "pending_snapshot": v.ID, "archive_wrapper": archive.Stem(v.File)} {
 		if err = p.SetMeta(ctx, k, value); err != nil {
@@ -345,18 +374,27 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	if err = p.PutSnapshot(ctx, v); err != nil {
 		return v, err
 	}
-	v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: level, Mode: mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
-		v.Hash, v.Size, v.ReadyFile = hash, size, file
-		err := p.PutSnapshot(ctx, v)
-		if err == nil {
-			keep = true
+	if chunked {
+		keep = true
+		if err = s.createChunks(ctx, p, &v, request, o.Password); err != nil {
+			return v, err
 		}
-		return err
-	}})
-	if err != nil {
-		return v, err
+	} else {
+		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: level, Mode: mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
+			v.Hash, v.Size, v.ReadyFile = hash, size, file
+			err := p.PutSnapshot(ctx, v)
+			if err == nil {
+				keep = true
+			}
+			return err
+		}})
+		if err != nil {
+			return v, err
+		}
 	}
-	v.ReadyFile = ""
+	if !chunked {
+		v.ReadyFile = ""
+	}
 	if err = p.PutSnapshot(ctx, v); err != nil {
 		return v, err
 	}

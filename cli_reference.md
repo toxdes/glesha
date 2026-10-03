@@ -7,7 +7,7 @@ internally. Full archives also work with ordinary GPG and tar.
 Run `glesha help` for a command summary or `glesha help run` for complete options
 and examples. `glesha run --help` shows the same command help. Installed manual
 pages are named `glesha(1)` and `glesha-run(1)`, with one page per command.
-The source pages are in [man/](man/); release packaging will be handled separately.
+Source pages are in [man/](man/). Linux release archives include the command manuals.
 
 ## Back up and recover a directory
 
@@ -39,7 +39,11 @@ to disable it. Existing `always` and `never` spellings remain supported.
 shows readable sizes such as `14.20 MiB`; JSON retains integer bytes and its versioned
 structure.
 
-Interactive stderr marks steps with `[+]` and shows a progress bar, processed bytes and average speed with two decimal places.
+Interactive stderr marks steps with `[+]` and shows a progress bar with compact
+counters: `[63.35%] [1.27G/2.34G] [1.22M/s]`. Units use binary scaling and two
+decimal places. Explicit worker flags add `using N workers` to relevant steps;
+counts reflect the operation and its effective limits. Archiving and individual
+downloads currently use one worker.
 Scanning uses an ASCII spinner (`-`, `\`, `|`, `/`). Archiving shows processed/total
 uncompressed file bytes and a percentage, counting hard-linked content once.
 Incrementals count only included content. Finalization and metadata publication
@@ -65,7 +69,9 @@ Missing human-readable values use `-`; JSON keeps its existing types. Routine
 output contains results rather than explanatory footers. Estimation assumptions
 and compatibility details are documented here and in the manpages.
 
-Use `--jobs N` or `-j N` as aliases for `--transfer-workers N`.
+Use `--jobs N` or `-j N` as aliases for `--transfer-workers N`: **up to N**
+concurrent transfer workers, not a required count. Part count, shared transfer
+capacity and memory limits can reduce it.
 Transfer workers bound multipart upload work across providers, not all HTTP connections. Downloads currently stream one object at a time. `--hash-workers` controls file hashing separately; tar and compression remain a streaming pipeline. More workers can increase memory use and do not always improve throughput.
 
 ## Selection, defaults and safe behavior
@@ -143,6 +149,8 @@ Register a backup set and its source paths locally. This creates no archive and 
 | --- | --- |
 | `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--catalog-to STRING` | catalog remote or local |
+| `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
+| `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
@@ -178,6 +186,8 @@ Change a set's saved settings or map imported roots. Previously bound source pat
 | `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--baseline STRING` | explicit snapshot baseline |
 | `--catalog-to STRING` | catalog remote or local |
+| `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
+| `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
@@ -217,6 +227,8 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 | `--archive-mode STRING` | auto, memory or stream |
 | `--assume-yes` | approve user-data removal confirmations |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
+| `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
+| `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
@@ -236,8 +248,8 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -452,8 +464,8 @@ Reconstruct a full snapshot in a new destination. Cold retrieval requires separa
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
 | `--snapshot STRING` | snapshot ID or latest (default "latest") |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -496,8 +508,8 @@ Catalog an existing full archive without changing its encrypted bytes or uploadi
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
 | `--root VALUE` | archive root NAME=source PATH |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -534,8 +546,8 @@ Copy and verify the complete set history before switching providers. Existing so
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
 | `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -571,8 +583,8 @@ Create a standalone encrypted tar archive. No set name or cloud provider is need
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -664,8 +676,8 @@ Upload an existing file. Replacing an existing object key requires --force.
 | `--memory-max STRING` | managed memory budget |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -696,8 +708,8 @@ Download encrypted bytes from explicitly selected providers, trying them in the 
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--output STRING` | new output file |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -794,8 +806,8 @@ test objects.
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | transfer workers |
-| `-j N`, `--jobs N` | alias for `--transfer-workers`; memory budget may reduce the limit |
+| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 
 Examples:
@@ -842,3 +854,25 @@ See [man/glesha-version.1](man/glesha-version.1).
 | 2 | Invalid usage or missing selection |
 | 3 | Pending work or cold retrieval |
 | 4 | Conflicting remote history |
+
+## Bounded disk space
+
+`glesha run docs --chunked --spool-max 128M` creates independently encrypted
+chunks instead of one archive. `128M` and `1.1G` use decimal units; `128MiB` uses
+binary units. The default spool limit is 128MiB. `create` and `configure` can save
+these settings; `run --chunked=false` selects a single archive.
+
+Chunked runs reject `--output` and `--keep-archive`. Completed chunks are uploaded
+and removed locally before continuing. Retrying re-reads the source and checks
+completed chunks, then uploads remaining work; changed sources cause an error. Repeat `run SET`
+with the original archive passphrase to resume unfinished chunks. `retry SET` can
+finish publication once all payload chunks and the descriptor are ready.
+A chunk contains a fragment of the tar stream. For manual recovery, decrypt the
+manifest, decrypt and decompress its chunks in order, then concatenate the
+uncompressed fragments before extracting the tar stream.
+
+The encrypted `manifest.json.gpg` records chunk order, sizes and checksums. Keep
+it with the chunks for recovery. Single-file and chunked snapshots can share a
+history. `move`, `storage-class`, raw `archive` and raw archive `import` currently
+accept single-file snapshots only. Failed runs can leave uncommitted remote
+chunks; glesha does not delete these automatically.

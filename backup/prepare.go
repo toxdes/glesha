@@ -119,13 +119,9 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 	defer chain.Close()
 	pending := []retrievalItem{}
 	var total int64
-	err = chain.EachReverse(ctx, func(snapshot model.Snapshot) error {
+	inspect := func(snapshot model.Snapshot, locations []model.Location) error {
 		if _, ok := s.localArchive(ctx, snapshot); ok {
 			return nil
-		}
-		locations, err := c.Locations(ctx, snapshot.ID)
-		if err != nil {
-			return err
 		}
 		var cold *retrievalItem
 		var last error
@@ -189,6 +185,26 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 			total += snapshot.Size
 		}
 		return nil
+	}
+	err = chain.EachReverse(ctx, func(snapshot model.Snapshot) error {
+		if snapshot.Layout == "chunked" {
+			if err := validateChunks(snapshot); err != nil {
+				return err
+			}
+			for _, chunk := range snapshot.Chunks {
+				payload := snapshot
+				payload.Hash, payload.Size, payload.File = chunk.Hash, chunk.Size, ""
+				if err := inspect(payload, chunk.Locations); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		locations, err := c.Locations(ctx, snapshot.ID)
+		if err != nil {
+			return err
+		}
+		return inspect(snapshot, locations)
 	})
 	if err != nil {
 		return "", "", err

@@ -18,6 +18,7 @@ import (
 type progressKey struct{}
 type progressLabelKey struct{}
 type uploadProgressKey struct{}
+type workerDetailsKey struct{}
 
 // counters never perform terminal I/O; one renderer refreshes every 100ms
 type Progress struct {
@@ -67,6 +68,19 @@ func WithProgress(ctx context.Context, renderer *ProgressRenderer) context.Conte
 }
 func WithProgressLabel(ctx context.Context, label string) context.Context {
 	return context.WithValue(ctx, progressLabelKey{}, label)
+}
+func WithWorkerDetails(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, workerDetailsKey{}, enabled)
+}
+func StartWorkerProgress(ctx context.Context, label string, total int64, workers int) *Progress {
+	if enabled, _ := ctx.Value(workerDetailsKey{}).(bool); enabled && workers > 0 {
+		unit := "workers"
+		if workers == 1 {
+			unit = "worker"
+		}
+		label = fmt.Sprintf("%s using %d %s", label, workers, unit)
+	}
+	return StartProgress(ctx, label, total)
 }
 func WithUploadProgress(ctx context.Context, progress *Progress) context.Context {
 	return context.WithValue(ctx, uploadProgressKey{}, progress)
@@ -239,7 +253,7 @@ func progressLineWidth(label string, bytes, total int64, known bool, elapsed tim
 	label = ASCII(label)
 	width := 16
 	bar := ""
-	amount := Bytes(bytes)
+	amount := compactBytes(float64(bytes))
 	rate := float64(0)
 	if elapsed > 0 {
 		rate = float64(bytes) / elapsed.Seconds()
@@ -249,12 +263,12 @@ func progressLineWidth(label string, bytes, total int64, known bool, elapsed tim
 		frames := `-\|/`
 		frame := frames[max(0, int(elapsed/(100*time.Millisecond)))%len(frames)]
 		marker := ""
-		if label == "Scanning" || strings.HasPrefix(label, "Scanning (") {
+		if label == "Scanning" || strings.HasPrefix(label, "Scanning (") || strings.HasPrefix(label, "Scanning using ") {
 			marker = fmt.Sprintf(" [%c]", frame)
 		}
 		details := ""
 		if bytes > 0 {
-			details = fmt.Sprintf("  %s  %s/s", amount, byteAmount(rate))
+			details = fmt.Sprintf(" [%s] [%s/s]", amount, compactBytes(rate))
 		}
 		if lineWidth > 0 {
 			space := lineWidth - len(details) - len(marker) - 4
@@ -283,14 +297,13 @@ func progressLineWidth(label string, bytes, total int64, known bool, elapsed tim
 	if total > 0 {
 		ratio = math.Min(1, math.Max(0, float64(bytes)/float64(total)))
 	}
-	amount = fmt.Sprintf("%s / %s %.2f%%", amount, Bytes(total), ratio*100)
-	suffix := fmt.Sprintf("%s  %s/s", amount, byteAmount(rate))
+	suffix := fmt.Sprintf("[%.2f%%] [%s/%s] [%s/s]", ratio*100, amount, compactBytes(float64(total)), compactBytes(rate))
 	if lineWidth > 0 {
 		labelSpace := lineWidth - len(suffix) - 9 - 8
 		if labelSpace < 4 {
 			text := "[+] " + suffix
 			if len(text) > lineWidth {
-				text = fmt.Sprintf("[+] %.2f%% %s/s", ratio*100, byteAmount(rate))
+				text = fmt.Sprintf("[+] [%.2f%%] [%s/s]", ratio*100, compactBytes(rate))
 			}
 			return text[:min(len(text), lineWidth)]
 		}
@@ -306,18 +319,19 @@ func progressLineWidth(label string, bytes, total int64, known bool, elapsed tim
 func Bytes(n int64) string {
 	return byteAmount(float64(n))
 }
-func byteAmount(value float64) string {
-	if value < 1024 {
-		return fmt.Sprintf("%.2f B", value)
-	}
-	units := []string{"KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
-	for i, unit := range units {
+func compactBytes(value float64) string {
+	return formatBytes(value, []string{"B", "K", "M", "G", "T", "P", "E"}, "")
+}
+func formatBytes(value float64, units []string, separator string) string {
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
 		value /= 1024
-		if value < 1024 || i == len(units)-1 {
-			return fmt.Sprintf("%.2f %s", value, unit)
-		}
+		unit++
 	}
-	return ""
+	return fmt.Sprintf("%.2f%s%s", value, separator, units[unit])
+}
+func byteAmount(value float64) string {
+	return formatBytes(value, []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}, " ")
 }
 
 func (r *ProgressRenderer) clearLocked() {

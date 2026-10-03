@@ -24,3 +24,361 @@ priority = "optional"
 
 [rpm]
 release = "1"
+
+[[package.deb.assets]]
+source = "man/glesha-archive.1"
+dest = "/usr/share/man/man1/glesha-archive.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-browse.1"
+dest = "/usr/share/man/man1/glesha-browse.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-catalog.1"
+dest = "/usr/share/man/man1/glesha-catalog.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-check.1"
+dest = "/usr/share/man/man1/glesha-check.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-configure.1"
+dest = "/usr/share/man/man1/glesha-configure.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-create.1"
+dest = "/usr/share/man/man1/glesha-create.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-decrypt.1"
+dest = "/usr/share/man/man1/glesha-decrypt.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-download.1"
+dest = "/usr/share/man/man1/glesha-download.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-extract.1"
+dest = "/usr/share/man/man1/glesha-extract.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-help.1"
+dest = "/usr/share/man/man1/glesha-help.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-history.1"
+dest = "/usr/share/man/man1/glesha-history.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-import.1"
+dest = "/usr/share/man/man1/glesha-import.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-list.1"
+dest = "/usr/share/man/man1/glesha-list.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-move.1"
+dest = "/usr/share/man/man1/glesha-move.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-restore.1"
+dest = "/usr/share/man/man1/glesha-restore.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-retry.1"
+dest = "/usr/share/man/man1/glesha-retry.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-run.1"
+dest = "/usr/share/man/man1/glesha-run.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-status.1"
+dest = "/usr/share/man/man1/glesha-status.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-storage-class.1"
+dest = "/usr/share/man/man1/glesha-storage-class.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-upload.1"
+dest = "/usr/share/man/man1/glesha-upload.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha-version.1"
+dest = "/usr/share/man/man1/glesha-version.1"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "man/glesha.1"
+dest = "/usr/share/man/man1/glesha.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-archive.1"
+dest = "/usr/share/man/man1/glesha-archive.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-browse.1"
+dest = "/usr/share/man/man1/glesha-browse.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-catalog.1"
+dest = "/usr/share/man/man1/glesha-catalog.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-check.1"
+dest = "/usr/share/man/man1/glesha-check.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-configure.1"
+dest = "/usr/share/man/man1/glesha-configure.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-create.1"
+dest = "/usr/share/man/man1/glesha-create.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-decrypt.1"
+dest = "/usr/share/man/man1/glesha-decrypt.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-download.1"
+dest = "/usr/share/man/man1/glesha-download.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-extract.1"
+dest = "/usr/share/man/man1/glesha-extract.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-help.1"
+dest = "/usr/share/man/man1/glesha-help.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-history.1"
+dest = "/usr/share/man/man1/glesha-history.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-import.1"
+dest = "/usr/share/man/man1/glesha-import.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-list.1"
+dest = "/usr/share/man/man1/glesha-list.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-move.1"
+dest = "/usr/share/man/man1/glesha-move.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-restore.1"
+dest = "/usr/share/man/man1/glesha-restore.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-retry.1"
+dest = "/usr/share/man/man1/glesha-retry.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-run.1"
+dest = "/usr/share/man/man1/glesha-run.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-status.1"
+dest = "/usr/share/man/man1/glesha-status.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-storage-class.1"
+dest = "/usr/share/man/man1/glesha-storage-class.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-upload.1"
+dest = "/usr/share/man/man1/glesha-upload.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha-version.1"
+dest = "/usr/share/man/man1/glesha-version.1"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "man/glesha.1"
+dest = "/usr/share/man/man1/glesha.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-archive.1"
+dest = "/usr/share/man/man1/glesha-archive.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-browse.1"
+dest = "/usr/share/man/man1/glesha-browse.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-catalog.1"
+dest = "/usr/share/man/man1/glesha-catalog.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-check.1"
+dest = "/usr/share/man/man1/glesha-check.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-configure.1"
+dest = "/usr/share/man/man1/glesha-configure.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-create.1"
+dest = "/usr/share/man/man1/glesha-create.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-decrypt.1"
+dest = "/usr/share/man/man1/glesha-decrypt.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-download.1"
+dest = "/usr/share/man/man1/glesha-download.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-extract.1"
+dest = "/usr/share/man/man1/glesha-extract.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-help.1"
+dest = "/usr/share/man/man1/glesha-help.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-history.1"
+dest = "/usr/share/man/man1/glesha-history.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-import.1"
+dest = "/usr/share/man/man1/glesha-import.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-list.1"
+dest = "/usr/share/man/man1/glesha-list.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-move.1"
+dest = "/usr/share/man/man1/glesha-move.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-restore.1"
+dest = "/usr/share/man/man1/glesha-restore.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-retry.1"
+dest = "/usr/share/man/man1/glesha-retry.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-run.1"
+dest = "/usr/share/man/man1/glesha-run.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-status.1"
+dest = "/usr/share/man/man1/glesha-status.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-storage-class.1"
+dest = "/usr/share/man/man1/glesha-storage-class.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-upload.1"
+dest = "/usr/share/man/man1/glesha-upload.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha-version.1"
+dest = "/usr/share/man/man1/glesha-version.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "man/glesha.1"
+dest = "/usr/share/man/man1/glesha.1"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "packaging/install.txt"
+dest = "/install.txt"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "LICENSE"
+dest = "/LICENSE"
+mode = 0o644
+
+[[package.archive.assets]]
+source = "config-sample.toml"
+dest = "/usr/share/doc/glesha/config-sample.toml"
+mode = 0o644
+
+[hosting]
+release_prefix = "glesha/releases"
+
+[[release.artifacts]]
+name = "glesha_{version}_amd64.tar.gz"
+platform = "linux"
+architecture = "amd64"
+
+[[release.artifacts]]
+name = "glesha_{version}_arm64.tar.gz"
+platform = "linux"
+architecture = "arm64"

@@ -60,79 +60,84 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 	}
 	defer root.Close()
 	if e = chain.EachReverse(ctx, func(v model.Snapshot) error {
+		if v.Layout != "" && v.Layout != "single" && v.Layout != "chunked" {
+			return fmt.Errorf("backup: unsupported archive layout %q", v.Layout)
+		}
 		decodedHash, err := hex.DecodeString(v.Hash)
 		if err != nil || len(decodedHash) != 32 {
 			return fmt.Errorf("backup: invalid archive checksum")
 		}
 		file := v.File
-		hash, size, he := archive.Hash(ctx, file)
-		if he != nil || hash != v.Hash || size != v.Size {
-			locations, e := c.Locations(ctx, v.ID)
-			if e != nil {
-				return e
-			}
-			file = filepath.Join(s.Directory, "payload-"+v.Hash+".gpg")
-			cachedHash, cachedSize, cacheErr := archive.Hash(ctx, file)
-			if cacheErr != nil || cachedHash != v.Hash || cachedSize != v.Size {
-				if _, err := os.Stat(file); err == nil {
-					return fmt.Errorf("backup: cached archive checksum mismatch; preserve and remove the cache before retrying")
+		if v.Layout != "chunked" {
+			hash, size, he := archive.Hash(ctx, file)
+			if he != nil || hash != v.Hash || size != v.Size {
+				locations, e := c.Locations(ctx, v.ID)
+				if e != nil {
+					return e
 				}
-				found := false
-				order := o.From
-				if len(order) == 0 {
-					order = s.Set.To
-				}
-				var last error
-				for _, provider := range order {
-					for _, l := range locations {
-						if l.Provider != provider || l.Status != "COMPLETED" {
-							continue
-						}
-						store := s.Stores[provider]
-						if store == nil {
-							continue
-						}
-						r, _, e := store.Get(ctx, l.Key, l.Version)
-						if e != nil {
-							last = e
-							continue
-						}
-						out, e := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-						if e != nil {
+				file = filepath.Join(s.Directory, "payload-"+v.Hash+".gpg")
+				cachedHash, cachedSize, cacheErr := archive.Hash(ctx, file)
+				if cacheErr != nil || cachedHash != v.Hash || cachedSize != v.Size {
+					if _, err := os.Stat(file); err == nil {
+						return fmt.Errorf("backup: cached archive checksum mismatch; preserve and remove the cache before retrying")
+					}
+					found := false
+					order := o.From
+					if len(order) == 0 {
+						order = s.Set.To
+					}
+					var last error
+					for _, provider := range order {
+						for _, l := range locations {
+							if l.Provider != provider || l.Status != "COMPLETED" {
+								continue
+							}
+							store := s.Stores[provider]
+							if store == nil {
+								continue
+							}
+							r, _, e := store.Get(ctx, l.Key, l.Version)
+							if e != nil {
+								last = e
+								continue
+							}
+							out, e := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+							if e != nil {
+								r.Close()
+								return e
+							}
+							progress := L.StartWorkerProgress(ctx, "Downloading for restore", v.Size, 1)
+							_, e = copyContext(ctx, out, progress.Reader(r))
+							progress.Finish()
 							r.Close()
-							return e
+							ce := out.Close()
+							if e == nil {
+								e = ce
+							}
+							if e != nil {
+								os.Remove(file)
+								last = e
+								continue
+							}
+							hash, size, e = archive.Hash(ctx, file)
+							if e != nil || hash != v.Hash || size != v.Size {
+								os.Remove(file)
+								last = fmt.Errorf("backup: archive checksum mismatch")
+								continue
+							}
+							found = true
+							break
 						}
-						progress := L.StartProgress(ctx, "Downloading for restore", v.Size)
-						_, e = copyContext(ctx, out, progress.Reader(r))
-						progress.Finish()
-						r.Close()
-						ce := out.Close()
-						if e == nil {
-							e = ce
+						if found {
+							break
 						}
-						if e != nil {
-							os.Remove(file)
-							last = e
-							continue
-						}
-						hash, size, e = archive.Hash(ctx, file)
-						if e != nil || hash != v.Hash || size != v.Size {
-							os.Remove(file)
-							last = fmt.Errorf("backup: archive checksum mismatch")
-							continue
-						}
-						found = true
-						break
 					}
-					if found {
-						break
+					if !found {
+						if last != nil {
+							return last
+						}
+						return fmt.Errorf("backup: no readable copy of %s", v.ID)
 					}
-				}
-				if !found {
-					if last != nil {
-						return last
-					}
-					return fmt.Errorf("backup: no readable copy of %s", v.ID)
 				}
 			}
 		}
@@ -167,6 +172,9 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 			}); e != nil {
 				return e
 			}
+		}
+		if v.Layout == "chunked" {
+			return s.restoreChunks(ctx, v, stage, o)
 		}
 		return s.restoreArchive(ctx, v, file, stage, o.Password)
 	}); e != nil {
@@ -261,6 +269,9 @@ func (s *Service) restoreArchive(ctx context.Context, v model.Snapshot, file, st
 }
 
 func (s *Service) localArchive(ctx context.Context, v model.Snapshot) (string, bool) {
+	if v.Layout == "chunked" {
+		return "", false
+	}
 	if decoded, err := hex.DecodeString(v.Hash); err != nil || len(decoded) != 32 {
 		return "", false
 	}

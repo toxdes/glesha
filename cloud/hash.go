@@ -32,7 +32,7 @@ func readerHash(ctx context.Context, r io.Reader) (string, int64, error) {
 		}
 		total = info.Size()
 	}
-	progress := L.StartProgress(ctx, "Hashing archive for upload", total)
+	progress := L.StartProgress(ctx, "Hashing "+transferLabel(ctx)+" for upload", total)
 	defer progress.Finish()
 	r = progress.Reader(r)
 	h := sha256.New()

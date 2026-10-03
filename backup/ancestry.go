@@ -37,6 +37,10 @@ func (s *Service) ancestry(ctx context.Context, c repository.Cataloger, target m
 	chain := &snapshotChain{SnapshotSequencer: sequence, file: f.Name()}
 	v := target
 	for {
+		if v.Layout != "" && v.Layout != "single" && v.Layout != "chunked" {
+			chain.Close()
+			return nil, fmt.Errorf("backup: unsupported archive layout %q", v.Layout)
+		}
 		if v.Status != model.STATUS_COMPLETED {
 			chain.Close()
 			return nil, fmt.Errorf("backup: ancestry contains an uncommitted snapshot")

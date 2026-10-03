@@ -198,7 +198,12 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 	if s.name == "b2" {
 		class = ""
 	}
-	progress := L.StartProgress(ctx, "Uploading archive to "+s.name, info.Size())
+	workers := 1
+	if info.Size() >= 5<<20 {
+		_, parts := multipartPlan(info.Size(), false)
+		workers = s.multipartWorkers(parts)
+	}
+	progress := L.StartWorkerProgress(ctx, "Uploading "+transferLabel(ctx)+" to "+s.name, info.Size(), workers)
 	defer progress.Finish()
 	var result Object
 	if info.Size() < 5<<20 {
@@ -226,7 +231,7 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 	if e != nil {
 		return Object{}, e
 	}
-	afterHash, afterSize, e := hashFile(L.WithProgressLabel(ctx, "Checking archive after upload"), file)
+	afterHash, afterSize, e := hashFile(L.WithProgressLabel(ctx, "Checking "+transferLabel(ctx)+" after upload"), file)
 	if e != nil {
 		return result, e
 	}
@@ -274,14 +279,7 @@ func (s *s3Store) multipart(ctx context.Context, key string, size int64, class s
 			_, _ = s.client.AbortMultipartUpload(cleanup, &s3.AbortMultipartUploadInput{Bucket: &s.bucket, Key: &key, UploadId: &id})
 		}
 	}()
-	partSize := int64(5 << 20)
-	if extra != nil {
-		partSize = 128 << 20
-	}
-	if size/partSize >= 10000 {
-		partSize = (size + 9998) / 9999
-	}
-	count := int((size + partSize - 1) / partSize)
+	partSize, count := multipartPlan(size, extra != nil)
 	parts := make([]types.CompletedPart, count)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -289,7 +287,7 @@ func (s *s3Store) multipart(ctx context.Context, key string, size int64, class s
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var first error
-	for i := 0; i < s.workers; i++ {
+	for i := 0; i < s.multipartWorkers(count); i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -348,6 +346,23 @@ func (s *s3Store) multipart(ctx context.Context, key string, size int64, class s
 		result = Object{Key: key, Version: aws.ToString(response.VersionId), ETag: aws.ToString(response.ETag)}
 	}
 	return result, e
+}
+func multipartPlan(size int64, copying bool) (int64, int) {
+	partSize := int64(5 << 20)
+	if copying {
+		partSize = 128 << 20
+	}
+	if size/partSize >= 10000 {
+		partSize = (size + 9998) / 9999
+	}
+	return partSize, int((size + partSize - 1) / partSize)
+}
+func (s *s3Store) multipartWorkers(parts int) int {
+	workers := min(s.workers, parts)
+	if s.limit != nil {
+		workers = min(workers, cap(s.limit))
+	}
+	return workers
 }
 func (s *s3Store) CopyClass(ctx context.Context, key, version, class string) (Object, error) {
 	h, e := s.Head(ctx, key, version)

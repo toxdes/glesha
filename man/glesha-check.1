@@ -41,10 +41,10 @@ managed memory budget
 remote names; comma\-separated or repeated
 .TP
 .B \-j, \-\-jobs N
-Alias for \-\-transfer\-workers. Limits concurrent transfer workers; the memory budget may reduce the limit.
+Alias for \-\-transfer\-workers. Uses up to N concurrent transfer workers. Part count, shared capacity and the memory budget may reduce the count.
 .TP
 .B \-\-transfer\-workers INT
-transfer workers
+maximum concurrent transfer workers
 .TP
 .B \-\-version
 show version; \-version is also accepted.
@@ -77,7 +77,9 @@ progress and adapt to about 80 percent of terminal width. Upload progress includ
 in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
 that final validation or catalog publication has finished.
 Use --log-level=debug for operation and worker-budget diagnostics.
-Human sizes use binary units (KiB, MiB, GiB). JSON retains integer byte counts.
+Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
+Explicit worker flags show the effective worker count; archiving and individual
+downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
 .SH COMPATIBILITY
 Existing encb gzip/OpenPGP archives are read without recompression or replacement.
 Compression is detected from the decrypted stream, independent of filenames.

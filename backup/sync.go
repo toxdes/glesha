@@ -596,5 +596,43 @@ func (s *Service) Abandon(ctx context.Context) error {
 	if !s.Pending() {
 		return fmt.Errorf("backup: no pending work")
 	}
-	return os.Rename(s.pending(), filepath.Join(s.Directory, "abandoned-"+newID()+".db"))
+	c, err := repository.NewCatalogRepository(ctx, s.pending())
+	if err != nil {
+		return err
+	}
+	kind, err := c.GetMeta(ctx, "operation")
+	if err != nil {
+		c.Close()
+		return err
+	}
+	spool := ""
+	if kind == "run" {
+		id, err := c.GetMeta(ctx, "pending_snapshot")
+		if err != nil {
+			c.Close()
+			return err
+		}
+		v, err := c.Snapshot(ctx, id)
+		if err != nil {
+			c.Close()
+			return err
+		}
+		if v.Layout == "chunked" {
+			if err = uuid.Validate(v.ID); err != nil {
+				c.Close()
+				return fmt.Errorf("backup: invalid pending snapshot identity")
+			}
+			spool = filepath.Join(s.Directory, "chunks-"+v.ID)
+		}
+	}
+	if err = c.Close(); err != nil {
+		return err
+	}
+	if err = os.Rename(s.pending(), filepath.Join(s.Directory, "abandoned-"+newID()+".db")); err != nil {
+		return err
+	}
+	if spool != "" {
+		return os.RemoveAll(spool)
+	}
+	return nil
 }

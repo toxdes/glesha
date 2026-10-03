@@ -198,7 +198,7 @@ func InventorySources(ctx context.Context, sources file_io.SourceReader, c repos
 			}
 		}
 	}
-	progress := L.StartProgress(ctx, "Scanning", -1)
+	progress := L.StartWorkerProgress(ctx, "Scanning", -1, workers)
 	defer progress.Finish()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

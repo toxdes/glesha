@@ -41,6 +41,19 @@ func create(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
+	set.Chunked = r.env.Chunked
+	if r.env.SpoolMax != "" {
+		if !set.Chunked {
+			return fmt.Errorf("cli: --spool-max requires --chunked")
+		}
+		set.SpoolMax, err = backup.ParseSpoolSize(r.env.SpoolMax)
+		if err != nil {
+			return err
+		}
+		if set.SpoolMax < backup.MinimumSpoolMax {
+			return fmt.Errorf("cli: spool requires at least 2MiB")
+		}
+	}
 	set.To, err = r.remoteIDs(r.env.To)
 	if err != nil {
 		return err
@@ -89,6 +102,22 @@ func configure(r *runtime, args []string) error {
 	}
 	defer unlock()
 	s := r.service
+	if r.env.present["chunked"] {
+		s.Set.Chunked = r.env.Chunked
+	}
+	if r.env.SpoolMax != "" {
+		if !s.Set.Chunked {
+			return fmt.Errorf("cli: --spool-max requires --chunked")
+		}
+		size, err := backup.ParseSpoolSize(r.env.SpoolMax)
+		if err != nil {
+			return err
+		}
+		if size < backup.MinimumSpoolMax {
+			return fmt.Errorf("cli: spool requires at least 2MiB")
+		}
+		s.Set.SpoolMax = size
+	}
 	if s.Pending() {
 		return fmt.Errorf("%w: finish pending work before configuring", backup.ErrPending)
 	}
@@ -210,6 +239,26 @@ func run(r *runtime, args []string) error {
 	}
 	defer unlock()
 	s := r.service
+	chunked := s.Set.Chunked
+	if r.env.present["chunked"] {
+		chunked = r.env.Chunked
+	}
+	if chunked && (r.env.KeepArchive || r.env.Output != "" || r.env.Mode == "memory") {
+		return fmt.Errorf("cli: --chunked cannot use --keep-archive, --output or memory archive mode")
+	}
+	var spool int64
+	if r.env.SpoolMax != "" {
+		if !chunked && !s.Pending() {
+			return fmt.Errorf("cli: --spool-max requires --chunked")
+		}
+		spool, err = backup.ParseSpoolSize(r.env.SpoolMax)
+		if err != nil {
+			return err
+		}
+		if spool < backup.MinimumSpoolMax {
+			return fmt.Errorf("cli: spool requires at least 2MiB")
+		}
+	}
 	to, err := r.remoteIDs(r.env.To)
 	if err != nil {
 		return err
@@ -259,7 +308,7 @@ func run(r *runtime, args []string) error {
 	} else {
 		fmt.Fprintln(os.Stderr, "Resuming previous run.")
 	}
-	v, err := s.Run(r.ctx, backup.RunOptions{To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
+	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.present["chunked"], SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
 	if err != nil {
 		return err
 	}

@@ -38,7 +38,7 @@ func (s *Service) resumeRun(ctx context.Context, o RunOptions) (model.Snapshot, 
 	if err = json.Unmarshal([]byte(b), &r); err != nil {
 		return model.Snapshot{}, err
 	}
-	if len(o.To) > 0 && strings.Join(o.To, ",") != strings.Join(r.To, ",") || o.Incremental && !r.Incremental || o.Full && r.Incremental || o.Compression != "" && o.Compression != r.Compression || o.Level > 0 && o.Level != r.Level || o.Class != "" && o.Class != r.Class || o.Mode != "" && o.Mode != r.Mode || o.Prefix != "" && o.Prefix != r.Prefix {
+	if (o.ChunkedSet || o.Chunked) && o.Chunked != r.Chunked || o.SpoolMax > 0 && o.SpoolMax != r.SpoolMax || len(o.To) > 0 && strings.Join(o.To, ",") != strings.Join(r.To, ",") || o.Incremental && !r.Incremental || o.Full && r.Incremental || o.Compression != "" && o.Compression != r.Compression || o.Level > 0 && o.Level != r.Level || o.Class != "" && o.Class != r.Class || o.Mode != "" && o.Mode != r.Mode || o.Prefix != "" && o.Prefix != r.Prefix {
 		return model.Snapshot{}, fmt.Errorf("backup: options conflict with pending run")
 	}
 	id, err := p.GetMeta(ctx, "pending_snapshot")
@@ -51,6 +51,20 @@ func (s *Service) resumeRun(ctx context.Context, o RunOptions) (model.Snapshot, 
 	}
 	if o.Output != "" && o.Output != v.File {
 		return v, fmt.Errorf("backup: output conflicts with pending run")
+	}
+	if r.Chunked {
+		if o.KeepArchive || o.Output != "" {
+			return v, fmt.Errorf("backup: chunked mode cannot retain a complete local archive")
+		}
+		if v.Hash == "" {
+			if len(o.Password) == 0 {
+				return v, fmt.Errorf("backup: interrupted chunked run requires its original passphrase; repeat run")
+			}
+			if err = s.createChunks(ctx, p, &v, r, o.Password); err != nil {
+				return v, err
+			}
+		}
+		return v, s.finishRun(ctx, p, &v)
 	}
 	if o.KeepArchive {
 		if err = retainRunArchive(ctx, p); err != nil {
@@ -83,6 +97,9 @@ func (s *Service) resumeRun(ctx context.Context, o RunOptions) (model.Snapshot, 
 	return v, s.finishRun(ctx, p, &v)
 }
 func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *model.Snapshot) error {
+	if v.Layout == "chunked" {
+		return s.finishChunked(ctx, c, v)
+	}
 	if err := s.checkCatalogSecret(ctx, c); err != nil {
 		return err
 	}

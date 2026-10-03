@@ -34,8 +34,9 @@ build requires Docker, Python, signing tools, or Yesb.
 Colors default to `--color=auto`; `yes` forces them and `no` disables them.
 Interactive stderr marks steps with `[+]` and shows throttled byte progress
 with two decimal places and average transfer speed. Use `--log-level=debug` for
-operation diagnostics. Use `--jobs N` or `-j N` to limit transfer workers;
-`--hash-workers N` controls hashing separately. JSON and redirected stderr have no progress animation.
+operation diagnostics. Use `--jobs N` or `-j N` for up to N concurrent transfer workers;
+`--hash-workers N` controls hashing separately. Explicit worker flags show the
+effective worker count for scanning, archiving and transfers. JSON and redirected stderr have no progress animation.
 
 Test provider access explicitly with `glesha check --to b2 --env /secure/cloud.env`.
 The summary reports write, metadata, verified read and cleanup for each provider.
@@ -206,3 +207,26 @@ historical trees are paged through SQLite rather than retained in RAM.
 ACL/xattr fidelity, automatic retention, graphical browsing and persistent
 multipart resume are outside this version. Linux is the primary tested platform;
 macOS and Windows builds are also checked.
+
+## Direct release bundles
+
+The initial distribution is Linux amd64 and arm64 tar.gz bundles. Each contains
+`bin/glesha`, `share/man/man1/`, `install.txt`, LICENSE and a sample TOML file.
+Verify the adjacent `.sha256` file, extract into a new staging directory, then
+follow `install.txt` to install under `~/.local` or `/usr/local`. Upgrades replace
+only the binary and matching manpages; configuration and backup state stay local.
+
+Run `./yesb/build_all.py` for release preparation. Project-owned packaging adapts
+Yesb's archive layout without changing the toolkit. Only the two tar.gz bundles
+are declared as direct R2 release artifacts under `glesha/releases`; no APT/RPM
+repository or curl installer is configured. The public download host is pending.
+Do not run a publisher until the destination, version and artifacts are approved.
+
+## Chunked backups
+
+Use `glesha run docs --chunked --spool-max 128M` when a complete local archive
+would not fit. Each independently encrypted chunk is uploaded before its local
+spool is removed. `128M` / `1.1G` are decimal; MiB / GiB are binary. Repeat `run`
+with the original passphrase to resume. Sources are re-read and checked; completed
+chunks are reused. See [the CLI reference](cli_reference.md#bounded-disk-space)
+for recovery and current command restrictions.

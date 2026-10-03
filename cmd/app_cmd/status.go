@@ -17,26 +17,34 @@ import (
 	"glesha/pricing"
 )
 
+type latestCopyStatus struct {
+	Objects      int64  `json:"objects"`
+	Class        string `json:"class"`
+	Cold         bool   `json:"requires_cold_restore"`
+	Verification string `json:"verification"`
+}
+
 type statusData struct {
-	Set                      model.Set             `json:"set"`
-	Latest                   string                `json:"latest"`
-	Pending                  bool                  `json:"pending"`
-	Locations                []model.Location      `json:"locations"`
-	CatalogAvailable         bool                  `json:"catalog_available"`
-	CatalogSynced            bool                  `json:"catalog_synced"`
-	LocalCatalogBytes        int64                 `json:"local_catalog_bytes"`
-	Metadata                 backup.MetadataStatus `json:"metadata"`
-	Snapshots                int64                 `json:"snapshots"`
-	ArchiveBytes             int64                 `json:"archive_bytes"`
-	LastUpload               *time.Time            `json:"last_upload,omitempty"`
-	LastBackup               *time.Time            `json:"last_backup,omitempty"`
-	ArchiveAnnualUSD         float64               `json:"archive_annual_usd"`
-	MetadataAnnualUSD        float64               `json:"metadata_annual_usd"`
-	EstimateComplete         bool                  `json:"estimate_complete"`
-	ArchiveEstimateComplete  bool                  `json:"archive_estimate_complete"`
-	MetadataEstimateComplete bool                  `json:"metadata_estimate_complete"`
-	PricingDate              string                `json:"pricing_date"`
-	Providers                map[string]string     `json:"provider_names,omitempty"`
+	LatestObjects            map[string]latestCopyStatus `json:"latest_objects,omitempty"`
+	Set                      model.Set                   `json:"set"`
+	Latest                   string                      `json:"latest"`
+	Pending                  bool                        `json:"pending"`
+	Locations                []model.Location            `json:"locations"`
+	CatalogAvailable         bool                        `json:"catalog_available"`
+	CatalogSynced            bool                        `json:"catalog_synced"`
+	LocalCatalogBytes        int64                       `json:"local_catalog_bytes"`
+	Metadata                 backup.MetadataStatus       `json:"metadata"`
+	Snapshots                int64                       `json:"snapshots"`
+	ArchiveBytes             int64                       `json:"archive_bytes"`
+	LastUpload               *time.Time                  `json:"last_upload,omitempty"`
+	LastBackup               *time.Time                  `json:"last_backup,omitempty"`
+	ArchiveAnnualUSD         float64                     `json:"archive_annual_usd"`
+	MetadataAnnualUSD        float64                     `json:"metadata_annual_usd"`
+	EstimateComplete         bool                        `json:"estimate_complete"`
+	ArchiveEstimateComplete  bool                        `json:"archive_estimate_complete"`
+	MetadataEstimateComplete bool                        `json:"metadata_estimate_complete"`
+	PricingDate              string                      `json:"pricing_date"`
+	Providers                map[string]string           `json:"provider_names,omitempty"`
 }
 
 var overviewColumnWidths = []int{20, 9, 9, 5, 12, 12, 10, 16}
@@ -100,7 +108,7 @@ func status(r *runtime, args []string) error {
 }
 
 func collectStatus(r *runtime, set model.Set) (statusData, error) {
-	d := statusData{Set: set, PricingDate: pricing.Date(), EstimateComplete: true, ArchiveEstimateComplete: true, MetadataEstimateComplete: true, Providers: map[string]string{}}
+	d := statusData{Set: set, PricingDate: pricing.Date(), EstimateComplete: true, ArchiveEstimateComplete: true, MetadataEstimateComplete: true, Providers: map[string]string{}, LatestObjects: map[string]latestCopyStatus{}}
 	if err := r.openSet(set.ID); err != nil {
 		return d, err
 	}
@@ -193,7 +201,12 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 		if v.ID == d.Latest {
 			d.Locations = locations
 		}
-		for _, location := range locations {
+		copies, err := backup.SnapshotCopies(v, locations)
+		if err != nil {
+			return err
+		}
+		for _, copy := range copies {
+			location := copy.Location
 			if location.Status != model.STATUS_COMPLETED {
 				continue
 			}
@@ -211,7 +224,7 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 			if added == 0 {
 				continue
 			}
-			d.ArchiveBytes += v.Size
+			d.ArchiveBytes += copy.Size
 			remote, err := r.registry.Remote(r.ctx, location.Provider)
 			if err != nil {
 				return err
@@ -232,7 +245,23 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 					class = "INTELLIGENT_TIERING_DAA"
 				}
 			}
-			cost, known := pricing.Monthly(remote.Kind, remote.Region, class, v.Size)
+			if v.ID == d.Latest {
+				group := d.LatestObjects[location.Provider]
+				if group.Objects == 0 {
+					group.Class, group.Verification = class, location.Verification
+				} else {
+					if group.Class != class {
+						group.Class = "mixed"
+					}
+					if group.Verification != location.Verification {
+						group.Verification = "mixed"
+					}
+				}
+				group.Objects++
+				group.Cold = group.Cold || location.Cold
+				d.LatestObjects[location.Provider] = group
+			}
+			cost, known := pricing.Monthly(remote.Kind, remote.Region, class, copy.Size)
 			d.ArchiveAnnualUSD += pricing.Annual(cost)
 			d.EstimateComplete = d.EstimateComplete && known
 			d.ArchiveEstimateComplete = d.ArchiveEstimateComplete && known
@@ -353,8 +382,16 @@ func statusDetails(d statusData) string {
 		if name == "" {
 			name = location.Provider
 		}
-		out.WriteString(asciiTableRow([]string{"Latest copy: " + name, string(location.Status) + "; " + location.CurrentClass + "; verified " + location.Verification}, detailColumnWidths))
-		if location.Cold {
+		class, verification, cold := location.CurrentClass, location.Verification, location.Cold
+		objects := ""
+		if group, ok := d.LatestObjects[location.Provider]; ok {
+			class, verification, cold = group.Class, group.Verification, group.Cold
+			if group.Objects > 1 {
+				objects = fmt.Sprintf("%d objects; ", group.Objects)
+			}
+		}
+		out.WriteString(asciiTableRow([]string{"Latest copy: " + name, string(location.Status) + "; " + objects + class + "; verified " + verification}, detailColumnWidths))
+		if cold {
 			out.WriteString(asciiTableRow([]string{"Retrieval: " + name, "cold restore required"}, detailColumnWidths))
 		}
 	}

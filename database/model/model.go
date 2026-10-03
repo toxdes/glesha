@@ -26,6 +26,7 @@ type Root struct {
 	Name string `json:"name"`
 }
 type Manifest struct {
+	Layout          string   `json:"layout,omitempty"`
 	DeletionsMember string   `json:"deletions_member,omitempty"`
 	Version         int      `json:"version"`
 	Set             string   `json:"set,omitempty"`
@@ -38,6 +39,7 @@ type Manifest struct {
 	Deletions       []string `json:"deletions,omitempty"`
 }
 type Snapshot struct {
+	Chunks     []Chunk    `json:"chunks,omitempty"`
 	Imported   bool       `json:"imported,omitempty"`
 	BackupDate *time.Time `json:"backup_date,omitempty"`
 	ReadyFile  string     `json:"ready_file,omitempty"`
@@ -66,4 +68,16 @@ type Location struct {
 	ObservedClass string     `json:"observed_class"`
 	Verification  string     `json:"verification"`
 	Status        Status     `json:"status"`
+}
+
+type Chunk struct {
+	Index     int        `json:"index"`
+	Offset    int64      `json:"offset"`
+	PlainSize int64      `json:"plain_size"`
+	Size      int64      `json:"size"`
+	Hash      string     `json:"sha256"`
+	PlainHash string     `json:"plain_sha256"`
+	Key       string     `json:"key"`
+	File      string     `json:"file,omitempty"`
+	Locations []Location `json:"locations"`
 }

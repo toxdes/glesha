@@ -18,10 +18,13 @@ ARG GIT_SHA
 ARG INCLUDE_APPIMAGE=0
 ENV TARGETARCH=${TARGETARCH} VERSION=${VERSION} GIT_SHA=${GIT_SHA} INCLUDE_APPIMAGE=${INCLUDE_APPIMAGE}
 WORKDIR /build
-COPY release.toml version.txt LICENSE ./
+COPY release.toml version.txt LICENSE config-sample.toml ./
+COPY man ./man
+COPY packaging ./packaging
 COPY --from=compile /build/glesha ./glesha
 COPY yesb/package.py /package.py
 RUN python3 /package.py
+RUN python3 packaging/prepare_archive.py
 
 FROM scratch
 COPY --from=package /output/ /

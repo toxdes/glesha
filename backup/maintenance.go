@@ -68,6 +68,10 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 			c.Close()
 			return err
 		}
+		if v.Layout == "chunked" {
+			c.Close()
+			return fmt.Errorf("backup: storage-class changes for chunked snapshots are not supported")
+		}
 		locations, err := c.Locations(ctx, v.ID)
 		c.Close()
 		if err != nil {
@@ -126,6 +130,13 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 		if err = p.SetMeta(ctx, "class_target", class); err != nil {
 			return err
 		}
+	}
+	v, err := p.Snapshot(ctx, id)
+	if err != nil {
+		return err
+	}
+	if v.Layout == "chunked" {
+		return fmt.Errorf("backup: storage-class changes for chunked snapshots are not supported")
 	}
 	locations, err := p.Locations(ctx, id)
 	if err != nil {
@@ -186,6 +197,20 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 		if err := s.Pull(ctx); err != nil {
 			return err
 		}
+	}
+	view, err := s.Catalog(ctx)
+	if err != nil {
+		return err
+	}
+	err = view.EachSnapshot(ctx, func(v model.Snapshot) error {
+		if v.Layout == "chunked" {
+			return fmt.Errorf("backup: moving sets with chunked snapshots is not supported")
+		}
+		return nil
+	})
+	view.Close()
+	if err != nil {
+		return err
 	}
 	p, err := s.stageOperation(ctx, "move")
 	if err != nil {

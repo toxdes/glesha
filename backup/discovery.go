@@ -2,9 +2,12 @@ package backup
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -149,7 +152,12 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 }
 func (s *Service) Refresh(ctx context.Context) error {
 	return s.History(ctx, func(v model.Snapshot, locations []model.Location) error {
-		for _, l := range locations {
+		copies, err := SnapshotCopies(v, locations)
+		if err != nil {
+			return err
+		}
+		for _, copy := range copies {
+			l := copy.Location
 			store := s.Stores[l.Provider]
 			if store == nil {
 				continue
@@ -158,10 +166,88 @@ func (s *Service) Refresh(ctx context.Context) error {
 			if err != nil {
 				return err
 			}
-			if err = s.saveJob(filepath.Join(s.Directory, "observation-"+v.ID+"-"+l.Provider+".json"), h); err != nil {
+			if h.Size != copy.Size || h.Hash != "" && h.Hash != copy.Hash {
+				return fmt.Errorf("backup: registered object identity changed")
+			}
+			if h.Key == "" {
+				h.Key = l.Key
+			}
+			if err = s.saveJob(s.observationPath(v.ID, l), h); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+// StoredCopy describes one complete remote object.
+type StoredCopy struct {
+	Location model.Location
+	Size     int64
+	Hash     string
+}
+
+func SnapshotCopies(v model.Snapshot, locations []model.Location) ([]StoredCopy, error) {
+	descriptorSize := v.Size
+	if v.Layout == "chunked" {
+		for _, chunk := range v.Chunks {
+			if chunk.Size < 0 || chunk.Size > descriptorSize {
+				return nil, fmt.Errorf("backup: invalid chunked object sizes")
+			}
+			descriptorSize -= chunk.Size
+		}
+	}
+	copies := make([]StoredCopy, 0, len(locations))
+	for _, l := range locations {
+		copies = append(copies, StoredCopy{Location: l, Size: descriptorSize, Hash: v.Hash})
+	}
+	if v.Layout == "chunked" {
+		for _, chunk := range v.Chunks {
+			for _, l := range chunk.Locations {
+				copies = append(copies, StoredCopy{Location: l, Size: chunk.Size, Hash: chunk.Hash})
+			}
+		}
+	}
+	return copies, nil
+}
+func (s *Service) observationPath(snapshot string, l model.Location) string {
+	b, _ := json.Marshal([]string{snapshot, l.Provider, l.Key, l.Version})
+	sum := sha256.Sum256(b)
+	return filepath.Join(s.Directory, "observation-"+hex.EncodeToString(sum[:])+".json")
+}
+func (s *Service) observeLocation(ctx context.Context, snapshot string, l *model.Location) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	file := s.observationPath(snapshot, *l)
+	b, err := os.ReadFile(file)
+	if os.IsNotExist(err) && !strings.ContainsAny(snapshot+l.Provider, "/\\") {
+		file = filepath.Join(s.Directory, "observation-"+snapshot+"-"+l.Provider+".json")
+		b, err = os.ReadFile(file)
+	}
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var h cloud.Object
+	if err = json.Unmarshal(b, &h); err != nil {
+		return err
+	}
+	info, err := os.Stat(file)
+	if err != nil {
+		return err
+	}
+	if h.Key != l.Key || h.Version != "" && h.Version != l.Version || l.ObservedAt != nil && info.ModTime().Before(*l.ObservedAt) {
+		return nil
+	}
+	observed := info.ModTime().UTC()
+	l.ObservedAt = &observed
+	l.ObservedClass = h.Class
+	l.CurrentClass = h.Class
+	l.Cold = h.Cold
+	l.Restore = h.Restore
+	l.ArchiveStatus = h.ArchiveStatus
+	return nil
 }

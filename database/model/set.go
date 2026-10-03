@@ -3,6 +3,8 @@ package model
 import "time"
 
 type Set struct {
+	Chunked          bool      `json:"chunked,omitempty"`
+	SpoolMax         int64     `json:"spool_max,omitempty"`
 	ID               string    `json:"id"`
 	Name             string    `json:"name"`
 	Roots            []Root    `json:"roots"`

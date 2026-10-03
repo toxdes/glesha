@@ -59,7 +59,7 @@ func TestConcurrentProgressAndCleanShutdown(t *testing.T) {
 	if p.bytes.Load() != 1024 {
 		t.Fatal("lost byte updates")
 	}
-	if !strings.Contains(output.String(), "1.00 KiB / 1.00 KiB 100.00%") {
+	if !strings.Contains(output.String(), "[100.00%] [1.00K/1.00K]") {
 		t.Fatal(output.String())
 	}
 	if strings.Contains(output.String(), "\x1b") {
@@ -82,7 +82,7 @@ func TestStepHeadingAndProgressShareOneLine(t *testing.T) {
 	r.mu.Lock()
 	live := output.String()
 	r.mu.Unlock()
-	if strings.Contains(live, "\n") || !strings.Contains(live, "512.00 B / 1.00 KiB 50.00%") {
+	if strings.Contains(live, "\n") || !strings.Contains(live, "[50.00%] [512.00B/1.00K]") {
 		t.Fatal("heading occupies a separate line from progress", live)
 	}
 	p.Finish()
@@ -96,13 +96,38 @@ func TestTransferProgressPrecisionAndRate(t *testing.T) {
 	for _, label := range []string{"Uploading to b2", "Downloading"} {
 		t.Run(label, func(t *testing.T) {
 			line := progressLine(label, 5<<20, 10<<20, true, 2*time.Second)
-			if !strings.HasPrefix(line, "[+] "+label) || !strings.Contains(line, "5.00 MiB / 10.00 MiB 50.00%") || !strings.HasSuffix(line, "2.50 MiB/s") {
+			if !strings.HasPrefix(line, "[+] "+label) || !strings.Contains(line, "[50.00%] [5.00M/10.00M]") || !strings.HasSuffix(line, "[2.50M/s]") {
 				t.Fatal(line)
 			}
 		})
 	}
-	if line := progressLine("Downloading", 1, 2, true, 2*time.Second); !strings.HasSuffix(line, "0.50 B/s") {
+	if line := progressLine("Downloading", 1, 2, true, 2*time.Second); !strings.HasSuffix(line, "[0.50B/s]") {
 		t.Fatal("fractional bandwidth lost", line)
+	}
+}
+
+func TestWorkerProgressLabels(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled bool
+		workers int
+		want    string
+	}{
+		{"default", false, 4, "Archiving"},
+		{"sequential", true, 1, "Archiving using 1 worker"},
+		{"parallel", true, 4, "Archiving using 4 workers"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			r := NewProgressRenderer(&output, false)
+			ctx := WithWorkerDetails(WithProgress(context.Background(), r), tc.enabled)
+			p := StartWorkerProgress(ctx, "Archiving", 1024, tc.workers)
+			p.Finish()
+			r.Close()
+			if p.label != tc.want || !strings.Contains(output.String(), "[+] "+tc.want+"\n") {
+				t.Fatal("incorrect worker label", output.String())
+			}
+		})
 	}
 }
 
@@ -117,7 +142,7 @@ func TestProgressReaderPreservesBytesAndUnknownTotal(t *testing.T) {
 		t.Fatal(string(data), err)
 	}
 	line := progressLine("Archiving", 7, 0, false, time.Second)
-	if strings.Contains(line, "%") || !strings.Contains(line, "7.00 B") {
+	if strings.Contains(line, "%") || !strings.Contains(line, "7.00B") {
 		t.Fatal(line)
 	}
 	var disabled *Progress
@@ -128,11 +153,11 @@ func TestProgressReaderPreservesBytesAndUnknownTotal(t *testing.T) {
 }
 
 func TestOnlyScanningUsesASCIISpinner(t *testing.T) {
-	for _, label := range []string{"Scanning", "Scanning (2 jobs)"} {
+	for _, label := range []string{"Scanning", "Scanning (2 jobs)", "Scanning using 4 workers"} {
 		t.Run(label, func(t *testing.T) {
 			for i, frame := range []string{"[-]", `[\]`, "[|]", "[/]", "[-]"} {
 				line := progressLine(label, 1024, 0, false, time.Duration(i)*100*time.Millisecond)
-				if !strings.Contains(line, frame) || strings.ContainsAny(line, ">=#%") || !strings.Contains(line, "1.00 KiB") {
+				if !strings.Contains(line, frame) || strings.ContainsAny(line, ">=#%") || !strings.Contains(line, "1.00K") {
 					t.Fatal("incorrect spinner frame", line)
 				}
 			}
@@ -140,8 +165,10 @@ func TestOnlyScanningUsesASCIISpinner(t *testing.T) {
 	}
 	for _, label := range []string{"Finalizing archive", "Publishing catalog to b2"} {
 		line := progressLine(label, 1024, -1, false, time.Second)
-		if strings.ContainsAny(line[len("[+] "):], "[]#%") {
-			t.Fatal("non-scanning stage contains an indefinite bar", line)
+		for _, marker := range []string{"[-]", `[\]`, "[|]", "[/]", "#", "%"} {
+			if strings.Contains(line, marker) {
+				t.Fatal("non-scanning stage contains an indefinite bar", line)
+			}
 		}
 	}
 	for _, width := range []int{1, 3, 8, 24, 64, 80, 120} {
@@ -154,7 +181,7 @@ func TestOnlyScanningUsesASCIISpinner(t *testing.T) {
 
 func TestEmptyArchiveHasKnownZeroTotal(t *testing.T) {
 	line := progressLine("Archiving", 0, 0, true, time.Second)
-	if !strings.Contains(line, "0.00 B / 0.00 B 100.00%") || !strings.Contains(line, "################") {
+	if !strings.Contains(line, "[100.00%] [0.00B/0.00B]") || !strings.Contains(line, "################") {
 		t.Fatal("empty archive was treated as indefinite", line)
 	}
 }
@@ -202,7 +229,7 @@ func TestCompletedConcurrentTransferRemainsInGroupTotal(t *testing.T) {
 	r.draw()
 	second.Finish()
 	r.Close()
-	if !strings.Contains(output.String(), "1.50 KiB / 2.00 KiB 75.00%") {
+	if !strings.Contains(output.String(), "[75.00%] [1.50K/2.00K]") {
 		t.Fatal(output.String())
 	}
 	if len(r.active) != 0 {
@@ -227,7 +254,7 @@ func TestProgressAdaptsToLineWidth(t *testing.T) {
 		if len(line) > width || strings.Contains(line, "=") {
 			t.Fatal(width, line)
 		}
-		if width >= 64 && (!strings.Contains(line, "5.00 MiB / 10.00 MiB 50.00%") || !strings.HasSuffix(line, "2.50 MiB/s")) {
+		if width >= 64 && (!strings.Contains(line, "[50.00%] [5.00M/10.00M]") || !strings.HasSuffix(line, "[2.50M/s]")) {
 			t.Fatal("details clipped", width, line)
 		}
 		if width >= 80 {
@@ -255,7 +282,7 @@ func TestGroupedUploadProgressSuppressesChildSteps(t *testing.T) {
 	r.draw()
 	parent.Finish()
 	r.Close()
-	if parent.bytes.Load() != 1024 || strings.Contains(output.String(), "Uploading archive") || !strings.Contains(output.String(), "1.00 KiB") {
+	if parent.bytes.Load() != 1024 || strings.Contains(output.String(), "Uploading archive") || !strings.Contains(output.String(), "1.00K") {
 		t.Fatal("grouped publication did not report uploaded bytes", output.String())
 	}
 	if UploadProgress(context.Background(), parent) != parent {

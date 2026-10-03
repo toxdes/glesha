@@ -75,6 +75,9 @@ func (s *Service) Relocate(ctx context.Context, file string) error {
 	if err != nil {
 		return err
 	}
+	if v.Layout == "chunked" {
+		return fmt.Errorf("backup: chunked runs cannot relocate a complete archive")
+	}
 	file, err = filepath.Abs(file)
 	if err != nil {
 		return err
@@ -115,6 +118,9 @@ func retainRunArchive(ctx context.Context, c repository.Cataloger) error {
 	var request runRequest
 	if err = json.Unmarshal([]byte(b), &request); err != nil {
 		return err
+	}
+	if request.Chunked {
+		return fmt.Errorf("backup: --keep-archive is unavailable for chunked runs")
 	}
 	request.AutoCleanup = false
 	binary, err := json.Marshal(request)

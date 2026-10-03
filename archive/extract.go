@@ -285,16 +285,48 @@ func Extract(ctx context.Context, o ExtractOptions) (model.Manifest, string, err
 	return manifest, format, nil
 }
 func ExtractInto(ctx context.Context, o ExtractOptions, stage string, manifest *model.Manifest) (string, error) {
-	root, e := os.OpenRoot(stage)
-	if e != nil {
-		return "", e
-	}
-	defer root.Close()
 	in, e := os.Open(o.Input)
 	if e != nil {
 		return "", e
 	}
 	defer in.Close()
+	info, e := in.Stat()
+	if e != nil {
+		return "", e
+	}
+	progress := L.StartProgress(ctx, "Extracting", info.Size())
+	defer progress.Finish()
+	return extractWith(ctx, o, stage, manifest, func(fn func(*tar.Header, io.Reader) error) (string, error) {
+		return scanWith(ctx, o.Decoder, o.Decryptor, progress.Reader(in), o.Password, fn)
+	})
+}
+
+func ExtractTarInto(ctx context.Context, o ExtractOptions, r io.Reader, stage string, manifest *model.Manifest) error {
+	_, err := extractWith(ctx, o, stage, manifest, func(fn func(*tar.Header, io.Reader) error) (string, error) {
+		tr := tar.NewReader(file_io.ContextReader{Ctx: ctx, Reader: r})
+		for {
+			h, err := tr.Next()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return "", err
+			}
+			if err = fn(h, tr); err != nil {
+				return "", err
+			}
+		}
+		return "", drain(r)
+	})
+	return err
+}
+
+func extractWith(ctx context.Context, o ExtractOptions, stage string, manifest *model.Manifest, scan func(func(*tar.Header, io.Reader) error) (string, error)) (string, error) {
+	root, e := os.OpenRoot(stage)
+	if e != nil {
+		return "", e
+	}
+	defer root.Close()
 	tmp, e := file_io.Temp(filepath.Dir(stage))
 	if e != nil {
 		return "", e
@@ -306,14 +338,8 @@ func ExtractInto(ctx context.Context, o ExtractOptions, stage string, manifest *
 		return "", e
 	}
 	defer cat.Close()
-	info, e := in.Stat()
-	if e != nil {
-		return "", e
-	}
-	progress := L.StartProgress(ctx, "Extracting", info.Size())
-	defer progress.Finish()
 	wrapper := ""
-	format, e := scanWith(ctx, o.Decoder, o.Decryptor, progress.Reader(in), o.Password, func(h *tar.Header, r io.Reader) error {
+	format, e := scan(func(h *tar.Header, r io.Reader) error {
 		n, e := SafeName(h.Name)
 		if e != nil {
 			return e
@@ -345,8 +371,11 @@ func ExtractInto(ctx context.Context, o ExtractOptions, stage string, manifest *
 			if e = json.NewDecoder(io.LimitReader(r, 4<<20)).Decode(manifest); e != nil {
 				return e
 			}
-			if manifest.Version != 1 {
+			if manifest.Version != 1 && manifest.Version != 2 {
 				return fmt.Errorf("archive: unsupported manifest version")
+			}
+			if manifest.Layout != "" && manifest.Layout != "single" && manifest.Layout != "chunked" {
+				return fmt.Errorf("archive: unsupported manifest layout")
 			}
 			return nil
 		}

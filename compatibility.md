@@ -46,3 +46,13 @@ requests mean retain the archive. New runs enable cleanup only for automatically
 named outputs; `--keep-archive` and explicit relocation disable it persistently.
 Cleanup follows successful remote publication and local commit, without changing
 archive bytes, snapshot identity or the serialized local file reference.
+
+Chunked snapshots use archive manifest version 2 and `layout: chunked`, with an
+ordered chunk list and a separately encrypted descriptor version 1. Single-file
+manifest version 1 remains unchanged. Missing `layout`, `chunks`, set `chunked`
+and `spool_max` fields retain the single-file behavior; unknown layouts are rejected.
+Chunks contain tar fragments, so raw extraction of one chunk is not supported.
+The current limit is 65,536 chunks per snapshot. Source bytes must match the
+frozen inventory when resuming; no encryption or compression state is persisted.
+AWS lifecycle observations cover each chunk independently. Command-driven moves
+and storage-class changes currently reject chunked snapshots.

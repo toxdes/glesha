@@ -22,6 +22,28 @@ type progressTestClient struct {
 	do func(*http.Request) (*http.Response, error)
 }
 
+func TestMultipartWorkerLimits(t *testing.T) {
+	for _, tc := range []struct {
+		name                              string
+		workers, parts, sharedLimit, want int
+	}{
+		{"configured", 4, 20, 0, 4},
+		{"few parts", 4, 2, 0, 2},
+		{"shared budget", 8, 20, 3, 3},
+		{"single part", 4, 1, 4, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &s3Store{workers: tc.workers}
+			if tc.sharedLimit > 0 {
+				s.limit = make(chan struct{}, tc.sharedLimit)
+			}
+			if got := s.multipartWorkers(tc.parts); got != tc.want {
+				t.Fatalf("worker count %d, want %d", got, tc.want)
+			}
+		})
+	}
+}
+
 type progressOutput struct {
 	mu     sync.Mutex
 	buffer bytes.Buffer
@@ -90,7 +112,7 @@ func TestSDKUploadDisplaysBytesBeforeAcknowledgement(t *testing.T) {
 	case <-ctx.Done():
 		t.Fatal("upload did not reach server")
 	}
-	for !output.contains("128.50 KiB / 128.50 KiB") {
+	for !output.contains("[128.50K/128.50K]") {
 		select {
 		case <-ctx.Done():
 			t.Fatal("progress waited for upload acknowledgement")

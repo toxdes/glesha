@@ -7,6 +7,12 @@ glesha-create \- register a backup set and its source paths locally
 Register a backup set and its source paths locally. This creates no archive and makes no cloud requests.
 .SH OPTIONS
 .TP
+.B \-\-chunked
+Use independent encrypted chunks with bounded local spool space. \-\-chunked=false selects a single archive.
+.TP
+.B \-\-spool\-max SIZE
+Maximum chunk spool space (default 128MiB); accepts 128M, 1.1G and binary MiB/GiB units.
+.TP
 .B \-\-L STRING
 debug, info, warn, error or silent (default "info")
 .TP
@@ -75,7 +81,9 @@ progress and adapt to about 80 percent of terminal width. Upload progress includ
 in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
 that final validation or catalog publication has finished.
 Use --log-level=debug for operation and worker-budget diagnostics.
-Human sizes use binary units (KiB, MiB, GiB). JSON retains integer byte counts.
+Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
+Explicit worker flags show the effective worker count; archiving and individual
+downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
 .SH COMPATIBILITY
 Existing encb gzip/OpenPGP archives are read without recompression or replacement.
 Compression is detected from the decrypted stream, independent of filenames.

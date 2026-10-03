@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +13,6 @@ import (
 	"github.com/google/uuid"
 
 	"glesha/archive"
-	"glesha/cloud"
 	"glesha/database/model"
 	"glesha/database/repository"
 	"glesha/file_io"
@@ -91,6 +89,9 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	v.Compression, err = archive.ExtractInto(ctx, archive.ExtractOptions{Input: o.File, Password: o.Password, StripWrapper: true, Catalog: staged, Snapshot: scan}, extraction, &manifest)
 	if err != nil {
 		return v, err
+	}
+	if manifest.Layout == "chunked" {
+		return v, fmt.Errorf("backup: individual chunked objects cannot be imported; pull the set catalog")
 	}
 	if manifest.ID != "" {
 		if !manifest.Full {
@@ -269,30 +270,16 @@ func (s *Service) History(ctx context.Context, fn func(model.Snapshot, []model.L
 			return err
 		}
 		for i := range ls {
-			b, err := os.ReadFile(filepath.Join(s.Directory, "observation-"+v.ID+"-"+ls[i].Provider+".json"))
-			if os.IsNotExist(err) {
-				continue
-			}
-			if err != nil {
+			if err := s.observeLocation(ctx, v.ID, &ls[i]); err != nil {
 				return err
 			}
-			var h cloud.Object
-			if err = json.Unmarshal(b, &h); err != nil {
-				return err
+		}
+		for i := range v.Chunks {
+			for j := range v.Chunks[i].Locations {
+				if err := s.observeLocation(ctx, v.ID, &v.Chunks[i].Locations[j]); err != nil {
+					return err
+				}
 			}
-			info, err := os.Stat(filepath.Join(s.Directory, "observation-"+v.ID+"-"+ls[i].Provider+".json"))
-			if err != nil {
-				return err
-			}
-			if h.Key != ls[i].Key || h.Version != "" && h.Version != ls[i].Version || ls[i].ObservedAt != nil && info.ModTime().Before(*ls[i].ObservedAt) {
-				continue
-			}
-			observed := info.ModTime().UTC()
-			ls[i].ObservedAt = &observed
-			ls[i].ObservedClass = h.Class
-			ls[i].CurrentClass = h.Class
-			ls[i].Cold = h.Cold
-			ls[i].Restore = h.Restore
 		}
 		return fn(v, ls)
 	})

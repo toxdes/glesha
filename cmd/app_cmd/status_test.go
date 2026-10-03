@@ -130,3 +130,69 @@ func TestStatusTablesEscapeNamesAndPreserveLongValues(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusChunkedCountsActualObjectsAndClasses(t *testing.T) {
+	ctx := context.Background()
+	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	remote, err := registry.BindRemote(ctx, model.Remote{Name: "aws", Kind: "aws", Region: "us-east-1", Bucket: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := model.Set{ID: "set", Name: "docs", CatalogTo: "local", To: []string{remote.ID}}
+	if err = registry.Create(ctx, set); err != nil {
+		t.Fatal(err)
+	}
+	r := &runtime{ctx: ctx, registry: registry, config: config.Defaults(), root: t.TempDir(), env: &AppCmdEnv{}, out: &bytes.Buffer{}}
+	if err = r.openSet(set.ID); err != nil {
+		t.Fatal(err)
+	}
+	c, err := r.service.Catalog(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := model.Snapshot{Manifest: model.Manifest{ID: "chunked", Set: set.ID, Full: true, Layout: "chunked"}, Size: 3, Status: model.STATUS_COMPLETED}
+	v.Chunks = []model.Chunk{
+		{Size: 1, Locations: []model.Location{{Provider: remote.ID, Key: "chunk-a", Status: model.STATUS_COMPLETED, CurrentClass: "STANDARD_IA", Verification: "sha256"}}},
+		{Size: 1, Locations: []model.Location{{Provider: remote.ID, Key: "chunk-b", Status: model.STATUS_COMPLETED, CurrentClass: "DEEP_ARCHIVE", Cold: true, Verification: "sha256"}}},
+	}
+	if err = c.PutSnapshot(ctx, v); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.PutLocation(ctx, model.Location{Snapshot: v.ID, Provider: remote.ID, Key: "descriptor", Status: model.STATUS_COMPLETED, CurrentClass: "STANDARD", Verification: "sha256"}); err != nil {
+		t.Fatal(err)
+	}
+	if err = c.SetMeta(ctx, "head", v.ID); err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	d, err := collectStatus(r, set)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected float64
+	for _, class := range []string{"STANDARD", "STANDARD_IA", "DEEP_ARCHIVE"} {
+		monthly, known := pricing.Monthly("aws", "us-east-1", class, 1)
+		if !known {
+			t.Fatal("unknown rate")
+		}
+		expected += pricing.Annual(monthly)
+	}
+	if d.ArchiveBytes != 3 || d.ArchiveAnnualUSD != expected || d.Snapshots != 1 {
+		t.Fatalf("incorrect object accounting: %+v", d)
+	}
+	group := d.LatestObjects[remote.ID]
+	if group.Objects != 3 || group.Class != "mixed" || !group.Cold {
+		t.Fatalf("incorrect latest copy summary: %+v", group)
+	}
+	if len(d.Locations) != 1 {
+		t.Fatal("changed existing locations envelope")
+	}
+	text := statusDetails(d)
+	if !strings.Contains(text, "3 objects; mixed") || !strings.Contains(text, "cold restore required") {
+		t.Fatal(text)
+	}
+}

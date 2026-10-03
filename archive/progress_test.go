@@ -127,7 +127,7 @@ func TestArchiveCreationReportsActualInputTotal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "64.00 KiB / 256.00 KiB 25.00%") || !strings.Contains(output.String(), "Finalizing archive") {
+	if !strings.Contains(output.String(), "[25.00%] [64.00K/256.00K]") || !strings.Contains(output.String(), "Finalizing archive") {
 		t.Fatal("archive did not expose its byte total", output.String())
 	}
 }

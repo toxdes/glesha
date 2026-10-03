@@ -37,7 +37,7 @@ func Download(ctx context.Context, stores map[string]cloud.Store, from []string,
 			r.Close()
 			return h, err
 		}
-		progress := L.StartProgress(ctx, "Downloading", h.Size)
+		progress := L.StartWorkerProgress(ctx, "Downloading", h.Size, 1)
 		_, err = copyContext(ctx, temp, progress.Reader(r))
 		progress.Finish()
 		r.Close()
