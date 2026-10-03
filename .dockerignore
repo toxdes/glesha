@@ -43,3 +43,7 @@
 **/*.db
 **/*.sqlite
 **/findings-*.md
+
+**/__pycache__/**
+
+**/*.py[cod]

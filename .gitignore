@@ -35,3 +35,7 @@ dist/
 *.gpg
 !archive/testdata/*.gpg
 findings-*.md
+
+# Ignore Python packaging caches
+__pycache__/
+*.py[cod]

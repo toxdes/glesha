@@ -10,7 +10,7 @@
 - Database layers: `database/model/` (data structs + CREATE TABLE consts), `database/repository/` (interface + impl + `New*`)
 - Repository triad: exported interface → unexported struct → exported `New*` constructor that returns the interface
 - Catalog repositories initialized with `repository.NewCatalogRepository(ctx, path)`
-- `Configurator` interface in `config/config.go` for test mocking of package-level functions
+- `Configurator` interface lives in `config/interface.go`.
 
 ## Code Style
 - Always use `logger` package with `L` import alias (`L "glesha/logger"`)
@@ -25,10 +25,10 @@
 - Import ordering: stdlib → external → internal groups, with blank lines separating each group
 - If a function might involve async work, accept `ctx context.Context` as its first parameter for future-proofing
 - Use `defer` for cleanup (closing db, files, etc.)
-- Use `*CmdEnv` naming for command environment structs, stored as package-level singleton (`var addCmdEnv *AddCmdEnv`)
+- Command flags use `AppCmdEnv` in `cmd/app_cmd/app.go`, passed through the command runtime.
 - Interface names: `*er` / `*or` suffix (e.g., `Archiver`, `Configurator`, `StorageFactory`)
 - Enum constants: use custom types with `String()` / `Parse()` methods, not raw strings or ints
-- Status constants prefix: `TASK_STATUS_*`, `UPLOAD_STATUS_*`, `STATUS_*`, `AF_*`, `PROVIDER_*`
+- Snapshot and transfer status constants use the `STATUS_*` prefix.
 - No builder pattern or functional options — use simple struct literal initialization
 
 ## Error Handling
