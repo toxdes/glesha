@@ -8,6 +8,12 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
     -ldflags "-s -w -X main.VERSION=${VERSION} -X main.GIT_SHA=${GIT_SHA}" -o /build/glesha .
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=${TARGETARCH} go build -trimpath \
+    -ldflags "-s -w -X main.VERSION=${VERSION} -X main.GIT_SHA=${GIT_SHA}" -o /build/glesha-macos .
+RUN if [ "${TARGETARCH}" = "amd64" ]; then \
+    CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath \
+    -ldflags "-s -w -X main.VERSION=${VERSION} -X main.GIT_SHA=${GIT_SHA}" -o /build/glesha-windows.exe .; \
+    fi
 
 FROM debian:bookworm-slim AS package
 RUN apt-get update && apt-get install -y --no-install-recommends python3 dpkg-dev rpm tar \
@@ -21,7 +27,7 @@ WORKDIR /build
 COPY release.toml version.txt LICENSE config-sample.toml ./
 COPY man ./man
 COPY packaging ./packaging
-COPY --from=compile /build/glesha ./glesha
+COPY --from=compile /build/ ./
 COPY yesb/package.py /package.py
 RUN python3 /package.py
 RUN python3 packaging/prepare_archive.py

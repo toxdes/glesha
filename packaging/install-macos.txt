@@ -1,0 +1,24 @@
+glesha - macOS installation
+
+Choose arm64 for Apple Silicon or amd64 for Intel (uname -m).
+
+Verify and extract the downloaded archive:
+  shasum -a 256 -c glesha_VERSION_macos_ARCH.tar.gz.sha256
+  mkdir glesha-unpacked
+  tar -xzf glesha_VERSION_macos_ARCH.tar.gz -C glesha-unpacked
+  cd glesha-unpacked
+
+Install for the current user:
+  install -d "$HOME/.local/bin" "$HOME/.local/share/man/man1"
+  install -m 755 bin/glesha "$HOME/.local/bin/glesha"
+  install -m 644 share/man/man1/glesha*.1 "$HOME/.local/share/man/man1/"
+
+Add "$HOME/.local/bin" to PATH, then run:
+  glesha version
+  glesha help
+  man -M "$HOME/.local/share/man" glesha
+
+For system-wide installation, use /usr/local instead of "$HOME/.local" with sudo.
+Upgrades replace the executable and matching manuals; keep configuration and state.
+The sample configuration is share/doc/glesha/config-sample.toml.
+Supply credentials through environment variables or --env FILE.

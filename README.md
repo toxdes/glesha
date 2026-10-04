@@ -21,6 +21,8 @@ curl -fsSL https://glesha.toxdes.com/install | sh
 
 See [installation options](https://glesha.toxdes.com/docs.html#installation) for binary downloads and manual installation.
 
+Direct bundles also cover macOS Intel/Apple Silicon and Windows x64. Each includes `install.txt`.
+
 ## Back up and restore
 
 Configure [provider credentials](https://glesha.toxdes.com/configuration.html) in your environment or pass `--env FILE`.
@@ -63,6 +65,7 @@ go test -race ./...
 ```
 
 Release packages are built with [Yesb](https://github.com/toxdes/yesb): `./yesb/build_all.py`.
+See [release instructions](packaging/README.md) for direct downloads, APT/RPM, AUR and Homebrew.
 
 ## License
 

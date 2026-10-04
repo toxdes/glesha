@@ -1,0 +1,20 @@
+glesha - Windows x64 installation
+
+Use the windows_amd64.zip archive for 64-bit Intel or AMD Windows.
+
+In PowerShell, compare the SHA-256 hash with the adjacent .sha256 file:
+  Get-FileHash .\glesha_VERSION_windows_amd64.zip -Algorithm SHA256
+  Get-Content .\glesha_VERSION_windows_amd64.zip.sha256
+
+Extract into a new directory:
+  Expand-Archive .\glesha_VERSION_windows_amd64.zip -DestinationPath .\glesha-unpacked
+
+Copy bin\glesha.exe into a directory on your user PATH, then open a new terminal:
+  glesha version
+  glesha help
+
+The executable includes its runtime dependencies. No GPG or compression tools are needed.
+Use glesha help COMMAND for command options; Unix manual sources are also included.
+The sample configuration is share\doc\glesha\config-sample.toml.
+Supply credentials through environment variables or --env FILE.
+Upgrades replace the executable; keep configuration, state and remote backups.
