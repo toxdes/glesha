@@ -26,6 +26,26 @@ priority = "optional"
 release = "1"
 
 [[package.deb.assets]]
+source = "LICENSE"
+dest = "/usr/share/doc/glesha/copyright"
+mode = 0o644
+
+[[package.deb.assets]]
+source = "config-sample.toml"
+dest = "/usr/share/doc/glesha/config-sample.toml"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "LICENSE"
+dest = "/usr/share/licenses/glesha/LICENSE"
+mode = 0o644
+
+[[package.rpm.assets]]
+source = "config-sample.toml"
+dest = "/usr/share/doc/glesha/config-sample.toml"
+mode = 0o644
+
+[[package.deb.assets]]
 source = "man/glesha-archive.1"
 dest = "/usr/share/man/man1/glesha-archive.1"
 mode = 0o644
@@ -371,7 +391,132 @@ dest = "/usr/share/doc/glesha/config-sample.toml"
 mode = 0o644
 
 [hosting]
+public_base_url = "https://packages.toxdes.com"
 release_prefix = "glesha/releases"
+apt_prefix = "apt"
+rpm_prefix = "rpm"
+
+[hosting.apt]
+suite = "stable"
+component = "main"
+origin = "toxdes"
+label = "Toxdes"
+
+[hosting.aur]
+host = "aur.archlinux.org"
+ssh_user = "aur"
+maintainer = "toxdes <hi@toxdes.com>"
+
+[aur]
+binary_package = "glesha-bin"
+git_package = "glesha-git"
+git_pkgbuild = "PKGBUILD"
+srcinfo_helper_image = "docker.io/toxdes/yesb-aur-helper@sha256:e0b511b58baf4d1e281b154a50fd15125f886472dc7166a4aa578cb7a40435ea"
+
+[homebrew]
+tap = "toxdes/tap"
+remote = "git@github.com:toxdes/homebrew-tap.git"
+branch = "main"
+formula = "glesha"
+binary = "bin/glesha"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-archive.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-browse.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-catalog.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-check.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-configure.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-create.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-decrypt.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-download.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-extract.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-help.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-history.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-import.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-list.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-move.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-restore.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-retry.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-run.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-status.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-storage-class.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-upload.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha-version.1"
+destination = "man1"
+
+[[homebrew.assets]]
+source = "share/man/man1/glesha.1"
+destination = "man1"
+
+[[homebrew.archives]]
+artifact = "glesha_{version}_macos_amd64.tar.gz"
+architecture = "x86_64"
+url = "https://packages.toxdes.com/glesha/releases/glesha_{version}_macos_amd64.tar.gz"
+
+[[homebrew.archives]]
+artifact = "glesha_{version}_macos_arm64.tar.gz"
+architecture = "arm64"
+url = "https://packages.toxdes.com/glesha/releases/glesha_{version}_macos_arm64.tar.gz"
 
 [[release.artifacts]]
 name = "glesha_{version}_amd64.tar.gz"
@@ -382,3 +527,18 @@ architecture = "amd64"
 name = "glesha_{version}_arm64.tar.gz"
 platform = "linux"
 architecture = "arm64"
+
+[[release.artifacts]]
+name = "glesha_{version}_macos_amd64.tar.gz"
+platform = "macos"
+architecture = "amd64"
+
+[[release.artifacts]]
+name = "glesha_{version}_macos_arm64.tar.gz"
+platform = "macos"
+architecture = "arm64"
+
+[[release.artifacts]]
+name = "glesha_{version}_windows_amd64.zip"
+platform = "windows"
+architecture = "amd64"
