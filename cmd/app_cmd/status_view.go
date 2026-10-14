@@ -3,12 +3,15 @@ package app_cmd
 import (
 	"database/sql"
 	"encoding/csv"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/term"
 
@@ -90,9 +93,13 @@ func status(r *runtime, args []string) error {
 	}
 	if format == "csv" {
 		writer := csv.NewWriter(r.out)
-		writer.Write([]string{"set", "state", "archive_bytes", "snapshots", "storage_class", "estimated_annual_usd", "estimate_complete"})
+		writer.Write([]string{"set", "state", "archive_bytes", "snapshots", "storage_class", "estimated_annual_usd", "estimate_complete", "retrievals"})
 		for _, d := range rows {
-			writer.Write([]string{d.Set.Name, d.Condition.State.String(), strconv.FormatInt(d.ArchiveBytes, 10), strconv.FormatInt(d.Snapshots, 10), dominantClass(d.Classes), strconv.FormatFloat(d.ArchiveAnnualUSD+d.MetadataAnnualUSD, 'f', 6, 64), strconv.FormatBool(d.EstimateComplete)})
+			retrievals, err := json.Marshal(d.Retrievals)
+			if err != nil {
+				return err
+			}
+			writer.Write([]string{d.Set.Name, d.Condition.State.String(), strconv.FormatInt(d.ArchiveBytes, 10), strconv.FormatInt(d.Snapshots, 10), dominantClass(d.Classes), strconv.FormatFloat(d.ArchiveAnnualUSD+d.MetadataAnnualUSD, 'f', 6, 64), strconv.FormatBool(d.EstimateComplete), string(retrievals)})
 		}
 		writer.Flush()
 		return errors.Join(writer.Error(), errors.Join(failures...))
@@ -124,10 +131,16 @@ func status(r *runtime, args []string) error {
 	if len(args) == 1 && len(rows) == 1 {
 		fmt.Fprint(r.out, statusDetails(rows[0]))
 	}
+	if err = renderRetrievals(r.out, rows, len(args) == 1, format, color); err != nil {
+		return err
+	}
 	heading := ""
 	for _, waiting := range []bool{false, true} {
 		heading = ""
 		for _, d := range rows {
+			if len(d.Retrievals) > 0 && (d.Condition.Operation == "import" || d.Condition.Operation == "restore") && (d.Condition.State == backup.STATE_WAITING || d.Condition.State == backup.STATE_PAUSED) {
+				continue
+			}
 			if d.Condition.Reason == "" || (d.Condition.State == backup.STATE_WAITING) != waiting {
 				continue
 			}
@@ -203,7 +216,7 @@ func renderColumns(rows [][]string, format string, color bool) string {
 		}
 		for j, cell := range row {
 			padded := fmt.Sprintf("%-*s", widths[j], cell)
-			if color && i > 0 && j == 1 && cell != "" {
+			if color && i > 0 && rows[0][j] == "STATE" && cell != "" {
 				code := ""
 				switch backup.SetState(cell) {
 				case backup.STATE_SYNCED:
@@ -211,6 +224,12 @@ func renderColumns(rows [][]string, format string, color bool) string {
 				case backup.STATE_PAUSED, backup.STATE_LOCAL, backup.STATE_WAITING, backup.STATE_STALE:
 					code = "33"
 				case backup.STATE_CONFLICT, backup.STATE_FAILED:
+					code = "31"
+				case backup.SetState(backup.RETRIEVAL_READY):
+					code = "32"
+				case backup.SetState(backup.RETRIEVAL_QUEUED), backup.SetState(backup.RETRIEVAL_PARTIAL):
+					code = "33"
+				case backup.SetState(backup.RETRIEVAL_EXPIRED):
 					code = "31"
 				}
 				if code != "" {
@@ -241,7 +260,7 @@ func renderColumns(rows [][]string, format string, color bool) string {
 }
 func statusDetails(d statusData) string {
 	var out strings.Builder
-	rows := [][]string{{"Last backup (UTC)", statusTime(d.LastBackup)}, {"Last sync (UTC)", statusTime(d.LastSync)}}
+	rows := [][]string{{"Last backup", statusTime(d.LastBackup)}, {"Last sync", statusTime(d.LastSync)}}
 	destinations := make([]string, 0, len(d.Set.To))
 	for _, id := range d.Set.To {
 		name := d.Providers[id]
@@ -274,4 +293,63 @@ func statusDetails(d statusData) string {
 		fmt.Fprint(&out, "\n", renderColumns(rows, "plain", false))
 	}
 	return out.String()
+}
+
+func renderRetrievals(out io.Writer, sets []statusData, single bool, format string, color bool) error {
+	var checked *time.Time
+	unknown, count, zone, mixedZone := false, 0, "", false
+	for _, set := range sets {
+		for _, retrieval := range set.Retrievals {
+			count++
+			unknown = unknown || retrieval.CheckedAt == nil
+			if retrieval.CheckedAt != nil && (checked == nil || retrieval.CheckedAt.Before(*checked)) {
+				checked = retrieval.CheckedAt
+			}
+			if retrieval.ExpiresAt != nil {
+				current := retrieval.ExpiresAt.Local().Format("MST")
+				mixedZone = mixedZone || zone != "" && zone != current
+				zone = current
+			}
+		}
+	}
+	if count == 0 {
+		return nil
+	}
+	if unknown {
+		checked = nil
+	}
+	if zone == "" {
+		zone = time.Now().Local().Format("MST")
+	}
+	expiryHeading := "EXPIRES (" + zone + ")"
+	if mixedZone {
+		expiryHeading = "EXPIRES"
+	}
+	header := []string{"TASK", "STATE", "READY", "WAITING", expiryHeading}
+	if !single {
+		header = append([]string{"SET"}, header...)
+	}
+	rows := [][]string{header}
+	for _, set := range sets {
+		for _, retrieval := range set.Retrievals {
+			expires := "-"
+			if retrieval.ExpiresAt != nil {
+				layout := "Jan 02 15:04"
+				if retrieval.ExpiresAt.Local().Year() != time.Now().Local().Year() {
+					layout = "2006-01-02 15:04"
+				}
+				if mixedZone {
+					layout += " MST"
+				}
+				expires = retrieval.ExpiresAt.Local().Format(layout)
+			}
+			row := []string{retrieval.Task.String(), retrieval.State.String(), strconv.Itoa(retrieval.Ready), strconv.Itoa(retrieval.Waiting), expires}
+			if !single {
+				row = append([]string{set.Set.Name}, row...)
+			}
+			rows = append(rows, row)
+		}
+	}
+	_, err := fmt.Fprintf(out, "\nRetrieval Status\nLast checked: %s\n%s", statusTime(checked), renderColumns(rows, format, color))
+	return err
 }

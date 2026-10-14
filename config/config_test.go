@@ -8,7 +8,7 @@ import (
 
 func TestDefaultsAndTOML(t *testing.T) {
 	d := Defaults()
-	if d.Archive.Compression != "xz" || d.Archive.Level != 6 || d.Cold.Tier != "Bulk" {
+	if d.Archive.Compression != "xz" || d.Archive.Level != 6 || d.Cold.Tier != "Bulk" || d.Cold.Days != 3 {
 		t.Fatal("unsafe defaults")
 	}
 	file := filepath.Join(t.TempDir(), "config.toml")

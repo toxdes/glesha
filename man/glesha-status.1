@@ -12,6 +12,15 @@ States: NEW, SYNCED, RUNNING, PAUSED, LOCAL, PUBLISHING, WAITING, STALE, CONFLIC
 SYNCED describes last-known local state, not live verification.
 Plain status makes no cloud requests. With \-\-refresh, check live object metadata;
 this does not pull catalogs, download archives or request retrieval.
+.PP
+Pending cold imports and restores add Retrieval Status with TASK, STATE, READY,
+WAITING and EXPIRES columns. With no SET argument, also show SET.
+READY and WAITING count archives. Retrieval states are QUEUED, PARTIAL, READY
+and EXPIRED. Expiry is the earliest deadline once all requested archives are ready.
+Last checked shows the oldest observation, or a dash when unknown.
+Human timestamps use local time. JSON timestamps remain UTC.
+Completed operations leave this section. JSON includes individual object references;
+CSV appends a retrievals JSON column.
 .SH OPTIONS
 .TP
 .B \-\-format STRING

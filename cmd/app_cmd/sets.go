@@ -387,9 +387,9 @@ func history(r *runtime, args []string) error {
 	return r.service.History(r.ctx, func(v model.Snapshot, ls []model.Location) error {
 		date := "-"
 		if !v.Imported {
-			date = v.Created.Format("2006-01-02 15:04 UTC")
+			date = statusTime(&v.Created)
 		} else if v.BackupDate != nil {
-			date = v.BackupDate.Format("2006-01-02 15:04 UTC")
+			date = statusTime(v.BackupDate)
 		}
 		mode := "full"
 		if !v.Full {

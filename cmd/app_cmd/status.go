@@ -26,6 +26,7 @@ type latestCopyStatus struct {
 }
 
 type statusData struct {
+	Retrievals               []backup.RetrievalStatus    `json:"retrievals,omitempty"`
 	Condition                backup.Condition            `json:"condition"`
 	Classes                  map[string]int64            `json:"storage_classes"`
 	LastSync                 *time.Time                  `json:"last_sync,omitempty"`
@@ -92,6 +93,10 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 	if d.CatalogAvailable {
 		d.LocalCatalogBytes = info.Size()
 	}
+	d.Retrievals, err = r.service.Retrievals(r.ctx, false)
+	if err != nil {
+		return d, err
+	}
 	if r.env.Refresh {
 		from, err := r.remoteIDs(r.env.From)
 		if err != nil {
@@ -102,6 +107,11 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 		}
 		if set.CatalogTo != "" && set.CatalogTo != "local" {
 			from = append(from, set.CatalogTo)
+		}
+		for _, retrieval := range d.Retrievals {
+			for _, object := range retrieval.Objects {
+				from = append(from, object.Provider)
+			}
 		}
 		if err = r.stores(from); err != nil {
 			return d, err
@@ -114,6 +124,25 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 		if set.CatalogTo != "" && set.CatalogTo != "local" {
 			if err = r.service.RefreshMetadataStatus(r.ctx); err != nil {
 				return d, err
+			}
+		}
+		d.Retrievals, err = r.service.Retrievals(r.ctx, true)
+		if err != nil {
+			return d, err
+		}
+	}
+	retrievalOperation := d.Condition.Operation == "" || d.Condition.Operation == "import" || d.Condition.Operation == "restore"
+	if free && len(d.Retrievals) > 0 && retrievalOperation && (d.Condition.State == backup.STATE_WAITING || d.Condition.State == backup.STATE_PAUSED || d.Condition.State == backup.STATE_NEW || d.Condition.State == backup.STATE_STALE && !d.CatalogAvailable) {
+		if d.Condition.Operation == "" {
+			d.Condition.Operation = strings.ToLower(d.Retrievals[0].Task.String())
+		}
+		d.Condition.State = backup.STATE_PAUSED
+		d.Condition.Reason = "Download ready"
+		for _, retrieval := range d.Retrievals {
+			if retrieval.Waiting > 0 {
+				d.Condition.State = backup.STATE_WAITING
+				d.Condition.Reason = "AWS retrieval pending"
+				break
 			}
 		}
 	}
@@ -294,7 +323,7 @@ func statusTime(t *time.Time) string {
 	if t == nil || t.IsZero() {
 		return "-"
 	}
-	return t.UTC().Format("2006-01-02 15:04")
+	return t.Local().Format("2006-01-02 15:04 MST")
 }
 func usd(value float64) string {
 	if value > 0 && value < 0.01 {

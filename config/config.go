@@ -55,6 +55,9 @@ func DefaultPath() (string, error) {
 	d, e := os.UserConfigDir()
 	return filepath.Join(d, "glesha", "config.toml"), e
 }
+
+const DefaultRetrievalDays int32 = 3
+
 func Defaults() Config {
 	var c Config
 	c.Archive.Prefix = "glesha"
@@ -67,7 +70,7 @@ func Defaults() Config {
 	c.AWS.StorageClass = ""
 	c.Catalog.Encrypted = true
 	c.Catalog.Prefix = "glesha/v2"
-	c.Cold.Days = 7
+	c.Cold.Days = DefaultRetrievalDays
 	c.Cold.Tier = "Bulk"
 	return c
 }

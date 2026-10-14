@@ -250,6 +250,9 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 		if err = json.Unmarshal([]byte(policy), &saved); err != nil {
 			return err
 		}
+		if retrieval.UseSavedDays || retrieval.Days == 0 {
+			retrieval.Days = saved.Days
+		}
 		if retrieval.Tier != "" && retrieval.Tier != saved.Tier || retrieval.Days != 0 && retrieval.Days != saved.Days {
 			return fmt.Errorf("backup: retrieval options conflict with pending move")
 		}
