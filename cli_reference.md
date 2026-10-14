@@ -104,6 +104,42 @@ The catalog secret is separate: `GLESHA_CATALOG_PASSPHRASE`, a hidden prompt, or
 `--catalog-passphrase-file FILE`. Passwords are never stored. For mixed-password
 chains use repeated `--archive-passphrase-file SNAPSHOT_ID=FILE` overrides.
 
+### Local state
+
+Databases, pending work and managed archive copies use a dedicated state directory:
+
+| Platform | State directory |
+| --- | --- |
+| Linux | `$XDG_DATA_HOME/glesha/state`, or `~/.local/share/glesha/state` |
+| macOS | `~/Library/Application Support/glesha/state` |
+| Windows | `%LOCALAPPDATA%\glesha\state` |
+
+Override it per config, including for development:
+
+```toml
+[catalog]
+directory = "/absolute/path/to/worktree/.dev/state"
+```
+
+`--config` alone does not isolate state. Set `catalog.directory` too.
+
+### Migrate older state
+
+```sh
+glesha state migrate
+```
+
+Moves only the old `glesha/state-v2` directory under the platform config directory.
+Config and credential files stay untouched. Stop other glesha processes first.
+Pending operations, archives and IDs are preserved; original database copies stay
+in the new state's `.state-migration-backup` directory. No cloud requests are made.
+An interrupted migration can be retried with the same command.
+
+Migration refuses an existing destination or unsupported databases. Source and
+destination must share a filesystem; archive bytes are moved without copying.
+An explicit `catalog.directory` selects the destination. Existing custom state
+locations continue to work without migration.
+
 ## Catalogs and compatibility
 
 `registry.db` maps set names/UUIDs and stable remote identities. Each set UUID has
@@ -327,7 +363,17 @@ glesha list --remote --from b2 --env /secure/cloud.env
 glesha status [SET] [options]
 ```
 
-Show an ASCII table of catalog availability, committed snapshots, stored archive copies, remote metadata size, last upload and estimated annual storage cost in USD. `status SET` adds sources, snapshot identity, local database size, provider copies and separate archive/metadata estimates.
+Show `SET STATE SIZE SNAPSHOTS STORAGE CLASS EST/YR` in left-aligned columns.
+Sizes use binary `B/K/M/G/T` units. The dominant storage class holds the most
+recorded archive bytes; `status SET` adds a per-class breakdown and source paths.
+Overview totals deduplicate identical remote object versions shared by sets. Costs estimate archive and metadata
+storage only. State labels use green for `SYNCED`, yellow for unfinished work,
+and red for conflicts/errors; `--color` controls coloring.
+
+States: `NEW`, `SYNCED`, `RUNNING`, `PAUSED`, `LOCAL`, `PUBLISHING`, `WAITING`,
+`STALE`, `CONFLICT`, `FAILED`. `SYNCED` means no known outstanding work based on
+local records, not a live recovery check. A stopped publication is `PAUSED`;
+`PUBLISHING` requires a live writer. Outstanding work includes a short next action.
 
 | Option | Meaning |
 | --- | --- |
@@ -335,6 +381,7 @@ Show an ASCII table of catalog availability, committed snapshots, stored archive
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--config STRING` | TOML configuration file |
 | `--env STRING` | explicit credential environment file |
+| `--format STRING` | plain (default), table, csv or json |
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
 | `--h` | show help |
 | `--help` | show help |
@@ -348,11 +395,11 @@ Examples:
 ```console
 glesha status
 glesha status docs --refresh --env /secure/cloud.env
+glesha status --format csv
+glesha status docs --format table
 ```
 
 Plain status uses local records and cached measurements, without cloud requests.
-A local catalog is `missing`, `local`, or `cached` (previously synchronized or
-published). Cached does not promise that the remote has no newer revisions.
 `--refresh` checks recorded archive metadata and lists current metadata objects;
 it does not download or pull catalogs or request cold restoration.
 
@@ -376,6 +423,9 @@ objects and untracked object versions. They do not predict future backup growth.
 Intelligent-Tiering assumes Frequent Access unless archive access is observed.
 JSON retains its version 2 envelope and original fields; additional byte counts
 remain integers and USD estimates are numeric.
+
+CSV has stable columns, integer byte counts and numeric USD values; it omits
+totals and prose. `--format json` is equivalent to `--json`.
 
 ### history
 
@@ -483,6 +533,11 @@ glesha import SET (--file FILE | --from REMOTE --key KEY) [options]
 ```
 
 Catalog an existing full archive without changing its encrypted bytes or uploading a replacement payload.
+
+Imports automatically publish metadata when a remote catalog destination exists.
+Local-only imports remain local. Existing archive objects are not rewritten.
+Publication failures retain the completed import: use `retry SET`, or repeat the
+same import, to finish publication without downloading/cataloging again.
 
 | Option | Meaning |
 | --- | --- |
@@ -722,13 +777,37 @@ glesha download backups/personal.tar.xz.gpg --from b2 --output personal.tar.xz.g
 ### catalog
 
 ```text
+glesha catalog sync SET|--all [options]
+glesha catalog resolve SET --keep local|remote [--assume-yes]
 glesha catalog pull|push|reconcile|abandon SET [options]
 ```
 
-Synchronize metadata explicitly. Pull preserves the old local catalog; reconcile preserves conflicting histories; abandon preserves pending data.
+`sync` pulls remote-only changes, publishes local-only changes and merges compatible
+snapshot histories. It also checks exact remote archive versions and publishes
+storage-class/retrieval observations. These are metadata requests; sync never
+downloads archive payloads or requests cold retrieval. An unchanged sync does not
+publish another batch.
+
+`--all` means all locally registered sets; local-only sets are skipped. Other sets
+continue after an individual failure; any failure yields a nonzero exit code.
+Discover unknown sets first with `list --remote --from REMOTE`.
+
+`catalog resolve SET` previews differing references and incremental starting snapshots.
+To apply a choice, use `resolve --keep local|remote`. This selects which
+side's references and incremental starting snapshot to keep while retaining both
+snapshot histories and preserving the previous local branch. Resolution requires
+`[y/N]`; `--assume-yes` is the automation override. Different archive identities
+are never silently replaced. Concurrent remote writers still cause a conflict.
+No blanket `--force` is supported.
+
+Existing pull/push/reconcile/abandon commands remain supported. Pull preserves the
+old local catalog; abandon preserves pending data.
 
 | Option | Meaning |
 | --- | --- |
+| `--all` | synchronize every locally registered remote-backed set |
+| `--keep STRING` | choose local or remote conflicting metadata during resolve |
+| `--assume-yes` | confirm conflict resolution without prompting |
 | `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
@@ -742,6 +821,9 @@ Synchronize metadata explicitly. Pull preserves the old local catalog; reconcile
 Examples:
 
 ```console
+glesha catalog sync docs
+glesha catalog sync --all
+glesha catalog resolve docs --keep remote
 glesha catalog pull docs
 glesha catalog push old-docs
 glesha catalog reconcile docs
@@ -876,3 +958,31 @@ it with the chunks for recovery. Single-file and chunked snapshots can share a
 history. `move`, `storage-class`, raw `archive` and raw archive `import` currently
 accept single-file snapshots only. Failed runs can leave uncommitted remote
 chunks; glesha does not delete these automatically.
+
+### cleanup
+
+```text
+glesha cleanup SET|--all [--dry-run] [--assume-yes] [global options]
+```
+
+Remove managed local `import-*.gpg` and `payload-*.gpg` copies after successful
+publication. Preview lists files and reclaimable bytes, then asks `[y/N]`.
+`--dry-run` previews only; `--assume-yes` skips confirmation, never eligibility
+checks. `--env` and `--config` select the normal credentials/configuration.
+
+Skip entire sets with pending operations, unfinished imports/restores, incomplete
+snapshots, unpublished changes or no published catalog. Each candidate must match
+its recorded hash/size and have an exact remote copy verified with metadata
+requests, plus recorded content verification or a completed pinned import receipt.
+Metadata-only associations are insufficient without a matching remote hash.
+Revalidate before removal. No archive downloads or cold retrievals.
+
+Keep catalogs, registry, configuration, sources, extracted data, external archives
+and explicitly selected backup outputs. Remote objects are never deleted. Future
+recovery may require charged retrieval/downloads again.
+
+```console
+glesha cleanup docs --dry-run --env /secure/cloud.env
+glesha cleanup docs --env /secure/cloud.env
+glesha cleanup --all --assume-yes --env /secure/cloud.env
+```

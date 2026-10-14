@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -331,7 +332,7 @@ func (s *Service) markPublished(ctx context.Context, c repository.Cataloger, v r
 	if err := s.recordMetadataPublication(v); err != nil {
 		L.Debug("metadata storage estimate unavailable: " + err.Error())
 	}
-	for k, value := range map[string]string{"remote_revision": v.ID, "remote_number": strconv.FormatInt(v.Number, 10), "publication": "", "dirty": "", "force_checkpoint": ""} {
+	for k, value := range map[string]string{"remote_revision": v.ID, "remote_number": strconv.FormatInt(v.Number, 10), "publication": "", "dirty": "", "force_checkpoint": "", "baseline_changed": "", "last_sync": now().Format(time.RFC3339Nano)} {
 		if err := c.SetMeta(ctx, k, value); err != nil {
 			return err
 		}

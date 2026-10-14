@@ -56,3 +56,26 @@ The current limit is 65,536 chunks per snapshot. Source bytes must match the
 frozen inventory when resuming; no encryption or compression state is persisted.
 AWS lifecycle observations cover each chunk independently. Command-driven moves
 and storage-class changes currently reject chunked snapshots.
+
+State management adds optional catalog metadata (`last_sync`, `baseline_changed`) and persists live
+storage observations using existing location/chunk fields. Archive bytes and catalog
+schema version 2 are unchanged. Status JSON remains version 2 and adds a condition,
+class-byte breakdown and optional sync timestamp; old fields retain their types.
+The advisory operation-result file is local only; unknown state values fail closed.
+
+CLI adds status --format plain|table|csv|json, catalog sync/resolve and cleanup.
+Existing --json and catalog pull/push/reconcile/abandon spellings remain supported.
+Import now publishes automatically only when a remote destination is configured;
+local-only imports and their existing archives stay local and unchanged.
+Cleanup recognizes only managed local copies with completed, published snapshots;
+it never deletes catalogs, external archives or cloud objects.
+
+Default local state now uses the platform application-data directory, separate
+from configuration. Existing `catalog.directory` overrides retain their meaning.
+Older post-clean-slate state under the config directory is detected without opening
+or changing it; `state migrate` explicitly moves it to the new default or configured
+destination. Only local snapshot payload paths are rebased. Source mappings, cloud
+references, archive bytes, schema versions and identities are preserved. Original
+databases are retained in `.state-migration-backup`; a version 1 migration record
+supports rollback/retry after interruption. Unknown versions and conflicting
+destinations fail closed. Migration does not scan or convert pre-clean-slate state.

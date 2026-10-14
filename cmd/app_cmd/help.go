@@ -14,7 +14,7 @@ var commandDescriptions = map[string]string{
 	"run":           "Create and upload a full backup. Use --incremental for changes only.",
 	"retry":         "Resume a pending operation.",
 	"list":          "List backup sets. Use --remote to discover published sets.",
-	"status":        "Show backup state, catalog availability, stored sizes and estimated annual cost.",
+	"status":        "Show set state, stored size, dominant storage class and estimated annual cost.",
 	"history":       "List completed snapshots, newest first.",
 	"browse":        "Browse a snapshot in the local catalog.",
 	"restore":       "Restore a snapshot into a new directory.",
@@ -25,7 +25,9 @@ var commandDescriptions = map[string]string{
 	"extract":       "Extract an encrypted or plaintext archive into a new directory.",
 	"upload":        "Upload a file. Replacing an existing key requires --force.",
 	"download":      "Download a file using the selected providers in order.",
-	"catalog":       "Pull, push, reconcile or abandon catalog changes.",
+	"catalog":       "Synchronize or resolve backup metadata.",
+	"cleanup":       "Remove eligible local archive copies; remote backups are kept.",
+	"state":         "Move existing state out of the config directory.",
 	"storage-class": "Change an AWS archive's storage class.",
 	"check":         "Test provider read, write and delete access.",
 }
@@ -49,7 +51,9 @@ var commandExamples = map[string][]string{
 	"extract":       {"glesha extract personal.tar.xz.gpg --into ~/recovered", "glesha extract recovered.tar.gz --into ~/recovered"},
 	"upload":        {"glesha upload personal.tar.xz.gpg --to b2", "glesha upload personal.tar.xz.gpg --to aws,b2 --key backups/personal.tar.xz.gpg"},
 	"download":      {"glesha download backups/personal.tar.xz.gpg --from b2,aws", "glesha download backups/personal.tar.xz.gpg --from b2 --output personal.tar.xz.gpg"},
-	"catalog":       {"glesha catalog pull docs", "glesha catalog push old-docs", "glesha catalog reconcile docs", "glesha catalog abandon docs"},
+	"cleanup":       {"glesha cleanup docs --dry-run", "glesha cleanup --all", "glesha cleanup docs --assume-yes"},
+	"state":         {"glesha state migrate", "glesha state migrate --config /path/to/config.toml"},
+	"catalog":       {"glesha catalog sync docs", "glesha catalog sync --all", "glesha catalog resolve docs --keep remote", "glesha catalog pull docs", "glesha catalog push old-docs", "glesha catalog reconcile docs", "glesha catalog abandon docs"},
 	"storage-class": {"glesha storage-class docs --snapshot SNAPSHOT_ID --class DEEP_ARCHIVE"},
 	"check":         {"glesha check --to b2 --env /secure/cloud.env", "glesha check --to aws,b2 --env /secure/cloud.env", "glesha check --to b2 --json --env /secure/cloud.env"},
 }
@@ -67,8 +71,10 @@ func showHelp(args []string) error {
 		return fmt.Errorf("cli: unknown help command %q", args[0])
 	}
 	if len(args) > 1 {
-		if args[0] != "catalog" || len(args) != 2 || !strings.Contains(" pull push reconcile abandon ", " "+args[1]+" ") {
-			return fmt.Errorf("cli: help accepts one command or catalog operation")
+		catalogAction := args[0] == "catalog" && len(args) == 2 && strings.Contains(" sync resolve pull push reconcile abandon ", " "+args[1]+" ")
+		stateAction := args[0] == "state" && len(args) == 2 && args[1] == "migrate"
+		if !catalogAction && !stateAction {
+			return fmt.Errorf("cli: help accepts one command or a catalog/state operation")
 		}
 	}
 	fmt.Print(CommandUsage(args[0]))
@@ -78,6 +84,10 @@ func showHelp(args []string) error {
 var commandArguments = map[string]string{
 	"version": "Show version and build revision.",
 	"help":    "Show command help and examples.",
+	"cleanup": "SET|--all",
+	"catalog": "ACTION [SET]",
+	"status":  "[SET]",
+	"state":   "migrate",
 }
 
 func globalFlag(name string) bool {
@@ -92,6 +102,7 @@ func flagValueName(f *flag.Flag) string {
 		return ""
 	}
 	values := map[string]string{
+		"format": "FORMAT", "keep": "local|remote",
 		"config": "FILE", "env": "FILE", "log-level": "LEVEL", "color": "MODE",
 		"to": "REMOTE...", "from": "REMOTE...", "catalog-to": "REMOTE|local",
 		"compression": "FORMAT", "compression-level": "LEVEL", "prefix": "PREFIX",

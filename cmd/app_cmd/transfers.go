@@ -58,7 +58,8 @@ func importArchive(r *runtime, args []string) error {
 		return err
 	}
 	if _, err = r.registry.Set(r.ctx, args[0]); errors.Is(err, sql.ErrNoRows) {
-		set, err := backup.NewSet(args[0], nil, r.config)
+		var set model.Set
+		set, err = backup.NewSet(args[0], nil, r.config)
 		if err != nil {
 			return err
 		}
@@ -79,6 +80,27 @@ func importArchive(r *runtime, args []string) error {
 	defer unlock()
 	if err = r.stores(ids); err != nil {
 		return err
+	}
+	if r.service.Pending() {
+		if err = r.syncStores(); err != nil {
+			return err
+		}
+		if err = r.catalogSecret(true); err != nil {
+			return err
+		}
+		defer wipe(r.service.CatalogPassword)
+		file := r.env.File
+		if file != "" {
+			file, err = file_io.Expand(file)
+			if err != nil {
+				return err
+			}
+			file, err = filepath.Abs(file)
+			if err != nil {
+				return err
+			}
+		}
+		return r.service.ResumeImportPublication(r.ctx, r.env.Key, file)
 	}
 	retrieval, err := r.retrieval()
 	if err != nil {
@@ -173,6 +195,21 @@ func importArchive(r *runtime, args []string) error {
 	v, err := r.service.Import(r.ctx, backup.ImportOptions{File: file, Remote: remote, Object: location, Password: pw, Roots: roots, Date: date, Baseline: r.env.Baseline == "new"})
 	if err != nil {
 		return err
+	}
+	if r.service.Set.CatalogTo != "" && r.service.Set.CatalogTo != "local" {
+		if err = r.service.PrepareImportPublication(r.ctx); err != nil {
+			return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
+		}
+		if err = r.syncStores(); err != nil {
+			return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
+		}
+		if err = r.catalogSecret(true); err != nil {
+			return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
+		}
+		defer wipe(r.service.CatalogPassword)
+		if err = r.service.PublishImport(r.ctx); err != nil {
+			return err
+		}
 	}
 	return r.emit("snapshot", v, fmt.Sprintf("Imported %s into %q.", v.ID, r.service.Set.Name))
 }

@@ -201,6 +201,11 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 			return v, err
 		}
 	}
+	if o.Baseline {
+		if err = staged.SetMeta(ctx, "baseline_changed", "true"); err != nil {
+			return v, err
+		}
+	}
 	if err = staged.Commit(ctx, v, wrapper, o.Baseline); err != nil {
 		return v, err
 	}
@@ -335,6 +340,9 @@ func (s *Service) SetBaseline(ctx context.Context, id string) error {
 		return fmt.Errorf("backup: baseline must be completed")
 	}
 	if err = c.SetMeta(ctx, "head", v.ID); err != nil {
+		return err
+	}
+	if err = c.SetMeta(ctx, "baseline_changed", "true"); err != nil {
 		return err
 	}
 	return c.SetMeta(ctx, "dirty", "baseline")

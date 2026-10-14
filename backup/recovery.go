@@ -152,7 +152,8 @@ func (s *Service) Retry(ctx context.Context) error {
 	}
 	return fmt.Errorf("backup: unknown pending operation")
 }
-func (s *Service) Reconcile(ctx context.Context) error {
+func (s *Service) Reconcile(ctx context.Context) error { return s.reconcile(ctx, "") }
+func (s *Service) reconcile(ctx context.Context, keep string) error {
 	if !s.Pending() {
 		return fmt.Errorf("backup: no pending work")
 	}
@@ -199,6 +200,53 @@ func (s *Service) Reconcile(ctx context.Context) error {
 			if existing.Hash != v.Hash || !sameManifest(existing.Manifest, v.Manifest) {
 				return fmt.Errorf("%w: snapshot identity differs", ErrConflict)
 			}
+			localLocations, err := p.Locations(ctx, v.ID)
+			if err != nil {
+				return err
+			}
+			remoteLocations, err := remote.Locations(ctx, v.ID)
+			if err != nil {
+				return err
+			}
+			different := len(localLocations) != len(remoteLocations)
+			for i, l := range localLocations {
+				if i >= len(remoteLocations) || !sameReference(l, remoteLocations[i]) {
+					different = true
+				}
+			}
+			if different {
+				if keep == "" {
+					return fmt.Errorf("%w: snapshot references differ; resolve using local or remote", ErrConflict)
+				}
+				if keep == "local" {
+					for _, l := range localLocations {
+						if err = remote.PutLocation(ctx, l); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			if v.Layout == "chunked" {
+				if len(v.Chunks) != len(existing.Chunks) {
+					return fmt.Errorf("%w: chunk identities differ", ErrConflict)
+				}
+				for i, ch := range v.Chunks {
+					other := existing.Chunks[i]
+					if ch.Hash != other.Hash || ch.Size != other.Size || len(ch.Locations) != len(other.Locations) {
+						return fmt.Errorf("%w: chunk identities differ", ErrConflict)
+					}
+					for j, l := range ch.Locations {
+						if !sameReference(l, other.Locations[j]) && keep == "" {
+							return fmt.Errorf("%w: chunk references differ", ErrConflict)
+						}
+					}
+				}
+				if keep == "local" {
+					if err = remote.PutSnapshot(ctx, v); err != nil {
+						return err
+					}
+				}
+			}
 			return nil
 		}
 		if v.Parent != "" {
@@ -222,6 +270,13 @@ func (s *Service) Reconcile(ctx context.Context) error {
 	})
 	if err != nil {
 		return err
+	}
+	if keep == "local" {
+		localHead, err := p.GetMeta(ctx, "head")
+		if err != nil {
+			return err
+		}
+		head = localHead
 	}
 	if head != "" {
 		if err = remote.SetMeta(ctx, "head", head); err != nil {

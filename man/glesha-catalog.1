@@ -4,8 +4,24 @@ glesha-catalog \- synchronize metadata explicitly
 .SH SYNOPSIS
 .B glesha catalog pull|push|reconcile|abandon SET [options]
 .SH DESCRIPTION
+Sync SET or sync \-\-all checks live archive metadata and synchronizes catalog changes.
+Unchanged syncs do not republish. No payload download or cold retrieval is requested.
+Resolve SET previews differences. Add \-\-keep local|remote to apply a choice;
+both histories are preserved and confirmation is required.
+Conflicting archive identities are rejected.
+
 Synchronize metadata explicitly. Pull preserves the old local catalog; reconcile preserves conflicting histories; abandon preserves pending data.
 .SH OPTIONS
+.TP
+.B \-\-all
+Sync all locally registered remote-backed sets; skip local-only sets.
+.TP
+.B \-\-keep local|remote
+Resolve conflicting references and incremental starting snapshot using the selected side.
+.TP
+.B \-\-assume-yes
+Confirm resolution without prompting.
+
 .TP
 .B \-\-L STRING
 debug, info, warn, error or silent (default "info")
@@ -73,3 +89,10 @@ without modifying the file; old catalogs are neither migrated nor deleted implic
 .SH SEE ALSO
 .BR glesha (1),
 .BR glesha-help (1)
+
+.SH EXAMPLES
+.nf
+glesha catalog sync docs
+glesha catalog sync \-\-all
+glesha catalog resolve docs \-\-keep remote
+.fi

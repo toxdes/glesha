@@ -1,0 +1,59 @@
+.TH "GLESHA-CLEANUP" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-cleanup \- remove eligible local archive copies
+.SH SYNOPSIS
+.B glesha cleanup SET|\-\-all [options]
+.SH DESCRIPTION
+Preview managed import/restore archive files and reclaimable bytes; require [y/N]
+before removing them. Keep catalogs, registry, configuration, source data and
+explicitly chosen archive outputs. Remote objects are never deleted.
+Skip sets with pending operations, unfinished imports/restores, incomplete snapshots
+or unpublished catalogs. Check exact remote versions and revalidate local hashes
+before removal. Metadata checks do not download payloads or request retrieval.
+.SH OPTIONS
+.TP
+.B \-\-all
+Process all locally registered sets.
+.TP
+.B \-\-dry-run
+Preview without removing files.
+.TP
+.B \-\-assume-yes
+Skip confirmation; retain all safety checks.
+.TP
+.B \-\-L STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-catalog\-passphrase\-file STRING
+separate catalog passphrase file
+.TP
+.B \-\-color STRING
+yes, no or auto; always/never aliases accepted (default "auto")
+.TP
+.B \-\-config STRING
+TOML configuration file
+.TP
+.B \-\-env STRING
+explicit credential environment file
+.TP
+.B \-\-h
+show help
+.TP
+.B \-\-help
+show help
+.TP
+.B \-\-log\-level STRING
+debug, info, warn, error or silent (default "info")
+.TP
+.B \-\-version
+show version; \-version is also accepted.
+.TP
+.B \-v
+Alias for \-\-version.
+
+.SH EXAMPLES
+.nf
+glesha cleanup docs \-\-dry-run
+glesha cleanup docs \-\-env /secure/cloud.env
+glesha cleanup \-\-all \-\-assume-yes \-\-env /secure/cloud.env
+.fi

@@ -22,6 +22,7 @@ import (
 	"glesha/file_io"
 	L "glesha/logger"
 	"glesha/memory"
+	"glesha/state"
 )
 
 type destinations []string
@@ -62,6 +63,8 @@ func (m *mappings) Set(value string) error {
 type AppCmdEnv struct {
 	Chunked                                                                                                                                                                                                               bool
 	SpoolMax                                                                                                                                                                                                              string
+	Format, Keep                                                                                                                                                                                                          string
+	All, DryRun                                                                                                                                                                                                           bool
 	Config, Env, LogLevel, Color, Output, Into, File, Archive, Key, CatalogTo, Compression, Prefix, Mode, Class, IncrementalClass, Snapshot, Filter, Memory, PasswordFile, CatalogPasswordFile, Date, Baseline, Retrieval string
 	To, From                                                                                                                                                                                                              destinations
 	Roots, Passwords                                                                                                                                                                                                      mappings
@@ -73,21 +76,25 @@ type AppCmdEnv struct {
 var appCmdEnv *AppCmdEnv
 
 type runtime struct {
-	ctx      context.Context
-	env      *AppCmdEnv
-	config   config.Config
-	budget   memory.Budget
-	registry repository.Registryor
-	root     string
-	service  *backup.Service
-	out      io.Writer
-	limit    chan struct{}
+	operationLocked    bool
+	statusCopies       *sql.DB
+	statusArchiveBytes int64
+	statusArchiveCost  float64
+	ctx                context.Context
+	env                *AppCmdEnv
+	config             config.Config
+	budget             memory.Budget
+	registry           repository.Registryor
+	root               string
+	service            *backup.Service
+	out                io.Writer
+	limit              chan struct{}
 }
 type handler func(*runtime, []string) error
 
 var handlers = map[string]handler{
-	"create": create, "configure": configure, "run": run, "retry": retry, "list": list, "status": status, "history": history, "browse": browse, "restore": restore, "import": importArchive, "move": move,
-	"archive": localArchive, "decrypt": decrypt, "extract": extract, "upload": upload, "download": download, "catalog": catalog, "storage-class": storageClass, "check": check,
+	"create": create, "configure": configure, "run": run, "retry": retry, "list": list, "status": status, "cleanup": cleanup, "history": history, "browse": browse, "restore": restore, "import": importArchive, "move": move,
+	"archive": localArchive, "decrypt": decrypt, "extract": extract, "upload": upload, "download": download, "catalog": catalog, "storage-class": storageClass, "check": check, "state": migrateState,
 }
 
 func Usage() string {
@@ -114,7 +121,9 @@ Commands:
   extract FILE --into DIR     Extract into a new directory
   upload FILE --to REMOTE     Upload bytes; replacement needs --force
   download KEY --from REMOTE  Download using ordered provider fallback
-  catalog ACTION SET          pull, push, reconcile or abandon metadata
+  catalog ACTION [SET]        Sync or resolve backup metadata
+  cleanup SET|--all           Remove eligible local archive copies
+  state migrate              Move state out of the config directory
   storage-class SET           Change an AWS archive's storage class
   check --to REMOTE           Test provider access
   help [COMMAND]              Show options and examples
@@ -209,7 +218,7 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	if allowed("run retry") {
 		f.BoolVar(&e.KeepArchive, "keep-archive", false, "retain the local archive after a successful backup")
 	}
-	if allowed("run move") {
+	if allowed("run move catalog cleanup") {
 		f.BoolVar(&e.AssumeYes, "assume-yes", false, "approve user-data removal confirmations")
 	}
 	if allowed("restore import move") {
@@ -226,6 +235,18 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	}
 	if allowed("status history") {
 		f.BoolVar(&e.Refresh, "refresh", false, "check live metadata without requesting retrieval")
+	}
+	if command == "status" {
+		f.StringVar(&e.Format, "format", "plain", "plain, table, csv or json")
+	}
+	if allowed("catalog cleanup") {
+		f.BoolVar(&e.All, "all", false, "process all locally registered sets")
+		if command == "catalog" {
+			f.StringVar(&e.Keep, "keep", "", "resolve conflicts using local or remote values")
+		}
+	}
+	if command == "cleanup" {
+		f.BoolVar(&e.DryRun, "dry-run", false, "preview archive cleanup")
 	}
 	if command == "list" {
 		f.BoolVar(&e.Remote, "remote", false, "discover remote set descriptors")
@@ -362,6 +383,9 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if err != nil {
 		return err
 	}
+	if command == "state" {
+		return handlers[command](&runtime{ctx: ctx, config: c}, f.Args())
+	}
 	if err = config.Env(e.Env); err != nil {
 		return err
 	}
@@ -399,13 +423,22 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	}
 	budget.Apply()
 	ctx = memory.WithBudget(ctx, budget)
+	localOnly := command == "archive" || command == "decrypt" || command == "extract"
 	root := c.Catalog.Directory
 	if root == "" {
-		base, err := os.UserConfigDir()
+		root, err = config.DefaultStatePath()
 		if err != nil {
 			return err
 		}
-		root = filepath.Join(base, "glesha", "state-v2")
+		legacy, err := config.LegacyStatePath()
+		if err != nil {
+			return err
+		}
+		if !localOnly {
+			if err = state.CheckDefault(legacy, root); err != nil {
+				return err
+			}
+		}
 	}
 	root, err = file_io.Expand(root)
 	if err != nil {
@@ -415,14 +448,22 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if err != nil {
 		return err
 	}
-	if err = os.MkdirAll(root, 0700); err != nil {
-		return err
+	var registry repository.Registryor
+	if !localOnly {
+		stateLock, err := state.Lock(root, false)
+		if err != nil {
+			return err
+		}
+		defer stateLock.Unlock()
+		if err = os.MkdirAll(root, 0700); err != nil {
+			return err
+		}
+		registry, err = repository.NewRegistryRepository(ctx, filepath.Join(root, "registry.db"))
+		if err != nil {
+			return err
+		}
+		defer registry.Close()
 	}
-	registry, err := repository.NewRegistryRepository(ctx, filepath.Join(root, "registry.db"))
-	if err != nil {
-		return err
-	}
-	defer registry.Close()
 	ctx = L.WithWorkerDetails(ctx, e.present["j"] || e.present["jobs"] || e.present["transfer-workers"] || e.present["hash-workers"])
 	r := &runtime{ctx: ctx, env: e, config: c, budget: budget, registry: registry, root: root, out: os.Stdout, limit: make(chan struct{}, budget.TransferWorkers)}
 	if !e.JSON && term.IsTerminal(int(os.Stderr.Fd())) && L.ProgressEnabled() {
@@ -431,7 +472,17 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		r.ctx = L.WithProgress(ctx, renderer)
 	}
 	L.Debug(fmt.Sprintf("command=%s; memory=%s; hash-workers=%d; transfer-workers=%d", command, L.Bytes(budget.Total), budget.HashWorkers, budget.TransferWorkers))
-	return handlers[command](r, f.Args())
+	err = handlers[command](r, f.Args())
+	if r.operationLocked && r.service != nil && r.service.Set.ID != "" && strings.Contains(" run retry import restore move storage-class ", " "+command+" ") && !e.All {
+		lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
+		if free, lockErr := lock.TryLock(); lockErr == nil && free {
+			if recordErr := r.service.RecordResult(context.WithoutCancel(r.ctx), command, err); recordErr != nil {
+				L.Debug(recordErr.Error())
+			}
+			lock.Unlock()
+		}
+	}
+	return err
 }
 func (r *runtime) openSet(name string) error {
 	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}, Kinds: map[string]string{}}
@@ -446,6 +497,7 @@ func (r *runtime) lock() (func(), error) {
 	if !ok {
 		return nil, fmt.Errorf("cli: set is busy")
 	}
+	r.operationLocked = true
 	return func() { lock.Unlock() }, nil
 }
 func (r *runtime) remoteIDs(names []string) ([]string, error) {

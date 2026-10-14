@@ -6,14 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
+
 	"glesha/backup"
 	"glesha/database/model"
+	"glesha/database/repository"
 	"glesha/file_io"
-	L "glesha/logger"
 	"glesha/pricing"
 )
 
@@ -25,6 +26,9 @@ type latestCopyStatus struct {
 }
 
 type statusData struct {
+	Condition                backup.Condition            `json:"condition"`
+	Classes                  map[string]int64            `json:"storage_classes"`
+	LastSync                 *time.Time                  `json:"last_sync,omitempty"`
 	LatestObjects            map[string]latestCopyStatus `json:"latest_objects,omitempty"`
 	Set                      model.Set                   `json:"set"`
 	Latest                   string                      `json:"latest"`
@@ -47,72 +51,39 @@ type statusData struct {
 	Providers                map[string]string           `json:"provider_names,omitempty"`
 }
 
-var overviewColumnWidths = []int{20, 9, 9, 5, 12, 12, 10, 16}
-var detailColumnWidths = []int{27, 60}
-
-func status(r *runtime, args []string) error {
-	if len(args) > 1 {
-		return fmt.Errorf("cli: status accepts zero or one set")
-	}
-	var output strings.Builder
-	if !r.env.JSON && len(args) == 0 {
-		output.WriteString(asciiTableHeader([]string{"SET", "STATE", "CATALOG", "SNAPS", "ARCHIVES", "META", "EST USD/YR", "UPLOADED (UTC)"}, overviewColumnWidths))
-	}
-	show := func(set model.Set) error {
-		data, err := collectStatus(r, set)
-		if err != nil {
-			return err
-		}
-		if r.env.JSON {
-			return r.emit("status", data, "")
-		}
-		if len(args) == 1 {
-			output.WriteString(statusDetails(data))
-		} else {
-			catalog := "missing"
-			if data.CatalogAvailable {
-				catalog = "local"
-			}
-			if data.CatalogSynced {
-				catalog = "cached"
-			}
-			state := "ready"
-			if data.Latest == "" {
-				state = "new"
-			}
-			if data.Pending {
-				state = "pending"
-			}
-			output.WriteString(asciiTableRow([]string{set.Name, state, catalog, fmt.Sprint(data.Snapshots), L.Bytes(data.ArchiveBytes), metadataSize(data.Metadata), totalCost(data), statusTime(data.LastUpload)}, overviewColumnWidths))
-		}
-		return nil
-	}
-	if len(args) == 1 {
-		set, err := r.registry.Set(r.ctx, args[0])
-		if err != nil {
-			return err
-		}
-		if err = show(set); err != nil {
-			return err
-		}
-	} else if err := r.registry.Each(r.ctx, show); err != nil {
-		return err
-	}
-	if r.env.JSON {
-		return nil
-	}
-	if len(args) == 0 {
-		output.WriteString(asciiTableBorder(overviewColumnWidths))
-	}
-	return r.emit("status_summary", nil, strings.TrimSuffix(output.String(), "\n"))
-}
-
 func collectStatus(r *runtime, set model.Set) (statusData, error) {
-	d := statusData{Set: set, PricingDate: pricing.Date(), EstimateComplete: true, ArchiveEstimateComplete: true, MetadataEstimateComplete: true, Providers: map[string]string{}, LatestObjects: map[string]latestCopyStatus{}}
+	var err error
+	d := statusData{Set: set, PricingDate: pricing.Date(), EstimateComplete: true, ArchiveEstimateComplete: true, MetadataEstimateComplete: true, Providers: map[string]string{}, LatestObjects: map[string]latestCopyStatus{}, Classes: map[string]int64{}}
 	if err := r.openSet(set.ID); err != nil {
 		return d, err
 	}
 	d.Pending = r.service.Pending()
+	d.Condition, err = r.service.Condition(r.ctx)
+	if err != nil {
+		return d, err
+	}
+	lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
+	free, lockErr := lock.TryLock()
+	if lockErr != nil {
+		return d, lockErr
+	}
+	if free {
+		lock.Unlock()
+	} else {
+		d.Condition = backup.Condition{State: backup.STATE_RUNNING}
+		if d.Pending {
+			pending, e := repository.NewCatalogRepository(r.ctx, filepath.Join(r.service.Directory, "pending.db"))
+			if e == nil {
+				publication, _ := pending.GetMeta(r.ctx, "publication")
+				op, _ := pending.GetMeta(r.ctx, "operation")
+				pending.Close()
+				d.Condition.Operation = op
+				if publication != "" {
+					d.Condition.State = backup.STATE_PUBLISHING
+				}
+			}
+		}
+	}
 	info, err := os.Stat(filepath.Join(r.service.Directory, "catalog.db"))
 	if err != nil && !os.IsNotExist(err) {
 		return d, err
@@ -173,6 +144,14 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 	}
 	if latest.Imported {
 		d.LastBackup = latest.BackupDate
+	}
+	syncTime, err := c.GetMeta(r.ctx, "last_sync")
+	if err != nil {
+		c.Close()
+		return d, err
+	}
+	if t, e := time.Parse(time.RFC3339Nano, syncTime); e == nil {
+		d.LastSync = &t
 	}
 	revision, err := c.GetMeta(r.ctx, "remote_revision")
 	c.Close()
@@ -245,6 +224,14 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 					class = "INTELLIGENT_TIERING_DAA"
 				}
 			}
+			displayClass := class
+			if remote.Kind == "b2" {
+				displayClass = "B2"
+			}
+			if displayClass == "" {
+				displayClass = "-"
+			}
+			d.Classes[displayClass] += copy.Size
 			if v.ID == d.Latest {
 				group := d.LatestObjects[location.Provider]
 				if group.Objects == 0 {
@@ -262,6 +249,20 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 				d.LatestObjects[location.Provider] = group
 			}
 			cost, known := pricing.Monthly(remote.Kind, remote.Region, class, copy.Size)
+			if r.statusCopies != nil {
+				result, err := r.statusCopies.ExecContext(r.ctx, "INSERT OR IGNORE INTO copies VALUES(?,?,?)", location.Provider, location.Key, location.Version)
+				if err != nil {
+					return err
+				}
+				added, err := result.RowsAffected()
+				if err != nil {
+					return err
+				}
+				if added > 0 {
+					r.statusArchiveBytes += copy.Size
+					r.statusArchiveCost += pricing.Annual(cost)
+				}
+			}
 			d.ArchiveAnnualUSD += pricing.Annual(cost)
 			d.EstimateComplete = d.EstimateComplete && known
 			d.ArchiveEstimateComplete = d.ArchiveEstimateComplete && known
@@ -295,15 +296,6 @@ func statusTime(t *time.Time) string {
 	}
 	return t.UTC().Format("2006-01-02 15:04")
 }
-func metadataSize(v backup.MetadataStatus) string {
-	if v.Version == 0 {
-		return "-"
-	}
-	if !v.Complete {
-		return L.Bytes(v.Bytes) + "*"
-	}
-	return L.Bytes(v.Bytes)
-}
 func usd(value float64) string {
 	if value > 0 && value < 0.01 {
 		return "<$0.01"
@@ -323,78 +315,10 @@ func estimatedCost(cost float64, complete bool) string {
 	}
 	return value
 }
-func asciiTableHeader(headers []string, widths []int) string {
-	return asciiTableBorder(widths) + asciiTableRow(headers, widths) + asciiTableBorder(widths)
-}
 func asciiTableBorder(widths []int) string {
 	var cells []string
 	for _, width := range widths {
 		cells = append(cells, strings.Repeat("-", width+2))
 	}
 	return "+" + strings.Join(cells, "+") + "+\n"
-}
-func asciiTableRow(cells []string, widths []int) string {
-	values := make([]string, len(cells))
-	for i, cell := range cells {
-		if cell == "" {
-			cell = "-"
-		}
-		quoted := strconv.QuoteToASCII(cell)
-		values[i] = strings.ReplaceAll(quoted[1:len(quoted)-1], "|", `\x7c`)
-	}
-	var out strings.Builder
-	for {
-		more := false
-		out.WriteString("|")
-		for i, cell := range values {
-			if len(cell) > widths[i] {
-				cell, values[i] = cell[:widths[i]], cell[widths[i]:]
-				more = true
-			} else {
-				values[i] = ""
-			}
-			fmt.Fprintf(&out, " %-*s |", widths[i], cell)
-		}
-		out.WriteString("\n")
-		if !more {
-			break
-		}
-	}
-	return out.String()
-}
-func statusDetails(d statusData) string {
-	metadataCost := estimatedCost(d.MetadataAnnualUSD, d.MetadataEstimateComplete)
-	localSize := "-"
-	if d.CatalogAvailable {
-		localSize = L.Bytes(d.LocalCatalogBytes)
-	}
-	rows := [][]string{{"Set", d.Set.Name}, {"ID", d.Set.ID}, {"Latest snapshot", d.Latest}, {"Last backup (UTC)", statusTime(d.LastBackup)}, {"Last upload (UTC)", statusTime(d.LastUpload)}, {"Snapshots", fmt.Sprint(d.Snapshots)}, {"Pending work", fmt.Sprint(d.Pending)}, {"Catalog available locally", fmt.Sprint(d.CatalogAvailable)}, {"Catalog synced previously", fmt.Sprint(d.CatalogSynced)}, {"Local catalog size", localSize}, {"Stored archive copies", L.Bytes(d.ArchiveBytes)}, {"Remote metadata size", metadataSize(d.Metadata)}, {"Metadata size as of (UTC)", statusTime(&d.Metadata.AsOf)}, {"Est. archive USD/year", estimatedCost(d.ArchiveAnnualUSD, d.ArchiveEstimateComplete)}, {"Est. metadata USD/year", metadataCost}, {"Est. total USD/year", totalCost(d)}}
-	var out strings.Builder
-	out.WriteString(asciiTableHeader([]string{"PROPERTY", "VALUE"}, detailColumnWidths))
-	for _, row := range rows {
-		out.WriteString(asciiTableRow(row, detailColumnWidths))
-	}
-	for _, root := range d.Set.Roots {
-		out.WriteString(asciiTableRow([]string{"Source " + root.Name, root.Path}, detailColumnWidths))
-	}
-	for _, location := range d.Locations {
-		name := d.Providers[location.Provider]
-		if name == "" {
-			name = location.Provider
-		}
-		class, verification, cold := location.CurrentClass, location.Verification, location.Cold
-		objects := ""
-		if group, ok := d.LatestObjects[location.Provider]; ok {
-			class, verification, cold = group.Class, group.Verification, group.Cold
-			if group.Objects > 1 {
-				objects = fmt.Sprintf("%d objects; ", group.Objects)
-			}
-		}
-		out.WriteString(asciiTableRow([]string{"Latest copy: " + name, string(location.Status) + "; " + objects + class + "; verified " + verification}, detailColumnWidths))
-		if cold {
-			out.WriteString(asciiTableRow([]string{"Retrieval: " + name, "cold restore required"}, detailColumnWidths))
-		}
-	}
-	out.WriteString(asciiTableBorder(detailColumnWidths))
-	return out.String()
 }
