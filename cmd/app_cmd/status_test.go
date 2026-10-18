@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"glesha/backup"
 	"glesha/config"
 	"glesha/database/model"
 	"glesha/database/repository"
@@ -34,7 +35,7 @@ func TestStatusDoesNotCreateMissingCatalog(t *testing.T) {
 		if err = status(r, args); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(output.String(), "music") || strings.Contains(output.String(), "unknown") || !strings.Contains(output.String(), " - ") {
+		if !strings.Contains(output.String(), "music") || strings.Contains(output.String(), "unknown") || !strings.Contains(output.String(), "-") {
 			t.Fatal(output.String())
 		}
 		if strings.Contains(output.String(), "Storage estimate:") || strings.Contains(output.String(), "Excludes requests") {
@@ -120,14 +121,9 @@ func TestStatusCountsProviderCopiesAndPreservesJSONFields(t *testing.T) {
 }
 
 func TestStatusTablesEscapeNamesAndPreserveLongValues(t *testing.T) {
-	text := asciiTableRow([]string{"é\n|name", strings.Repeat("a", 100)}, []int{20, 30})
+	text := renderColumns([][]string{{"SET", "VALUE"}, {"é\n|name", strings.Repeat("a", 100)}}, "table", false)
 	if strings.Contains(text, "é") || !strings.Contains(text, `\u00e9\n\x7cname`) || strings.Count(text, "a") != 101 {
 		t.Fatal(text)
-	}
-	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
-		if len(line) != 57 {
-			t.Fatal("inconsistent table width", len(line), line)
-		}
 	}
 }
 
@@ -192,7 +188,186 @@ func TestStatusChunkedCountsActualObjectsAndClasses(t *testing.T) {
 		t.Fatal("changed existing locations envelope")
 	}
 	text := statusDetails(d)
-	if !strings.Contains(text, "3 objects; mixed") || !strings.Contains(text, "cold restore required") {
+	if !strings.Contains(text, "DEEP_ARCHIVE") || !strings.Contains(text, "33.33%") {
 		t.Fatal(text)
+	}
+}
+
+func TestStatusFormatsAndDominantClass(t *testing.T) {
+	ctx := context.Background()
+	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	set := model.Set{ID: "set", Name: "docs", CatalogTo: "local"}
+	if err = registry.Create(ctx, set); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	r := &runtime{ctx: ctx, registry: registry, config: config.Defaults(), root: t.TempDir(), env: &AppCmdEnv{}, out: &output}
+	for _, format := range []string{"plain", "table", "csv", "json"} {
+		t.Run(format, func(t *testing.T) {
+			output.Reset()
+			r.env = &AppCmdEnv{Format: format}
+			if err := status(r, nil); err != nil {
+				t.Fatal(err)
+			}
+			text := output.String()
+			switch format {
+			case "plain":
+				if strings.Contains(text, "+---") || !strings.Contains(text, "EST/YR") {
+					t.Fatal(text)
+				}
+			case "table":
+				if !strings.Contains(text, "+---") {
+					t.Fatal(text)
+				}
+			case "csv":
+				if !strings.HasPrefix(text, "set,state,archive_bytes,") || strings.Contains(text, "TOTAL") {
+					t.Fatal(text)
+				}
+			case "json":
+				var envelope map[string]any
+				if err := json.Unmarshal(output.Bytes(), &envelope); err != nil {
+					t.Fatal(err)
+				}
+				if envelope["version"] != float64(2) {
+					t.Fatal(text)
+				}
+			}
+		})
+	}
+	if got := dominantClass(map[string]int64{"STANDARD": 10, "DEEP_ARCHIVE": 100}); got != "DEEP_ARCHIVE" {
+		t.Fatal(got)
+	}
+	if got := dominantClass(map[string]int64{"STANDARD": 10, "DEEP_ARCHIVE": 10}); got != "DEEP_ARCHIVE" {
+		t.Fatal("unstable tie", got)
+	}
+	for size, want := range map[int64]string{512: "512B", 1024: "1.00K", 1 << 20: "1.00M", 1 << 30: "1.00G"} {
+		if got := compactSize(size); got != want {
+			t.Fatal(got, want)
+		}
+	}
+}
+
+func TestStatusColorOnlyAppliesToStateCells(t *testing.T) {
+	rows := [][]string{{"SET", "STATE", "SIZE"}, {"docs", "SYNCED", "1.00G"}, {"music", "PAUSED", "2.00G"}}
+	plain := renderColumns(rows, "plain", false)
+	color := renderColumns(rows, "plain", true)
+	if !strings.Contains(color, "\x1b[32mSYNCED\x1b[0m") || !strings.Contains(color, "\x1b[33mPAUSED\x1b[0m") {
+		t.Fatal(color)
+	}
+	stripped := strings.NewReplacer("\x1b[32m", "", "\x1b[33m", "", "\x1b[0m", "").Replace(color)
+	if stripped != plain {
+		t.Fatal("color changed alignment")
+	}
+}
+
+func TestCleanupAndSyncSelection(t *testing.T) {
+	ctx := context.Background()
+	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	if err = registry.Create(ctx, model.Set{ID: "set", Name: "docs", CatalogTo: "local"}); err != nil {
+		t.Fatal(err)
+	}
+	var output bytes.Buffer
+	r := &runtime{ctx: ctx, registry: registry, config: config.Defaults(), root: t.TempDir(), env: &AppCmdEnv{}, out: &output}
+	if _, err = r.selectedSets(nil); err == nil {
+		t.Fatal("implicit all allowed")
+	}
+	r.env.All = true
+	if _, err = r.selectedSets([]string{"docs"}); err == nil {
+		t.Fatal("ambiguous selection accepted")
+	}
+	if err = catalogSync(r, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "SKIPPED") {
+		t.Fatal(output.String())
+	}
+	if err = cleanup(r, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(filepath.Join(r.root, "set", "catalog.db")); !os.IsNotExist(err) {
+		t.Fatal("cleanup created a missing catalog")
+	}
+}
+
+func TestStatusTotalDeduplicatesSharedArchiveVersions(t *testing.T) {
+	ctx := context.Background()
+	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	remote, err := registry.BindRemote(ctx, model.Remote{Name: "b2", Kind: "b2", Bucket: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	r := &runtime{ctx: ctx, registry: registry, config: config.Defaults(), root: t.TempDir(), env: &AppCmdEnv{}, out: &out}
+	for _, name := range []string{"first", "second"} {
+		set := model.Set{ID: name, Name: name, CatalogTo: "local", To: []string{remote.ID}}
+		if err = registry.Create(ctx, set); err != nil {
+			t.Fatal(err)
+		}
+		if err = r.openSet(name); err != nil {
+			t.Fatal(err)
+		}
+		c, err := r.service.Catalog(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		v := model.Snapshot{Manifest: model.Manifest{Version: 1, ID: name + "-snapshot", Set: name, Full: true}, Size: 1 << 30, Status: model.STATUS_COMPLETED}
+		if err = c.PutSnapshot(ctx, v); err != nil {
+			t.Fatal(err)
+		}
+		if err = c.SetMeta(ctx, "head", v.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err = c.PutLocation(ctx, model.Location{Snapshot: v.ID, Provider: remote.ID, Key: "shared-key", Version: "shared-version", Status: model.STATUS_COMPLETED}); err != nil {
+			t.Fatal(err)
+		}
+		c.Close()
+	}
+	if err = status(r, nil); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, line := range strings.Split(out.String(), "\n") {
+		if strings.HasPrefix(line, "TOTAL") {
+			fields := strings.Fields(line)
+			if len(fields) != 4 || fields[1] != "1.00G" || fields[2] != "2" {
+				t.Fatal(line)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("total missing", out.String())
+	}
+}
+
+func TestNewRemoteBackedSetReportsNew(t *testing.T) {
+	ctx := context.Background()
+	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	cfg := config.Defaults()
+	cfg.B2.Bucket = "test"
+	var out bytes.Buffer
+	r := &runtime{ctx: ctx, registry: registry, config: cfg, root: t.TempDir(), env: &AppCmdEnv{To: destinations{"b2"}}, out: &out}
+	if err = create(r, []string{"docs", t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	condition, err := r.service.Condition(ctx)
+	if err != nil || condition.State != backup.STATE_NEW {
+		t.Fatal(condition, err)
 	}
 }

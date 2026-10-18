@@ -1,0 +1,52 @@
+.TH "GLESHA-STATE" "1" "" "glesha" "User Commands"
+.SH NAME
+glesha-state \- migrate local state out of the config directory
+.SH SYNOPSIS
+.B glesha state migrate [GLOBAL OPTIONS]
+.SH DESCRIPTION
+Moves older post-clean-slate state from the platform config directory's
+glesha/state-v2 directory to the current state directory. No cloud requests are made.
+Stop other glesha processes first. Existing custom state locations remain supported.
+.PP
+Archives are moved without copying; source and destination must share a filesystem.
+Pending work and identities are preserved. Original databases are retained under
+.state-migration-backup in the destination. Repeat the command after interruption.
+An existing destination or unsupported database is refused. Config and credentials
+are never moved or rewritten.
+.SH OPTIONS
+.TP
+.B \-\-config FILE
+Use TOML settings. catalog.directory overrides the migration destination.
+.TP
+.B \-\-env FILE
+Accepted as a global option; migration does not load credentials.
+.TP
+.B \-L, \-\-log-level LEVEL
+debug, info, warn, error or silent. Default: info.
+.TP
+.B \-\-color MODE
+yes, no or auto. Default: auto.
+.TP
+.B \-h, \-\-help
+Show help.
+.TP
+.B \-v, \-\-version
+Show version and build revision.
+.SH FILES
+.TP
+.B Linux
+$XDG_DATA_HOME/glesha/state, or ~/.local/share/glesha/state.
+.TP
+.B macOS
+~/Library/Application Support/glesha/state.
+.TP
+.B Windows
+%LOCALAPPDATA%\eglesha\estate.
+.SH EXAMPLES
+.nf
+glesha state migrate
+glesha state migrate --config /path/to/config.toml
+glesha help state migrate
+.fi
+.SH SEE ALSO
+glesha(1), glesha-cleanup(1)

@@ -77,6 +77,17 @@ func create(r *runtime, args []string) error {
 	if err = r.registry.Create(r.ctx, set); err != nil {
 		return fmt.Errorf("cli: set already exists or cannot be registered: %w", err)
 	}
+	if err = r.openSet(set.ID); err != nil {
+		return err
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err = r.service.RecordResult(r.ctx, "create", nil); err != nil {
+		return err
+	}
 	return r.emit("set", set, fmt.Sprintf("Created %q.", set.Name))
 }
 func (r *runtime) catalogDestination(to []string) (string, error) {
@@ -445,6 +456,15 @@ func list(r *runtime, args []string) error {
 	return nil
 }
 func catalog(r *runtime, args []string) error {
+	if len(args) > 0 && args[0] == "sync" {
+		return catalogSync(r, args[1:])
+	}
+	if len(args) > 0 && args[0] == "resolve" {
+		return catalogResolve(r, args[1:])
+	}
+	if r.env.All || r.env.Keep != "" {
+		return fmt.Errorf("cli: --all requires catalog sync; --keep requires catalog resolve")
+	}
 	if err := count(args, 2); err != nil {
 		return err
 	}
@@ -472,13 +492,17 @@ func catalog(r *runtime, args []string) error {
 	defer wipe(r.service.CatalogPassword)
 	switch operation {
 	case "pull":
-		return r.service.Pull(r.ctx)
+		err = r.service.Pull(r.ctx)
 	case "push":
-		return r.service.Push(r.ctx)
+		err = r.service.Push(r.ctx)
 	case "reconcile":
-		return r.service.Reconcile(r.ctx)
+		err = r.service.Reconcile(r.ctx)
+	default:
+		return fmt.Errorf("cli: unknown catalog operation")
 	}
-	return fmt.Errorf("cli: unknown catalog operation")
+	r.service.RecordResult(r.ctx, "sync", err)
+	return err
+
 }
 
 func (r *runtime) locationSummary(locations []model.Location) string {

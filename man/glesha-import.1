@@ -4,6 +4,10 @@ glesha-import \- catalog an existing full archive without changing its encrypted
 .SH SYNOPSIS
 .B glesha import SET (\-\-file FILE | \-\-from REMOTE \-\-key KEY) [options]
 .SH DESCRIPTION
+Publish the catalog automatically when a remote metadata destination is configured.
+Local-only imports remain local. On publication failure, retry SET or repeat import;
+the completed import is reused and archive objects are not rewritten.
+
 Catalog an existing full archive without changing its encrypted bytes or uploading a replacement payload.
 .SH OPTIONS
 .TP

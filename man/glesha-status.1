@@ -4,9 +4,19 @@ glesha-status \- show local backup state
 .SH SYNOPSIS
 .B glesha status [SET] [options]
 .SH DESCRIPTION
-Show catalog availability, stored archive copies, remote metadata size, last upload and estimated annual storage cost in USD. Without SET, show an overview ASCII table. With SET, show sources, snapshot identity and separate archive/metadata estimates.
-Plain status uses local records and cached sizes without cloud requests. With \-\-refresh, inspect recorded archive metadata and list current metadata objects. This does not pull catalogs or request cold retrieval.
+Show SET, STATE, SIZE, SNAPSHOTS, STORAGE CLASS and EST/YR in aligned columns.
+Sizes use binary B/K/M/G/T units. Storage class is dominant by recorded archive bytes.
+With SET, add source paths, backup/sync timestamps and class size breakdowns.
+Show pending work and next actions. Colors affect state labels only.
+States: NEW, SYNCED, RUNNING, PAUSED, LOCAL, PUBLISHING, WAITING, STALE, CONFLICT, FAILED.
+SYNCED describes last-known local state, not live verification.
+Plain status makes no cloud requests. With \-\-refresh, check live object metadata;
+this does not pull catalogs, download archives or request retrieval.
 .SH OPTIONS
+.TP
+.B \-\-format STRING
+plain (default), table, csv or json. CSV uses numeric bytes/USD; JSON retains version 2.
+
 .TP
 .B \-\-L STRING
 debug, info, warn, error or silent (default "info")

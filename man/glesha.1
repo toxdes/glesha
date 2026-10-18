@@ -9,6 +9,9 @@ Tar, xz, gzip, bzip2, OpenPGP and SQLite run internally; the installed executabl
 Full archives can also be recovered independently with GPG and tar.
 .SH COMMANDS
 .TP
+.B state migrate
+Move older local state out of the configuration directory. See glesha-state(1).
+.TP
 .B create
 Register a backup set and its source paths locally. This creates no archive and makes no cloud requests. See glesha-create(1).
 .TP
@@ -57,8 +60,12 @@ Upload an existing file. Replacing an existing object key requires \-\-force. Se
 .B download
 Download encrypted bytes from explicitly selected providers, trying them in the supplied order. See glesha-download(1).
 .TP
+.B cleanup
+Remove eligible managed local archive copies after remote verification and confirmation.
+See glesha-cleanup(1).
+.TP
 .B catalog
-Synchronize metadata explicitly. Pull preserves the old local catalog; reconcile preserves conflicting histories; abandon preserves pending data. See glesha-catalog(1).
+Synchronize state with catalog sync SET or catalog sync --all. Resolve conflicting references explicitly; preserve both histories. See glesha-catalog(1).
 .TP
 .B storage-class
 Change an AWS object's storage class with server\-side copy. Archive identity and older versions are retained. See glesha-storage-class(1).
