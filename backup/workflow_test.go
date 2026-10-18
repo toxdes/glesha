@@ -407,12 +407,13 @@ func (m *memoryStore) RestoreVersion(_ context.Context, key, version string, day
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	h := m.objects[key]
-	if h.Version != version || tier != "Bulk" || days != 7 {
+	if h.Version != version || tier != "Bulk" || days < 1 {
 		return fmt.Errorf("mock: retrieval not pinned/cheapest")
 	}
 	h.Restore = `ongoing-request="true"`
 	m.objects[key] = h
 	m.puts["retrieval:"+key]++
+	m.puts["retrieval-days:"+key] = int(days)
 	return nil
 }
 func (m *memoryStore) CopyClass(_ context.Context, key, version, class string) (cloud.Object, error) {
@@ -464,6 +465,12 @@ func TestColdConsentPinnedResumeAndExternalLifecycle(t *testing.T) {
 	if !errors.Is(err, ErrPending) || store.puts["retrieval:"+key] != 1 {
 		t.Fatal("retrieval repeated", err)
 	}
+	if _, _, err = s.PrepareRestore(ctx, "latest", out, s.Set.To, RetrievalOptions{Days: 3, UseSavedDays: true}); !errors.Is(err, ErrPending) {
+		t.Fatal("new default broke older pending restore:", err)
+	}
+	if _, _, err = s.PrepareRestore(ctx, "latest", out, s.Set.To, RetrievalOptions{Days: 3}); err == nil || errors.Is(err, ErrPending) {
+		t.Fatal("explicit conflicting restore duration accepted:", err)
+	}
 	if err = s.Refresh(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -482,6 +489,10 @@ func TestColdConsentPinnedResumeAndExternalLifecycle(t *testing.T) {
 	id, _, err = s.PrepareRestore(ctx, "latest", out, s.Set.To, options)
 	if err != nil || id != v.ID {
 		t.Fatal("readable job did not resume pinned snapshot", err)
+	}
+	retrievals, err := s.Retrievals(ctx, false)
+	if err != nil || len(retrievals) != 1 || retrievals[0].State != RETRIEVAL_READY || retrievals[0].Ready != 1 {
+		t.Fatal("ready restore disappeared from status:", retrievals, err)
 	}
 	if err = s.Restore(ctx, RestoreOptions{ID: id, Output: out, Password: func(model.Snapshot) ([]byte, error) { return bytes.Clone(pw), nil }}); err != nil {
 		t.Fatal(err)

@@ -35,7 +35,7 @@ func (r *runtime) retrieval() (backup.RetrievalOptions, error) {
 	if days < 1 || int64(days) > 2147483647 {
 		return backup.RetrievalOptions{}, fmt.Errorf("cli: availability days must be positive and fit int32")
 	}
-	return backup.RetrievalOptions{Tier: tier, Days: int32(days), Request: r.env.RequestRetrieval, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, false) }}, nil
+	return backup.RetrievalOptions{Tier: tier, Days: int32(days), UseSavedDays: !r.env.present["days"], Request: r.env.RequestRetrieval, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, false) }}, nil
 }
 func importArchive(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {

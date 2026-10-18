@@ -92,7 +92,8 @@ Transfer workers bound multipart upload work across providers, not all HTTP conn
 - Cold retrieval needs separate consent or `--request-retrieval`. Bulk is the
   lowest-cost default; `standard` and `expedited` are opt-ins. Deep Archive supports
   Bulk and Standard, typically up to 48 and 12 hours respectively. AWS expires the
-  temporary readable copy automatically, after seven days by default.
+  temporary readable copy automatically, after three days by default. Override with
+  `--days N` or `[cold] days = N`; pending operations keep their saved duration.
 
 ## Credentials and passwords
 
@@ -402,6 +403,24 @@ glesha status docs --format table
 Plain status uses local records and cached measurements, without cloud requests.
 `--refresh` checks recorded archive metadata and lists current metadata objects;
 it does not download or pull catalogs or request cold restoration.
+
+Pending cold imports/restores add a `Retrieval Status` table:
+
+```text
+Retrieval Status
+Last checked: 2026-10-15 14:32 IST
+SET        TASK     STATE    READY  WAITING  EXPIRES (IST)
+music      RESTORE  READY    1      0        Oct 18 05:30
+photos     RESTORE  PARTIAL  2      1        -
+old-music  IMPORT   QUEUED   0      1        -
+```
+
+Counts refer to archives; `READY` means downloadable. `EXPIRED` means the readable
+copy expired. Expiry is the earliest deadline once all requested archives are ready.
+Last checked is the oldest observation, or `-` when unknown. `--refresh` checks
+pending imports too, before cataloging. Human timestamps use local time; JSON uses
+UTC. JSON includes each operation's ID and object references; CSV appends a
+`retrievals` JSON column. Completed operations leave this section.
 
 Local SQLite bytes and compressed/encrypted remote metadata bytes are distinct.
 New publications record their metadata sizes; older records remain unknown until

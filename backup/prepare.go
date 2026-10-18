@@ -9,19 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"glesha/archive"
 	"glesha/cloud"
+	"glesha/config"
 	"glesha/database/model"
 	"glesha/file_io"
 	L "glesha/logger"
 )
 
 type RetrievalOptions struct {
-	Tier    string
-	Days    int32
-	Request bool
-	Confirm func(context.Context, string) error
+	UseSavedDays bool
+	Tier         string
+	Days         int32
+	Request      bool
+	Confirm      func(context.Context, string) error
 }
 type retrievalItem struct {
 	Location  model.Location
@@ -29,6 +32,8 @@ type retrievalItem struct {
 	Requested bool
 }
 type restoreJob struct {
+	retrievalIndex   map[retrievalIdentity]int
+	Retrievals       []retrievalItem `json:",omitempty"`
 	Tier             string
 	Days             int32
 	Snapshot, Output string
@@ -60,6 +65,7 @@ func (s *Service) saveJob(file string, v any) error {
 	return os.Rename(temp.Name(), file)
 }
 func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []string, o RetrievalOptions) (string, string, error) {
+	useSavedDays := o.UseSavedDays || o.Days == 0
 	output, err := filepath.Abs(output)
 	if err != nil {
 		return "", "", err
@@ -73,13 +79,16 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 		o.Days = s.Config.Cold.Days
 	}
 	if o.Days == 0 {
-		o.Days = 7
+		o.Days = config.DefaultRetrievalDays
 	}
 	job := restoreJob{Output: output, From: from, Tier: o.Tier, Days: o.Days}
 	b, err := os.ReadFile(jobFile)
 	if err == nil {
 		if err = json.Unmarshal(b, &job); err != nil {
 			return "", "", err
+		}
+		if useSavedDays && job.Days > 0 {
+			o.Days = job.Days
 		}
 		if job.Tier != "" && (job.Tier != o.Tier || job.Days != o.Days) {
 			return "", "", fmt.Errorf("backup: retrieval options conflict with pending restore")
@@ -118,6 +127,16 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 	}
 	defer chain.Close()
 	pending := []retrievalItem{}
+	requested := map[retrievalIdentity]retrievalItem{}
+	for _, group := range [][]retrievalItem{job.Retrievals, job.Requests} {
+		for _, item := range group {
+			l := item.Location
+			if item.Requested || strings.Contains(l.Restore, `ongoing-request="true"`) {
+				requested[retrievalIdentity{l.Provider, l.Key, l.Version}] = item
+			}
+		}
+	}
+	pendingIndex := map[retrievalIdentity]bool{}
 	var total int64
 	inspect := func(snapshot model.Snapshot, locations []model.Location) error {
 		if _, ok := s.localArchive(ctx, snapshot); ok {
@@ -143,6 +162,12 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 					last = fmt.Errorf("backup: registered object identity changed")
 					continue
 				}
+				l.Version, l.CurrentClass, l.Restore, l.Cold = h.Version, h.Class, h.Restore, h.Cold
+				checked := now()
+				l.ObservedAt = &checked
+				if old, ok := requested[retrievalIdentity{l.Provider, l.Key, l.Version}]; ok {
+					rememberRetrieval(&job, retrievalItem{Location: l, Tier: old.Tier, Requested: true})
+				}
 				if !h.Cold {
 					return nil
 				}
@@ -158,9 +183,6 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 					last = fmt.Errorf("backup: expedited retrieval is unavailable for Deep Archive")
 					continue
 				}
-				l.Version = h.Version
-				l.CurrentClass = h.Class
-				l.Restore = h.Restore
 				if cold == nil {
 					cold = &retrievalItem{Location: l, Tier: tier}
 				}
@@ -172,14 +194,17 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 			}
 			return fmt.Errorf("backup: no registered readable copy of %s", snapshot.ID)
 		}
-		for _, old := range job.Requests {
-			if old.Location.Provider == cold.Location.Provider && old.Location.Key == cold.Location.Key && old.Location.Version == cold.Location.Version {
-				cold.Requested = old.Requested
-			}
+		identity := retrievalIdentity{cold.Location.Provider, cold.Location.Key, cold.Location.Version}
+		if _, ok := requested[identity]; ok {
+			cold.Requested = cold.Location.Restore != ""
 		}
 		if strings.Contains(cold.Location.Restore, `ongoing-request="true"`) {
 			cold.Requested = true
 		}
+		if pendingIndex[identity] {
+			return nil
+		}
+		pendingIndex[identity] = true
 		pending = append(pending, *cold)
 		if !cold.Requested {
 			total += snapshot.Size
@@ -247,6 +272,7 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 				return "", "", err
 			}
 			p.Requested = true
+			rememberRetrieval(&job, *p)
 			if err = s.saveJob(jobFile, job); err != nil {
 				return "", "", err
 			}
@@ -256,6 +282,7 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 }
 
 type importJob struct {
+	CheckedAt *time.Time `json:",omitempty"`
 	Days      int32
 	Remote    string
 	Object    cloud.Object
@@ -265,6 +292,7 @@ type importJob struct {
 }
 
 func (s *Service) PrepareImport(ctx context.Context, from []string, key string, o RetrievalOptions) (string, string, cloud.Object, error) {
+	useSavedDays := o.UseSavedDays || o.Days == 0
 	if o.Tier == "" {
 		o.Tier = "bulk"
 	}
@@ -272,7 +300,7 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		o.Days = s.Config.Cold.Days
 	}
 	if o.Days == 0 {
-		o.Days = 7
+		o.Days = config.DefaultRetrievalDays
 	}
 	digest := sha256.Sum256([]byte(strings.Join(from, ",") + ":" + key))
 	file := filepath.Join(s.Directory, "import-"+hex.EncodeToString(digest[:16])+".gpg")
@@ -285,6 +313,9 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		}
 	} else if !os.IsNotExist(err) {
 		return "", "", cloud.Object{}, err
+	}
+	if useSavedDays && job.Days > 0 {
+		o.Days = job.Days
 	}
 	if job.Remote != "" && (job.Tier != o.Tier || job.Days != o.Days) {
 		return "", "", job.Object, fmt.Errorf("backup: retrieval options conflict with pending import")
@@ -302,7 +333,8 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 				last = err
 				continue
 			}
-			candidate := importJob{Remote: remote, Object: h, Tier: o.Tier, Days: o.Days}
+			checked := now()
+			candidate := importJob{Remote: remote, Object: h, Tier: o.Tier, Days: o.Days, CheckedAt: &checked}
 			if candidate.Tier == "" {
 				candidate.Tier = "bulk"
 			}
@@ -350,6 +382,19 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 	h, err := store.Head(ctx, key, job.Object.Version)
 	if err != nil {
 		return "", "", job.Object, err
+	}
+	if h.Size != job.Object.Size || h.Version != job.Object.Version || job.Object.ETag != "" && h.ETag != job.Object.ETag {
+		return "", "", h, fmt.Errorf("backup: pinned import object changed")
+	}
+	checked := now()
+	job.Object, job.CheckedAt = h, &checked
+	if strings.Contains(h.Restore, `ongoing-request="true"`) {
+		job.Requested = true
+	} else if h.Cold && h.Restore == "" {
+		job.Requested = false
+	}
+	if err = s.saveJob(sidecar, job); err != nil {
+		return "", "", h, err
 	}
 	if h.Cold {
 		if s.Kinds[job.Remote] != "aws" {

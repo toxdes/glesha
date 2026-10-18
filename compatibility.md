@@ -79,3 +79,11 @@ references, archive bytes, schema versions and identities are preserved. Origina
 databases are retained in `.state-migration-backup`; a version 1 migration record
 supports rollback/retry after interruption. Unknown versions and conflicting
 destinations fail closed. Migration does not scan or convert pre-clean-slate state.
+
+New cold retrievals default to three days; explicit configuration and saved pending
+request durations retain precedence. Restore jobs optionally retain a Retrievals
+history and import jobs an optional CheckedAt timestamp; older jobs remain readable.
+The local per-job retrieval cache is version 1. Unsupported cache versions fail
+without replacement. Status JSON remains version 2 with an optional retrievals
+array; existing fields retain their types. CSV appends a retrievals JSON column.
+Human timestamps use local time; persistent timestamps and JSON retain UTC.

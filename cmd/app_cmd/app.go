@@ -223,7 +223,7 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	}
 	if allowed("restore import move") {
 		f.StringVar(&e.Retrieval, "retrieval", "bulk", "bulk, standard or expedited")
-		f.IntVar(&e.Days, "days", 0, "readable-copy availability days")
+		f.IntVar(&e.Days, "days", 0, "readable-copy availability days (default 3; pending requests keep saved duration)")
 		f.BoolVar(&e.RequestRetrieval, "request-retrieval", false, "explicitly authorize retrieval charges")
 	}
 	if allowed("browse restore storage-class") {
