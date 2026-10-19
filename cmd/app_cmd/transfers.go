@@ -14,7 +14,6 @@ import (
 	"glesha/cloud"
 	"glesha/database/model"
 	"glesha/file_io"
-	L "glesha/logger"
 )
 
 func (r *runtime) retrieval() (backup.RetrievalOptions, error) {
@@ -279,7 +278,10 @@ func restore(r *runtime, args []string) error {
 	}})
 	if err == nil {
 		os.Remove(job)
-		fmt.Fprintln(r.out, L.ASCII(fmt.Sprintf("Restored %s to %q.", id, into)))
+		return r.emit("restore", struct {
+			Snapshot string `json:"snapshot"`
+			Path     string `json:"path"`
+		}{id, into}, fmt.Sprintf("Restored %s to %q.", id, into))
 	}
 	return err
 }
@@ -325,7 +327,10 @@ func upload(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	return backup.Upload(r.ctx, r.service.Stores, to, key, file, class, r.env.Force)
+	if err = backup.Upload(r.ctx, r.service.Stores, to, key, file, class, r.env.Force); err != nil {
+		return err
+	}
+	return r.completed(file, key, "")
 }
 func download(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
@@ -350,8 +355,14 @@ func download(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = backup.Download(r.ctx, r.service.Stores, from, args[0], "", output)
-	return err
+	object, err := backup.Download(r.ctx, r.service.Stores, from, args[0], "", output)
+	if err != nil {
+		return err
+	}
+	return r.emit("download", struct {
+		Path   string       `json:"path"`
+		Object cloud.Object `json:"object"`
+	}{output, object}, "")
 }
 func check(r *runtime, args []string) error {
 	if err := count(args, 0); err != nil {

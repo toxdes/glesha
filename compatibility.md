@@ -20,7 +20,7 @@ Presentation improvements must not change persistent identities or data formats.
   Removing or changing a supported option requires a documented deprecation path.
   Help and manual pages must reflect aliases and defaults.
 - Keep versioned JSON stable for automation: byte counts remain integer bytes;
-  colors, progress and human size formatting never enter JSON output. Format
+  colors, progress and human size formatting never enter JSON result output on stdout. Format
   changes that break parsers require a new output version.
 - Retain fixtures for supported historical archives and database/output versions.
   Test both successful reads and rejection without mutation of unsupported data.
@@ -64,7 +64,7 @@ class-byte breakdown and optional sync timestamp; old fields retain their types.
 The advisory operation-result file is local only; unknown state values fail closed.
 
 CLI adds status --format plain|table|csv|json, catalog sync/resolve and cleanup.
-Existing --json and catalog pull/push/reconcile/abandon spellings remain supported.
+Existing catalog pull/push/reconcile/abandon spellings remain supported.
 Import now publishes automatically only when a remote destination is configured;
 local-only imports and their existing archives stay local and unchanged.
 Cleanup recognizes only managed local copies with completed, published snapshots;
@@ -87,3 +87,12 @@ The local per-job retrieval cache is version 1. Unsupported cache versions fail
 without replacement. Status JSON remains version 2 with an optional retrievals
 array; existing fields retain their types. CSV appends a retrievals JSON column.
 Human timestamps use local time; persistent timestamps and JSON retain UTC.
+
+All commands accept --format=plain|json; status retains table/csv. The former
+--json flag is removed by explicit user decision before wider adoption; use
+--format=json instead. Existing version 2 result envelopes and
+record fields remain unchanged. Empty listings remain empty. New command result
+kinds cover local operations, no-change runs, cleanup and catalog operations.
+Progress and diagnostics use a separate version 1 JSON Lines protocol on stderr;
+progress never enters the result stream. Human progress can use plain lines when
+stderr is redirected or TERM=dumb. No archive or database formats change.

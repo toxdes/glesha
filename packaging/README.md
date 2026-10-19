@@ -1,7 +1,10 @@
 # Releases
 
 Build with the pinned Yesb toolkit; publisher credentials stay in your own `--env` file.
+Before releasing, update `version.txt` and move `CHANGELOG.md` entries from `Unreleased`
+under `## VERSION - YYYY-MM-DD`. Keep an empty `Unreleased` section.
 Commit the intended release changes before building so `GIT_SHA` identifies the release revision.
+After publishing assets and updating main, rebuild glesha-site to update downloads and release notes.
 
 ```sh
 ./yesb/build_all.py

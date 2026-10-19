@@ -77,7 +77,7 @@ func TestStatusCountsProviderCopiesAndPreservesJSONFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	r := &runtime{ctx: ctx, registry: registry, config: config.Defaults(), root: t.TempDir(), env: &AppCmdEnv{JSON: true}, out: &output}
+	r := &runtime{ctx: ctx, registry: registry, config: config.Defaults(), root: t.TempDir(), env: &AppCmdEnv{Format: "json"}, out: &output}
 	if err = r.openSet(set.ID); err != nil {
 		t.Fatal(err)
 	}

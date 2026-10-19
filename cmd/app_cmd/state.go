@@ -6,7 +6,6 @@ import (
 
 	"glesha/config"
 	"glesha/file_io"
-	L "glesha/logger"
 	"glesha/state"
 )
 
@@ -34,6 +33,5 @@ func migrateState(r *runtime, args []string) error {
 	if err = state.Migrate(r.ctx, source, target); err != nil {
 		return err
 	}
-	fmt.Printf("State moved to %s\n", L.ASCII(target))
-	return nil
+	return r.completed(target, "", fmt.Sprintf("State moved to %s", target))
 }

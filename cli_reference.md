@@ -50,8 +50,8 @@ Incrementals count only included content. Finalization and metadata publication
 show status without an indefinite bar. Upload counts include in-flight payload bytes; SDK checksum reads and retries
 do not count the same bytes twice. A 100% transfer still waits for verification
 and catalog publication. One renderer refreshes every 100 ms and uses about 80% of terminal width;
-worker counters perform no terminal I/O. Progress is disabled when stderr is
-redirected, for `--json`, and at `warn`, `error` or `silent` logging levels.
+worker counters perform no terminal I/O. Redirected stderr and `TERM=dumb` use plain step lines.
+`--progress=off` disables progress; `warn`, `error` and `silent` logging also suppress it.
 Color-disabled progress uses no ANSI escapes.
 
 Catalog publication groups batch, descriptor and commit uploads into one step.
@@ -94,6 +94,36 @@ Transfer workers bound multipart upload work across providers, not all HTTP conn
   Bulk and Standard, typically up to 48 and 12 hours respectively. AWS expires the
   temporary readable copy automatically, after three days by default. Override with
   `--days N` or `[cold] days = N`; pending operations keep their saved duration.
+
+## Structured output
+
+Every command accepts `--format=json` (or `--format json`), before or after the
+command. `--format=plain` is the
+default; `status` also supports `table` and `csv`.
+
+- **stdout:** JSON Lines results, retaining version 2 `{version, kind, data}` envelopes.
+  Listings emit one record per item; empty listings emit no records.
+- **stderr:** version 1 `{version, kind, data}` diagnostics. `kind` is `progress`,
+  `error`, `warning`, `info` or `debug`. No ANSI formatting or inline updates.
+- Progress emits phase start/stop and updates once per second per active phase.
+  Fields: `id`, `phase`, `state`, `completed_bytes`, `total_bytes` (null if unknown),
+  `bytes_per_second` and UTC `timestamp`. IDs are unique within an invocation.
+  `STOPPED` means the phase ended, not that the operation succeeded; check results
+  and the exit code. `--progress=off` disables progress without suppressing errors.
+- Errors contain `code`, `message` and `exit_code`. Codes include `FAILED`,
+  `INVALID_ARGUMENT`, `PENDING`, `CONFLICT`, `CONFIRMATION_REQUIRED` and `CANCELED`.
+  Exit codes remain 1 for failures, 2 for CLI errors, 3 for pending work and 4 for conflicts.
+  Structured errors are emitted even with silent logging.
+- JSON does not approve operations or disable hidden password/confirmation prompts.
+  For unattended use, supply passphrase files and the operation's explicit consent
+  options. Prompts, when needed, remain on stderr; nonterminal input fails safely.
+
+```console
+glesha status --format=json
+glesha run docs --format=json --progress=off
+glesha help restore --format=json
+glesha version --format=json
+```
 
 ## Credentials and passwords
 
@@ -196,12 +226,13 @@ Register a backup set and its source paths locally. This creates no archive and 
 | `--h` | show help |
 | `--help` | show help |
 | `--incremental-storage-class STRING` | AWS incremental storage class |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -233,13 +264,14 @@ Change a set's saved settings or map imported roots. Previously bound source pat
 | `--h` | show help |
 | `--help` | show help |
 | `--incremental-storage-class STRING` | AWS incremental storage class |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--prefix STRING` | glesha or encb |
 | `--root VALUE` | archive root NAME=source PATH |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -276,7 +308,6 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 | `--hash-workers INT` | hash workers |
 | `--help` | show help |
 | `--incremental` | require a baseline on one remote |
-| `--json` | versioned JSON output |
 | `--keep-archive` | retain the local archive after a successful backup |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
@@ -288,6 +319,8 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -320,6 +353,8 @@ Resume a pending backup, move, catalog publication or storage-class change. Comp
 | `--keep-archive` | retain the local archive after a successful backup |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -346,10 +381,11 @@ Show known sets. Remote discovery registers published set descriptions without d
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
 | `--h` | show help |
 | `--help` | show help |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--remote` | discover remote set descriptors |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -386,10 +422,10 @@ local records, not a live recovery check. A stopped publication is `PAUSED`;
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
 | `--h` | show help |
 | `--help` | show help |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--refresh` | check live metadata without requesting retrieval |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -444,7 +480,7 @@ JSON retains its version 2 envelope and original fields; additional byte counts
 remain integers and USD estimates are numeric.
 
 CSV has stable columns, integer byte counts and numeric USD values; it omits
-totals and prose. `--format json` is equivalent to `--json`.
+totals and prose.
 
 ### history
 
@@ -462,16 +498,17 @@ Show completed snapshots, newest first, including transfer and storage status.
 | `--env STRING` | explicit credential environment file |
 | `--h` | show help |
 | `--help` | show help |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--refresh` | check live metadata without requesting retrieval |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
 ```console
 glesha history docs
-glesha history docs --refresh --json
+glesha history docs --refresh --format=json
 ```
 
 ### browse
@@ -490,19 +527,20 @@ Browse a snapshot's file metadata in the local catalog. This makes no cloud requ
 | `--env STRING` | explicit credential environment file |
 | `--h` | show help |
 | `--help` | show help |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--path STRING` | catalog path |
 | `--recursive` | include descendants |
 | `--snapshot STRING` | snapshot ID or latest (default "latest") |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
 ```console
 glesha browse docs
 glesha browse docs --path Documents --recursive
-glesha browse docs --snapshot SNAPSHOT_ID --recursive --json
+glesha browse docs --snapshot SNAPSHOT_ID --recursive --format=json
 ```
 
 ### restore
@@ -536,6 +574,8 @@ Reconstruct a full snapshot in a new destination. Cold retrieval requires separa
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -574,7 +614,6 @@ same import, to finish publication without downloading/cataloging again.
 | `--h` | show help |
 | `--hash-workers INT` | hash workers |
 | `--help` | show help |
-| `--json` | versioned JSON output |
 | `--key STRING` | exact remote object key |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
@@ -585,6 +624,8 @@ same import, to finish publication without downloading/cataloging again.
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -614,7 +655,6 @@ Copy and verify the complete set history before switching providers. Existing so
 | `--h` | show help |
 | `--hash-workers INT` | hash workers |
 | `--help` | show help |
-| `--json` | versioned JSON output |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--request-retrieval` | explicitly authorize retrieval charges |
@@ -623,6 +663,8 @@ Copy and verify the complete set history before switching providers. Existing so
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -660,6 +702,8 @@ Create a standalone encrypted tar archive. No set name or cloud provider is need
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -690,6 +734,8 @@ Validate an encrypted archive and write its compressed tar to a new output file.
 | `--output STRING` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -719,6 +765,8 @@ Validate and extract an encrypted or plaintext compressed tar into a new directo
 | `--memory-max STRING` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -753,6 +801,8 @@ Upload an existing file. Replacing an existing object key requires --force.
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -785,6 +835,8 @@ Download encrypted bytes from explicitly selected providers, trying them in the 
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -836,6 +888,8 @@ old local catalog; abandon preserves pending data.
 | `--help` | show help |
 | `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -871,6 +925,8 @@ Change an AWS object's storage class with server-side copy. Archive identity and
 | `--snapshot STRING` | snapshot ID or latest (default "latest") |
 | `--storage-class STRING` | AWS storage class |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -896,7 +952,6 @@ test objects.
 
 | Option | Meaning |
 | --- | --- |
-| `--json` | Versioned per-provider results and final summary. |
 | `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--config STRING` | TOML configuration file |
@@ -910,13 +965,15 @@ test objects.
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
 ```console
 glesha check --to b2 --env /secure/cloud.env
 glesha check --to aws,b2 --env /secure/cloud.env
-glesha check --to b2 --json --env /secure/cloud.env
+glesha check --to b2 --format=json --env /secure/cloud.env
 ```
 
 ### help

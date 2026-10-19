@@ -15,6 +15,15 @@ Development builds print glesha dev (unknown) unless values were embedded
 at build time. This command does not load configuration or credentials and
 makes no cloud requests. Extra positional arguments are rejected.
 .SH OPTIONS
+
+.TP
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
 .TP
 .B \-\-config FILE
 Accepted without loading the file.

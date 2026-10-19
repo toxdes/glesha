@@ -7,7 +7,6 @@ import (
 	"syscall"
 
 	"glesha/cmd"
-	L "glesha/logger"
 )
 
 var VERSION = "dev"
@@ -17,7 +16,7 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if e := cmd.Execute(ctx, os.Args[1:], VERSION, GIT_SHA); e != nil {
-		L.Error(e.Error())
+		cmd.PrintError(os.Args[1:], e)
 		os.Exit(cmd.ExitCode(e))
 	}
 }
