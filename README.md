@@ -53,6 +53,12 @@ glesha archive ~/Documents
 Use `glesha help COMMAND` or `man glesha` for options and examples.
 See the [guides](https://glesha.toxdes.com/guides.html), [sample configuration](config-sample.toml) and [compatibility notes](compatibility.md) for more.
 
+## Agent skill
+
+[skills/glesha](skills/glesha/SKILL.md) translates requests into commands and short
+argument explanations. Executing any command requires separate confirmation.
+Copy that folder into your agent's skill directory; its CLI reference is bundled.
+
 ## Development
 
 Go 1.25 or newer:
@@ -62,7 +68,10 @@ CGO_ENABLED=0 go build -o build/glesha .
 ./build/glesha help
 go test ./...
 go test -race ./...
+python3 scripts/sync_skill_reference.py --check
 ```
+
+After changing `cli_reference.md`, run `python3 scripts/sync_skill_reference.py`.
 
 Release packages are built with [Yesb](https://github.com/toxdes/yesb): `./yesb/build_all.py`.
 See [release instructions](packaging/README.md) for direct downloads, APT/RPM, AUR and Homebrew.

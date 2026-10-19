@@ -4,6 +4,7 @@
 
 ### Added
 
+- Portable agent skill for command suggestions, with confirmation required before execution.
 - JSON results for every command, with structured progress and errors on stderr.
 - `catalog sync` and conflict resolution, plus confirmed cleanup of eligible local archives.
 - Status summaries with storage costs and cached cold-retrieval readiness.

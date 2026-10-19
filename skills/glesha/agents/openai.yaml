@@ -1,0 +1,4 @@
+interface:
+  display_name: "glesha"
+  short_description: "Turn backup requests into commands you can run"
+  default_prompt: "Use $glesha to give me the command for my backup task and briefly explain its arguments."
