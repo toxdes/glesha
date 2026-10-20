@@ -59,9 +59,10 @@ func ParseColorMode(value string) (ColorMode, error) {
 
 var state = struct {
 	sync.Mutex
-	level    Level
-	color    ColorMode
-	progress *ProgressRenderer
+	level      Level
+	color      ColorMode
+	progress   *ProgressRenderer
+	structured bool
 }{level: INFO, color: COLOR_MODE_AUTO}
 
 func SetLevelFromString(value string) error {
@@ -93,6 +94,12 @@ func Error(message string) {
 	if state.level == SILENT {
 		return
 	}
+	if state.structured {
+		_ = writeDiagnosticLocked("error", struct {
+			Message string `json:"message"`
+		}{message})
+		return
+	}
 	if state.color == COLOR_MODE_ALWAYS || state.color == COLOR_MODE_AUTO && term.IsTerminal(int(os.Stderr.Fd())) {
 		fmt.Fprintf(os.Stderr, "\x1b[31merror: %s\x1b[0m\n", message)
 	} else {
@@ -107,7 +114,13 @@ func Debug(message string) {
 	if state.level == DEBUG {
 		resume := pauseProgressLocked()
 		defer resume()
-		fmt.Fprintf(os.Stderr, "debug: %s\n", message)
+		if state.structured {
+			_ = writeDiagnosticLocked("debug", struct {
+				Message string `json:"message"`
+			}{message})
+		} else {
+			fmt.Fprintf(os.Stderr, "debug: %s\n", message)
+		}
 	}
 }
 
@@ -119,7 +132,13 @@ func Warn(message string) {
 	}
 	resume := pauseProgressLocked()
 	defer resume()
-	fmt.Fprintf(os.Stderr, "warning: %s\n", ASCII(message))
+	if state.structured {
+		_ = writeDiagnosticLocked("warning", struct {
+			Message string `json:"message"`
+		}{message})
+	} else {
+		fmt.Fprintf(os.Stderr, "warning: %s\n", ASCII(message))
+	}
 }
 func ColorEnabled(terminal bool) bool {
 	state.Lock()

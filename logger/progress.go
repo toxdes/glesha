@@ -28,9 +28,41 @@ type Progress struct {
 	start    time.Time
 	renderer *ProgressRenderer
 	finished bool
+	id       uint64
+}
+
+type ProgressState string
+
+const (
+	PROGRESS_RUNNING ProgressState = "RUNNING"
+	PROGRESS_STOPPED ProgressState = "STOPPED"
+)
+
+func (s ProgressState) String() string { return string(s) }
+func ParseProgressState(value string) (ProgressState, error) {
+	switch state := ProgressState(value); state {
+	case PROGRESS_RUNNING, PROGRESS_STOPPED:
+		return state, nil
+	default:
+		return "", fmt.Errorf("logger: unknown progress state %q", value)
+	}
+}
+
+type ProgressEvent struct {
+	ID             uint64        `json:"id"`
+	Phase          string        `json:"phase"`
+	State          ProgressState `json:"state"`
+	CompletedBytes int64         `json:"completed_bytes"`
+	TotalBytes     *int64        `json:"total_bytes"`
+	BytesPerSecond int64         `json:"bytes_per_second"`
+	Timestamp      time.Time     `json:"timestamp"`
 }
 
 type ProgressRenderer struct {
+	plain  bool
+	report func(ProgressEvent) error
+	err    error
+	nextID uint64
 	mu     sync.Mutex
 	out    io.Writer
 	color  bool
@@ -42,15 +74,28 @@ type ProgressRenderer struct {
 }
 
 func NewProgressRenderer(out io.Writer, color bool) *ProgressRenderer {
-	r := &ProgressRenderer{out: out, color: color, active: make(map[*Progress]struct{}), stop: make(chan struct{}), done: make(chan struct{})}
-	if out == os.Stderr {
+	return newProgressRenderer(out, color, false, nil)
+}
+func NewPlainProgressRenderer(out io.Writer) *ProgressRenderer {
+	return newProgressRenderer(out, false, true, nil)
+}
+func NewEventProgressRenderer(report func(ProgressEvent) error) *ProgressRenderer {
+	return newProgressRenderer(nil, false, false, report)
+}
+func newProgressRenderer(out io.Writer, color, plain bool, report func(ProgressEvent) error) *ProgressRenderer {
+	r := &ProgressRenderer{out: out, color: color, plain: plain, report: report, active: make(map[*Progress]struct{}), stop: make(chan struct{}), done: make(chan struct{})}
+	if out == os.Stderr && !plain {
 		state.Lock()
 		state.progress = r
 		state.Unlock()
 	}
 	go func() {
 		defer close(r.done)
-		ticker := time.NewTicker(100 * time.Millisecond)
+		interval := 100 * time.Millisecond
+		if report != nil || plain {
+			interval = time.Second
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -104,6 +149,22 @@ func StartProgress(ctx context.Context, label string, total int64) *Progress {
 	}
 	p := &Progress{label: ASCII(label), total: total, start: time.Now(), renderer: r}
 	r.mu.Lock()
+	r.nextID++
+	p.id = r.nextID
+	if r.report != nil {
+		r.active[p] = struct{}{}
+		r.reportLocked(p, PROGRESS_RUNNING)
+		r.mu.Unlock()
+		return p
+	}
+	if r.plain {
+		if r.err == nil {
+			_, r.err = fmt.Fprintln(r.out, "[+] "+p.label)
+		}
+		r.active[p] = struct{}{}
+		r.mu.Unlock()
+		return p
+	}
 	newStep := true
 	for active := range r.active {
 		if active.label == p.label {
@@ -140,6 +201,15 @@ func (p *Progress) Finish() {
 		return
 	}
 	p.finished = true
+	if r.report != nil {
+		r.reportLocked(p, PROGRESS_STOPPED)
+		delete(r.active, p)
+		return
+	}
+	if r.plain {
+		delete(r.active, p)
+		return
+	}
 	groupActive := false
 	for other := range r.active {
 		if other.label == p.label && !other.finished {
@@ -197,6 +267,17 @@ func (r *ProgressRenderer) draw() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if len(r.active) == 0 {
+		return
+	}
+	if r.plain {
+		return
+	}
+	if r.report != nil {
+		for p := range r.active {
+			if !p.finished {
+				r.reportLocked(p, PROGRESS_RUNNING)
+			}
+		}
 		return
 	}
 	var selected *Progress
@@ -335,7 +416,7 @@ func byteAmount(value float64) string {
 }
 
 func (r *ProgressRenderer) clearLocked() {
-	if r.width > 0 {
+	if r.report == nil && !r.plain && r.width > 0 {
 		fmt.Fprintf(r.out, "\r%s\r", strings.Repeat(" ", r.width))
 		r.width = 0
 	}
@@ -345,3 +426,19 @@ func (r *ProgressRenderer) clear() {
 	defer r.mu.Unlock()
 	r.clearLocked()
 }
+
+func (r *ProgressRenderer) reportLocked(p *Progress, status ProgressState) {
+	if r.err != nil {
+		return
+	}
+	event := ProgressEvent{ID: p.id, Phase: p.label, State: status, CompletedBytes: p.bytes.Load(), Timestamp: time.Now().UTC()}
+	if p.total >= 0 {
+		total := p.total
+		event.TotalBytes = &total
+	}
+	if elapsed := time.Since(p.start).Seconds(); elapsed > 0 {
+		event.BytesPerSecond = int64(float64(event.CompletedBytes) / elapsed)
+	}
+	r.err = r.report(event)
+}
+func (r *ProgressRenderer) Err() error { r.mu.Lock(); defer r.mu.Unlock(); return r.err }

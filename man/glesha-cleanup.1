@@ -11,6 +11,15 @@ Skip sets with pending operations, unfinished imports/restores, incomplete snaps
 or unpublished catalogs. Check exact remote versions and revalidate local hashes
 before removal. Metadata checks do not download payloads or request retrieval.
 .SH OPTIONS
+
+.TP
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
 .TP
 .B \-\-all
 Process all locally registered sets.

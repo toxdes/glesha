@@ -79,3 +79,5 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	return app_cmd.Execute(ctx, args, version, sha)
 }
 func ExitCode(err error) int { return app_cmd.ExitCode(err) }
+
+func PrintError(args []string, err error) { app_cmd.PrintError(args, err) }

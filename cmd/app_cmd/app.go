@@ -63,19 +63,21 @@ func (m *mappings) Set(value string) error {
 type AppCmdEnv struct {
 	Chunked                                                                                                                                                                                                               bool
 	SpoolMax                                                                                                                                                                                                              string
-	Format, Keep                                                                                                                                                                                                          string
+	Progress, Format, Keep                                                                                                                                                                                                string
 	All, DryRun                                                                                                                                                                                                           bool
 	Config, Env, LogLevel, Color, Output, Into, File, Archive, Key, CatalogTo, Compression, Prefix, Mode, Class, IncrementalClass, Snapshot, Filter, Memory, PasswordFile, CatalogPasswordFile, Date, Baseline, Retrieval string
 	To, From                                                                                                                                                                                                              destinations
 	Roots, Passwords                                                                                                                                                                                                      mappings
 	Level, HashWorkers, TransferWorkers, Days                                                                                                                                                                             int
-	Incremental, Full, Recursive, Refresh, Remote, JSON, Force, AssumeYes, RequestRetrieval, Deep, Help, Version, KeepArchive                                                                                             bool
+	Incremental, Full, Recursive, Refresh, Remote, Force, AssumeYes, RequestRetrieval, Deep, Help, Version, KeepArchive                                                                                                   bool
 	present                                                                                                                                                                                                               map[string]bool
 }
 
 var appCmdEnv *AppCmdEnv
 
 type runtime struct {
+	emitted            int
+	command            string
 	operationLocked    bool
 	statusCopies       *sql.DB
 	statusArchiveBytes int64
@@ -134,6 +136,8 @@ Global options:
   --env FILE                  Credential file; process variables take priority
   -L, --log-level LEVEL       debug, info, warn, error, silent (default: info)
   --color MODE                yes, no, auto (default: auto)
+  --format FORMAT             plain or json; status also supports table/csv
+  --progress MODE             auto, plain or off (default: auto)
   -h, --help                  Show help
   -v, --version               Show version
 
@@ -154,6 +158,8 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	f.StringVar(&e.LogLevel, "log-level", "info", "debug, info, warn, error or silent")
 	f.StringVar(&e.LogLevel, "L", "info", "debug, info, warn, error or silent")
 	f.StringVar(&e.Color, "color", "auto", "yes, no or auto; always/never aliases accepted")
+	f.StringVar(&e.Format, "format", "plain", "plain or json; status also supports table/csv")
+	f.StringVar(&e.Progress, "progress", "auto", "auto, plain or off")
 	f.BoolVar(&e.Help, "help", false, "show help")
 	f.BoolVar(&e.Help, "h", false, "show help")
 	f.BoolVar(&e.Version, "version", false, "show version")
@@ -236,9 +242,6 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	if allowed("status history") {
 		f.BoolVar(&e.Refresh, "refresh", false, "check live metadata without requesting retrieval")
 	}
-	if command == "status" {
-		f.StringVar(&e.Format, "format", "plain", "plain, table, csv or json")
-	}
 	if allowed("catalog cleanup") {
 		f.BoolVar(&e.All, "all", false, "process all locally registered sets")
 		if command == "catalog" {
@@ -250,9 +253,6 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	}
 	if command == "list" {
 		f.BoolVar(&e.Remote, "remote", false, "discover remote set descriptors")
-	}
-	if allowed("list status history browse create configure run import move check") {
-		f.BoolVar(&e.JSON, "json", false, "versioned JSON output")
 	}
 	if allowed("run archive import restore extract decrypt") {
 		f.StringVar(&e.PasswordFile, "passphrase-file", "", "passphrase file; '-' reads stdin")
@@ -315,7 +315,7 @@ func ResolveCommand(args []string) (string, []string, error) {
 		}
 		if strings.HasPrefix(a, "-") {
 			name := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
-			if name != "config" && name != "env" && name != "color" && name != "log-level" && name != "L" {
+			if name != "config" && name != "env" && name != "color" && name != "log-level" && name != "L" && name != "format" && name != "progress" {
 				return "", nil, fmt.Errorf("cli: put operation options after the command")
 			}
 			if !strings.Contains(a, "=") {
@@ -343,6 +343,12 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		return fmt.Errorf("cli: %w", err)
 	}
 	f.Visit(func(v *flag.Flag) { e.present[v.Name] = true })
+	if err = normalizeOutput(command, e); err != nil {
+		return err
+	}
+	L.SetStructuredDiagnostics(e.jsonOutput())
+	defer L.SetStructuredDiagnostics(false)
+	early := &runtime{ctx: ctx, env: e, out: os.Stdout, command: command}
 	for _, p := range []*string{&e.Output, &e.Into, &e.File, &e.Archive, &e.PasswordFile, &e.CatalogPasswordFile} {
 		if *p != "" && *p != "-" {
 			expanded, err := file_io.Expand(*p)
@@ -359,19 +365,19 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		e.Version = true
 	}
 	if e.Version {
-		fmt.Printf("glesha %s (%s)\n", L.ASCII(version), L.ASCII(sha))
-		return nil
+		return early.emit("version", struct {
+			Version  string `json:"version"`
+			Revision string `json:"revision"`
+		}{version, sha}, fmt.Sprintf("glesha %s (%s)", L.ASCII(version), L.ASCII(sha)))
 	}
 	if command == "help" {
-		return showHelp(f.Args())
+		return early.help(f.Args())
 	}
 	if e.Help || command == "" {
 		if command == "" {
-			fmt.Print(Usage())
-		} else {
-			fmt.Print(CommandUsage(command))
+			return early.help(nil)
 		}
-		return nil
+		return early.help([]string{command})
 	}
 	if err = L.SetLevelFromString(e.LogLevel); err != nil {
 		return err
@@ -384,7 +390,8 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		return err
 	}
 	if command == "state" {
-		return handlers[command](&runtime{ctx: ctx, config: c}, f.Args())
+		early.config = c
+		return handlers[command](early, f.Args())
 	}
 	if err = config.Env(e.Env); err != nil {
 		return err
@@ -465,9 +472,16 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		defer registry.Close()
 	}
 	ctx = L.WithWorkerDetails(ctx, e.present["j"] || e.present["jobs"] || e.present["transfer-workers"] || e.present["hash-workers"])
-	r := &runtime{ctx: ctx, env: e, config: c, budget: budget, registry: registry, root: root, out: os.Stdout, limit: make(chan struct{}, budget.TransferWorkers)}
-	if !e.JSON && term.IsTerminal(int(os.Stderr.Fd())) && L.ProgressEnabled() {
-		renderer := L.NewProgressRenderer(os.Stderr, L.ColorEnabled(true))
+	r := &runtime{ctx: ctx, command: command, env: e, config: c, budget: budget, registry: registry, root: root, out: os.Stdout, limit: make(chan struct{}, budget.TransferWorkers)}
+	var renderer *L.ProgressRenderer
+	if e.Progress != "off" && L.ProgressEnabled() {
+		if e.jsonOutput() {
+			renderer = L.NewEventProgressRenderer(L.EmitProgress)
+		} else if e.Progress == "plain" || !term.IsTerminal(int(os.Stderr.Fd())) || os.Getenv("TERM") == "dumb" {
+			renderer = L.NewPlainProgressRenderer(os.Stderr)
+		} else {
+			renderer = L.NewProgressRenderer(os.Stderr, L.ColorEnabled(true))
+		}
 		defer renderer.Close()
 		r.ctx = L.WithProgress(ctx, renderer)
 	}
@@ -481,6 +495,15 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 			}
 			lock.Unlock()
 		}
+	}
+	if renderer != nil {
+		renderer.Close()
+		if err == nil {
+			err = renderer.Err()
+		}
+	}
+	if err == nil && e.jsonOutput() && r.emitted == 0 && !strings.Contains(" list status history browse ", " "+command+" ") {
+		return r.completed("", "", "")
 	}
 	return err
 }

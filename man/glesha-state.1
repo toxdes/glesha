@@ -14,6 +14,15 @@ Pending work and identities are preserved. Original databases are retained under
 An existing destination or unsupported database is refused. Config and credentials
 are never moved or rewritten.
 .SH OPTIONS
+
+.TP
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
 .TP
 .B \-\-config FILE
 Use TOML settings. catalog.directory overrides the migration destination.

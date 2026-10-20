@@ -41,8 +41,8 @@ var commandExamples = map[string][]string{
 	"retry":         {"glesha retry docs", "glesha retry docs --archive /new/location/backup.tar.xz.gpg"},
 	"list":          {"glesha list", "glesha list --remote --from b2 --env /secure/cloud.env"},
 	"status":        {"glesha status", "glesha status docs --refresh --env /secure/cloud.env"},
-	"history":       {"glesha history docs", "glesha history docs --refresh --json"},
-	"browse":        {"glesha browse docs", "glesha browse docs --path Documents --recursive", "glesha browse docs --snapshot SNAPSHOT_ID --recursive --json"},
+	"history":       {"glesha history docs", "glesha history docs --refresh --format=json"},
+	"browse":        {"glesha browse docs", "glesha browse docs --path Documents --recursive", "glesha browse docs --snapshot SNAPSHOT_ID --recursive --format=json"},
 	"restore":       {"glesha restore docs --into ~/recovered", "glesha restore docs --snapshot SNAPSHOT_ID --into ~/recovered --from b2,aws", "glesha restore docs --into ~/recovered --request-retrieval --retrieval bulk"},
 	"import":        {"glesha import old-docs --file encb-old.tar.gz.gpg", "glesha import old-docs --from b2 --key backups/encb-old.tar.gz.gpg", "glesha import old-docs --file encb-old.tar.gz.gpg --from b2 --key backups/encb-old.tar.gz.gpg --deep-verify"},
 	"move":          {"glesha move docs --to b2", "glesha move docs --to other-remote --request-retrieval --retrieval bulk"},
@@ -55,30 +55,35 @@ var commandExamples = map[string][]string{
 	"state":         {"glesha state migrate", "glesha state migrate --config /path/to/config.toml"},
 	"catalog":       {"glesha catalog sync docs", "glesha catalog sync --all", "glesha catalog resolve docs --keep remote", "glesha catalog pull docs", "glesha catalog push old-docs", "glesha catalog reconcile docs", "glesha catalog abandon docs"},
 	"storage-class": {"glesha storage-class docs --snapshot SNAPSHOT_ID --class DEEP_ARCHIVE"},
-	"check":         {"glesha check --to b2 --env /secure/cloud.env", "glesha check --to aws,b2 --env /secure/cloud.env", "glesha check --to b2 --json --env /secure/cloud.env"},
+	"check":         {"glesha check --to b2 --env /secure/cloud.env", "glesha check --to aws,b2 --env /secure/cloud.env", "glesha check --to b2 --format=json --env /secure/cloud.env"},
 }
 
 func showHelp(args []string) error {
+	text, err := helpText(args)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Print(text)
+	return err
+}
+func helpText(args []string) (string, error) {
 	if len(args) == 0 || len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
-		fmt.Print(Usage())
-		return nil
+		return Usage(), nil
 	}
 	if args[0] == "help" && len(args) == 1 {
-		fmt.Print(CommandUsage("help"))
-		return nil
+		return CommandUsage("help"), nil
 	}
 	if _, ok := handlers[args[0]]; !ok && args[0] != "version" {
-		return fmt.Errorf("cli: unknown help command %q", args[0])
+		return "", fmt.Errorf("cli: unknown help command %q", args[0])
 	}
 	if len(args) > 1 {
 		catalogAction := args[0] == "catalog" && len(args) == 2 && strings.Contains(" sync resolve pull push reconcile abandon ", " "+args[1]+" ")
 		stateAction := args[0] == "state" && len(args) == 2 && args[1] == "migrate"
 		if !catalogAction && !stateAction {
-			return fmt.Errorf("cli: help accepts one command or a catalog/state operation")
+			return "", fmt.Errorf("cli: help accepts one command or a catalog/state operation")
 		}
 	}
-	fmt.Print(CommandUsage(args[0]))
-	return nil
+	return CommandUsage(args[0]), nil
 }
 
 var commandArguments = map[string]string{
@@ -92,7 +97,7 @@ var commandArguments = map[string]string{
 
 func globalFlag(name string) bool {
 	switch name {
-	case "config", "env", "log-level", "L", "color", "help", "h", "version", "v":
+	case "config", "env", "log-level", "L", "color", "format", "progress", "help", "h", "version", "v":
 		return true
 	}
 	return false
@@ -103,7 +108,7 @@ func flagValueName(f *flag.Flag) string {
 	}
 	values := map[string]string{
 		"format": "FORMAT", "keep": "local|remote",
-		"config": "FILE", "env": "FILE", "log-level": "LEVEL", "color": "MODE",
+		"config": "FILE", "env": "FILE", "log-level": "LEVEL", "color": "MODE", "progress": "MODE",
 		"to": "REMOTE...", "from": "REMOTE...", "catalog-to": "REMOTE|local",
 		"compression": "FORMAT", "compression-level": "LEVEL", "prefix": "PREFIX",
 		"archive-mode": "MODE", "storage-class": "CLASS", "class": "CLASS",

@@ -81,3 +81,7 @@
 - Storage changes require explicit versioning and a tested migration/conversion path.
 - Unknown versions must fail without modifying user data.
 - Keep CLI aliases and versioned JSON stable; human formatting may evolve independently.
+
+## Changelog
+- Record user-visible changes under `Unreleased` in `CHANGELOG.md`.
+- For a release, move those notes under `## VERSION - YYYY-MM-DD` and keep an empty `Unreleased` section. The website renders released entries from this file.

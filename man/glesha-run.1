@@ -12,6 +12,14 @@ Completed chunks are reused after source validation. Chunked runs reject
 \-\-output and \-\-keep\-archive.
 .SH OPTIONS
 .TP
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
+.TP
 .B \-\-chunked
 Use independent encrypted chunks with bounded local spool space. \-\-chunked=false selects a single archive.
 .TP
@@ -63,9 +71,6 @@ show help
 .B \-\-incremental
 require a baseline on one remote
 .TP
-.B \-\-json
-versioned JSON output
-.TP
 .B \-\-log\-level STRING
 debug, info, warn, error or silent (default "info")
 .TP
@@ -114,7 +119,9 @@ glesha run docs \-\-incremental \-\-assume\-yes \-\-passphrase\-file /secure/arc
 Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
 or --color=no to disable them. The earlier always and never names remain aliases.
 Interactive stderr displays a progress bar, readable byte counts and average speed.
-Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
+JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
+to disable progress. Progress is disabled at warn/error/silent logging levels.
 Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
 Archiving shows processed/total uncompressed file bytes and a percentage.
 Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
