@@ -5,6 +5,30 @@ import argparse
 from pathlib import Path
 
 
+def compact_reference(content: str) -> str:
+    names = {"--L", "--color", "--config", "--env", "--h", "--help",
+             "--log-level", "--version", "--format", "--progress"}
+    common = {}
+    lines = []
+    for line in content.splitlines():
+        if line.startswith("| `"):
+            name = line.split("`", 2)[1].split()[0]
+            if name in names:
+                if common.setdefault(name, line) != line:
+                    lines.append(line)
+                continue
+        lines.append(line)
+    if common.keys() != names:
+        raise ValueError("CLI reference is missing expected global options")
+    title, body = "\n".join(lines).split("\n", 1)
+    globals_table = "\n".join(common.values())
+    return (
+        f"{title}\n\n## Global options\n\n"
+        "Apply to every command; listed once unless a command adds details.\n\n"
+        f"| Option | Meaning |\n| --- | --- |\n{globals_table}\n{body}\n"
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check", action="store_true", help="fail if the bundled reference is stale")
@@ -13,7 +37,7 @@ def main() -> int:
     root = Path(__file__).resolve().parents[1]
     source = root / "cli_reference.md"
     target = root / "skills/glesha/references/cli_reference.md"
-    content = source.read_text(encoding="utf-8")
+    content = compact_reference(source.read_text(encoding="utf-8"))
     for path in ("man/", "compatibility.md", "pricing/README.md", "man/glesha-version.1"):
         kind = "tree" if path.endswith("/") else "blob"
         content = content.replace(f"]({path})", f"](https://github.com/toxdes/glesha/{kind}/main/{path})")

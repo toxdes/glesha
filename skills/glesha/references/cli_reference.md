@@ -2,6 +2,23 @@
 
 # glesha CLI reference
 
+## Global options
+
+Apply to every command; listed once unless a command adds details.
+
+| Option | Meaning |
+| --- | --- |
+| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
+| `--config STRING` | TOML configuration file |
+| `--env STRING` | explicit credential environment file |
+| `--h` | show help |
+| `--help` | show help |
+| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
+| `--version`, `-version`, `-v` | Show version and build revision. |
+| `--format FORMAT` | plain (default) or json; status also supports table/csv |
+| `--progress MODE` | auto (default), plain or off |
+
 Create a standalone encrypted archive, or register a named set to keep a history
 of cloud backups. The executable performs compression, encryption and transfers
 internally. Full archives also work with ordinary GPG and tar.
@@ -216,25 +233,15 @@ Register a backup set and its source paths locally. This creates no archive and 
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--catalog-to STRING` | catalog remote or local |
 | `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
 | `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
 | `--incremental-storage-class STRING` | AWS incremental storage class |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -253,27 +260,17 @@ Change a set's saved settings or map imported roots. Previously bound source pat
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--baseline STRING` | explicit snapshot baseline |
 | `--catalog-to STRING` | catalog remote or local |
 | `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
 | `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
 | `--incremental-storage-class STRING` | AWS incremental storage class |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--prefix STRING` | glesha or encb |
 | `--root VALUE` | archive root NAME=source PATH |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -294,24 +291,17 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--archive-mode STRING` | auto, memory or stream |
 | `--assume-yes` | approve user-data removal confirmations |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
 | `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
 | `--full` | explicit full snapshot |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
 | `--incremental` | require a baseline on one remote |
 | `--keep-archive` | retain the local archive after a successful backup |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--output STRING` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
@@ -320,9 +310,6 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 | `--to VALUE` | remote names; comma-separated or repeated |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -344,19 +331,9 @@ Resume a pending backup, move, catalog publication or storage-class change. Comp
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--archive STRING` | relocated completed archive |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
 | `--keep-archive` | retain the local archive after a successful backup |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -375,19 +352,9 @@ Show known sets. Remote discovery registers published set descriptions without d
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--remote` | discover remote set descriptors |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -416,18 +383,9 @@ local records, not a live recovery check. A stopped publication is `PAUSED`;
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
 | `--format STRING` | plain (default), table, csv or json |
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--refresh` | check live metadata without requesting retrieval |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -494,17 +452,7 @@ Show completed snapshots, newest first, including transfer and storage status.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--refresh` | check live metadata without requesting retrieval |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -523,19 +471,9 @@ Browse a snapshot's file metadata in the local catalog. This makes no cloud requ
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--path STRING` | catalog path |
 | `--recursive` | include descendants |
 | `--snapshot STRING` | snapshot ID or latest (default "latest") |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -555,19 +493,12 @@ Reconstruct a full snapshot in a new destination. Cold retrieval requires separa
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--archive-passphrase-file VALUE` | snapshot ID=passphrase file |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
 | `--days INT` | readable-copy availability days |
-| `--env STRING` | explicit credential environment file |
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
 | `--into STRING` | new destination directory |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--request-retrieval` | explicitly authorize retrieval charges |
@@ -575,9 +506,6 @@ Reconstruct a full snapshot in a new destination. Cold retrieval requires separa
 | `--snapshot STRING` | snapshot ID or latest (default "latest") |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -602,22 +530,15 @@ same import, to finish publication without downloading/cataloging again.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--baseline STRING` | explicit snapshot baseline |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
 | `--date STRING` | known backup date in RFC3339 |
 | `--days INT` | readable-copy availability days |
 | `--deep-verify` | verify associated object bytes |
-| `--env STRING` | explicit credential environment file |
 | `--file STRING` | local archive |
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
 | `--key STRING` | exact remote object key |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--request-retrieval` | explicitly authorize retrieval charges |
@@ -625,9 +546,6 @@ same import, to finish publication without downloading/cataloging again.
 | `--root VALUE` | archive root NAME=source PATH |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -647,26 +565,16 @@ Copy and verify the complete set history before switching providers. Existing so
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--assume-yes` | approve user-data removal confirmations |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
 | `--days INT` | readable-copy availability days |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
 | `--to VALUE` | remote names; comma-separated or repeated |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -685,17 +593,10 @@ Create a standalone encrypted tar archive. No set name or cloud provider is need
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--archive-mode STRING` | auto, memory or stream |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
 | `--compression STRING` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--output STRING` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
@@ -703,9 +604,6 @@ Create a standalone encrypted tar archive. No set name or cloud provider is need
 | `--storage-class STRING` | AWS storage class |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -725,19 +623,9 @@ Validate an encrypted archive and write its compressed tar to a new output file.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--output STRING` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -756,19 +644,9 @@ Validate and extract an encrypted or plaintext compressed tar into a new directo
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
 | `--into STRING` | new destination directory |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -787,24 +665,14 @@ Upload an existing file. Replacing an existing object key requires --force.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
 | `--force` | explicitly replace an existing remote key |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
 | `--key STRING` | remote key (default filename) |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--storage-class STRING` | AWS storage class |
 | `--to VALUE` | remote names; comma-separated or repeated |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -823,22 +691,12 @@ Download encrypted bytes from explicitly selected providers, trying them in the 
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
 | `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--output STRING` | new output file |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -881,17 +739,7 @@ old local catalog; abandon preserves pending data.
 | `--all` | synchronize every locally registered remote-backed set |
 | `--keep STRING` | choose local or remote conflicting metadata during resolve |
 | `--assume-yes` | confirm conflict resolution without prompting |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -915,20 +763,10 @@ Change an AWS object's storage class with server-side copy. Archive identity and
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--class STRING` | AWS storage class |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--snapshot STRING` | snapshot ID or latest (default "latest") |
 | `--storage-class STRING` | AWS storage class |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 
@@ -954,21 +792,11 @@ test objects.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
-| `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--memory-max STRING` | managed memory budget |
 | `--to VALUE` | remote names; comma-separated or repeated |
 | `--transfer-workers INT` | maximum concurrent transfer workers |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
-| `--version`, `-version`, `-v` | Show version and build revision. |
-| `--format FORMAT` | plain (default) or json; status also supports table/csv |
-| `--progress MODE` | auto (default), plain or off |
 
 Examples:
 

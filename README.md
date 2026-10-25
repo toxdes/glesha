@@ -55,8 +55,8 @@ See the [guides](https://glesha.toxdes.com/guides.html), [sample configuration](
 
 ## Agent skill
 
-[skills/glesha](skills/glesha/SKILL.md) translates requests into commands and short
-argument explanations. Executing any command requires separate confirmation.
+[skills/glesha](skills/glesha/SKILL.md) helps configure, diagnose and use glesha.
+Diagnostics run directly; backups, recovery and configuration changes need confirmation.
 Copy that folder into your agent's skill directory; its CLI reference is bundled.
 
 ## Development

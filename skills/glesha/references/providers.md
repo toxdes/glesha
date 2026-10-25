@@ -1,28 +1,53 @@
 # Provider setup
 
-For "set up glesha", give the validation command first, then the few manual steps
-needed to prepare it. If the provider is unknown, start with `glesha help check`
-and ask AWS or B2. There is no interactive `glesha setup` command.
+## Discover and diagnose
 
-Never collect secret values in chat. The user supplies them through process
-variables or a private env file at a location they choose. Do not create or edit
-that file for them. `--env FILE` accepts that path on every command;
-existing process variables take precedence. Nonsecret bucket/region/endpoint
-settings may instead go in the user's chosen TOML config.
-Explicit TOML bucket, region and endpoint settings take priority over their
-environment fallbacks.
+For "which providers are configured?", inspect relevant local settings directly.
+There is no provider-list command; `glesha list` lists backup sets, not providers.
+Use an explicitly selected TOML file, or `glesha/config.toml` under the platform
+user-config directory. Read only bucket/region/endpoint and named-remote settings;
+do not print whole files. Check relevant process-variable presence without
+printing credential values. A bucket setting identifies a configured profile;
+credential presence alone does not prove the profile is usable.
+
+Distinguish configured (profile settings exist), incomplete (missing settings or
+credentials), and verified (a live check passed). Settings alone aren't verification.
+
+For "is setup OK?", run `glesha check --to NAME` for identified profiles.
+With a supplied `--env FILE`, pass it to glesha rather than displaying or sourcing
+it. If profiles cannot be discovered without reading that file, check the known
+AWS/B2 candidates separately; missing configuration is a diagnostic result,
+not evidence that both are configured. Separate checks avoid one missing bucket
+preventing the other provider's check. Don't guess custom remote names.
+If nothing is discoverable, ask for a config/env path or provider choice; don't
+ask permission just to run help. Report failures and missing variable names
+concisely; hide credentials if an error unexpectedly contains them.
+
+## Configure
+
+Ask only for missing choices: provider, bucket, region/endpoint and config/env
+location. There is no interactive `glesha setup`; `glesha configure SET` changes
+an existing set, not credentials. Offer the smallest relevant template below.
+Preserve unrelated existing settings and show a targeted diff. Confirm before
+writing nonsecret TOML or a new placeholder-only env template; never overwrite
+an existing credential file. Users fill secrets locally. Never request/paste
+secret values in chat, put them in command arguments, or read credential files.
+Create authorized env templates with owner-only permissions, outside version
+control. Don't edit shell profiles or cloud-account policies.
+
+`--env FILE` loads variables without overriding existing process values.
+TOML bucket/region/endpoint settings take priority over environment fallbacks.
+Use TOML for nonsecrets and env for credentials; all-env setup also works with
+the variables below. Run `check` after the user fills credentials; don't create
+a backup to validate setup.
 
 ## AWS S3
-
-Suggested first line when AWS is known:
-
-`glesha check --to aws`
 
 1. Choose a private S3 bucket and its actual region.
 2. Create credentials restricted to that bucket with list, object read/version
    read, upload and multipart-abort access. `check` additionally needs Object Lock
    configuration inspection and deletion of its temporary object's exact version.
-3. Set the following locally, then run the command above:
+3. Supply the following locally, then run `glesha check --to aws`:
 
 | Variable | Value |
 | --- | --- |
@@ -32,8 +57,24 @@ Suggested first line when AWS is known:
 | `AWS_BUCKET_NAME` | Bucket name |
 | `AWS_REGION` | Region such as `ap-southeast-1` |
 
-Explain `check` and `--to aws`; if an env file path is known, append and explain
-`--env FILE`. Do not suggest `aws configure` or IAM role/profile authentication
+Minimal TOML, with user-chosen values:
+
+```toml
+[aws]
+bucket = "YOUR_BUCKET"
+region = "YOUR_REGION"
+```
+
+Private env template; replace placeholders locally:
+
+```dotenv
+AWS_ACCESS_KEY_ID=REPLACE_LOCALLY
+AWS_SECRET_ACCESS_KEY=REPLACE_LOCALLY
+```
+
+Add `AWS_SESSION_TOKEN` only for temporary credentials. Append supplied
+`--config FILE`/`--env FILE` paths to the check command.
+Do not suggest `aws configure` or IAM role/profile authentication
 as a substitute: this glesha version reads the environment credential names above.
 
 Permissions depend on the operation. Ordinary use includes `s3:ListBucket`,
@@ -53,16 +94,12 @@ Source: [AWS S3 API permissions](https://docs.aws.amazon.com/AmazonS3/latest/use
 
 ## Backblaze B2
 
-Suggested first line when B2 is known:
-
-`glesha check --to b2`
-
 1. Create/select a private B2 bucket and copy its S3 endpoint.
 2. Create a bucket-restricted application key with `listBuckets`, `listFiles`,
    `readFiles`, `writeFiles` and `deleteFiles`; the S3-compatible API needs an
    application key, not the master application key. Retention inspection can also
    require `readBucketRetentions`.
-3. Set these locally, then run the command above:
+3. Supply these locally, then run `glesha check --to b2`:
 
 | Variable | Value |
 | --- | --- |
@@ -71,7 +108,22 @@ Suggested first line when B2 is known:
 | `B2_BUCKET_NAME` | Bucket name |
 | `B2_BUCKET_ENDPOINT` | S3 endpoint, e.g. `https://s3.us-west-004.backblazeb2.com` |
 
-Explain `check` and `--to b2`; append `--env FILE` only for a supplied file path.
+Minimal TOML, with user-chosen values:
+
+```toml
+[b2]
+bucket = "YOUR_BUCKET"
+endpoint = "https://s3.YOUR_REGION.backblazeb2.com"
+```
+
+Private env template; replace placeholders locally:
+
+```dotenv
+B2_KEY_ID=REPLACE_LOCALLY
+B2_APPLICATION_KEY=REPLACE_LOCALLY
+```
+
+Append supplied `--config FILE`/`--env FILE` paths to the check command.
 Glesha infers the B2 region from the endpoint when it is not configured in TOML.
 Do not confuse B2 account IDs, native API URLs or download URLs with these values.
 
