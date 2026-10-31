@@ -1,68 +1,70 @@
 .TH "GLESHA-CLEANUP" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-cleanup \- remove eligible local archive copies
+glesha-cleanup \- remove eligible local archive copies; remote backups are kept
 .SH SYNOPSIS
 .B glesha cleanup SET|\-\-all [options]
 .SH DESCRIPTION
-Preview managed import/restore archive files and reclaimable bytes; require [y/N]
-before removing them. Keep catalogs, registry, configuration, source data and
-explicitly chosen archive outputs. Remote objects are never deleted.
-Skip sets with pending operations, unfinished imports/restores, incomplete snapshots
-or unpublished catalogs. Check exact remote versions and revalidate local hashes
-before removal. Metadata checks do not download payloads or request retrieval.
+Remove eligible local archive copies; remote backups are kept.
+.PP
+Checks remote copies before removing local archives. Review \-\-dry\-run first. Remote backups are retained.
+.PP
+With \-\-from or \-\-to, only their combined bucket selection may be accessed.
 .SH OPTIONS
-
-.TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
-.TP
-.B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
 
 .TP
 .B \-\-all
 Process all locally registered sets.
 .TP
-.B \-\-dry-run
-Preview without removing files.
+.B \-\-dry\-run
+Preview archive cleanup.
+.SS Buckets
 .TP
-.B \-\-assume-yes
-Skip confirmation; retain all safety checks.
+.B \-\-to REMOTE...
+Additional buckets this command may access.
 .TP
-.B \-\-L STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-from REMOTE...
+Source or catalog buckets this command may access.
+.SS Confirmations
 .TP
-.B \-\-catalog\-passphrase\-file STRING
-separate catalog passphrase file
+.B \-\-assume\-yes
+Skip confirmation prompts for this command.
+.SS Global options
 .TP
-.B \-\-color STRING
-yes, no or auto; always/never aliases accepted (default "auto")
+.B \-\-format FORMAT
+Result format: plain or json; status also supports table and csv (default: plain).
 .TP
-.B \-\-config STRING
-TOML configuration file
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
-.B \-\-env STRING
-explicit credential environment file
+.B \-\-config FILE
+TOML settings file.
 .TP
-.B \-\-h
-show help
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
-.B \-\-help
-show help
+.B \-\-env FILE
+Load credentials; existing process variables take priority.
 .TP
-.B \-\-log\-level STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-color MODE
+Color mode: auto, yes, or no (default: auto).
 .TP
-.B \-\-version
-show version; \-version is also accepted.
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
 .TP
-.B \-v
-Alias for \-\-version.
-
+.B \-h, \-\-help
+Show this command's help.
+.TP
+.B \-v, \-\-version
+Show version and build revision.
 .SH EXAMPLES
 .nf
-glesha cleanup docs \-\-dry-run
-glesha cleanup docs \-\-env /secure/cloud.env
-glesha cleanup \-\-all \-\-assume-yes \-\-env /secure/cloud.env
+glesha cleanup docs \-\-dry\-run
+glesha cleanup docs
 .fi
+.SH OUTPUT
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for version 2 result records, one per line.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
+.SH SEE ALSO
+.BR glesha (1)

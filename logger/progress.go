@@ -111,6 +111,28 @@ func newProgressRenderer(out io.Writer, color, plain bool, report func(ProgressE
 func WithProgress(ctx context.Context, renderer *ProgressRenderer) context.Context {
 	return context.WithValue(ctx, progressKey{}, renderer)
 }
+
+// PauseProgress clears the activity line until an interactive prompt completes.
+func PauseProgress(ctx context.Context) func() {
+	renderer, _ := ctx.Value(progressKey{}).(*ProgressRenderer)
+	if renderer == nil {
+		return func() {}
+	}
+	renderer.mu.Lock()
+	renderer.clearLocked()
+	return renderer.mu.Unlock
+}
+
+func WriteHumanText(ctx context.Context, out io.Writer, text string, terminal bool, level Level) error {
+	text = HumanTextAtLevel(text, terminal, level)
+	if renderer, _ := ctx.Value(progressKey{}).(*ProgressRenderer); renderer != nil {
+		renderer.mu.Lock()
+		defer renderer.mu.Unlock()
+		renderer.clearLocked()
+	}
+	_, err := fmt.Fprintln(out, text)
+	return err
+}
 func WithProgressLabel(ctx context.Context, label string) context.Context {
 	return context.WithValue(ctx, progressLabelKey{}, label)
 }
@@ -191,6 +213,14 @@ func (p *Progress) Add(n int64) {
 	}
 }
 func (p *Progress) Finish() {
+	p.finish(true)
+}
+
+func (p *Progress) Stop() {
+	p.finish(false)
+}
+
+func (p *Progress) finish(report bool) {
 	if p == nil {
 		return
 	}
@@ -223,7 +253,9 @@ func (p *Progress) Finish() {
 		if r.color {
 			text = "\x1b[36m" + text + "\x1b[0m"
 		}
-		fmt.Fprintln(r.out, text)
+		if report {
+			fmt.Fprintln(r.out, text)
+		}
 		for other := range r.active {
 			if other.label == p.label {
 				delete(r.active, other)

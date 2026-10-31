@@ -1,61 +1,54 @@
 .TH "GLESHA-STATE" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-state \- migrate local state out of the config directory
+glesha-state \- move existing state out of the config directory
 .SH SYNOPSIS
-.B glesha state migrate [GLOBAL OPTIONS]
+.B glesha state migrate [options]
 .SH DESCRIPTION
-Moves older post-clean-slate state from the platform config directory's
-glesha/state-v2 directory to the current state directory. No cloud requests are made.
-Stop other glesha processes first. Existing custom state locations remain supported.
-.PP
-Archives are moved without copying; source and destination must share a filesystem.
-Pending work and identities are preserved. Original databases are retained under
-.state-migration-backup in the destination. Repeat the command after interruption.
-An existing destination or unsupported database is refused. Config and credentials
-are never moved or rewritten.
-.SH OPTIONS
-
+Move existing state out of the config directory.
+.SH ACTIONS
 .TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
+.B migrate
+Move legacy local state to the current location.
+.IP
+No cloud access is required. Archive files move without re\-encryption. Empty legacy registries need no migration. Existing destinations are not merged; use \-\-state\-dir to select a fresh destination.
+.SH OPTIONS
+.SS Global options
 .TP
 .B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
-
+Result format: plain or json; status also supports table and csv (default: plain).
+.TP
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
 .B \-\-config FILE
-Use TOML settings. catalog.directory overrides the migration destination.
+TOML settings file.
+.TP
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
 .B \-\-env FILE
-Accepted as a global option; migration does not load credentials.
-.TP
-.B \-L, \-\-log-level LEVEL
-debug, info, warn, error or silent. Default: info.
+Load credentials; existing process variables take priority.
 .TP
 .B \-\-color MODE
-yes, no or auto. Default: auto.
+Color mode: auto, yes, or no (default: auto).
+.TP
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
 .TP
 .B \-h, \-\-help
-Show help.
+Show this command's help.
 .TP
 .B \-v, \-\-version
 Show version and build revision.
-.SH FILES
-.TP
-.B Linux
-$XDG_DATA_HOME/glesha/state, or ~/.local/share/glesha/state.
-.TP
-.B macOS
-~/Library/Application Support/glesha/state.
-.TP
-.B Windows
-%LOCALAPPDATA%\eglesha\estate.
 .SH EXAMPLES
 .nf
 glesha state migrate
-glesha state migrate --config /path/to/config.toml
-glesha help state migrate
+glesha list \-\-state\-dir /path/to/state
 .fi
+.SH OUTPUT
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for version 2 result records, one per line.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-glesha(1), glesha-cleanup(1)
+.BR glesha (1)

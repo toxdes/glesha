@@ -3,6 +3,7 @@ package backup
 import (
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,16 +27,18 @@ import (
 )
 
 type revision struct {
-	Version                    int `json:"version"`
+	Version                    model.StateVersion `json:"version"`
 	Set, ID, Parent, Key, Hash string
 	DescriptorHash             string
 	Number                     int64
 	Checkpoint                 bool
+	Redirect                   *model.Locator  `json:"redirect,omitempty"`
+	AuthorityHistory           []model.Locator `json:"authority_history,omitempty"`
 }
 type Descriptor struct {
-	Version int            `json:"version"`
-	Set     model.Set      `json:"set"`
-	Remotes []model.Remote `json:"remotes"`
+	Version model.StateVersion `json:"version"`
+	Set     model.Set          `json:"set"`
+	Remotes []model.Remote     `json:"remotes"`
 }
 
 func (s *Service) prefix() string {
@@ -98,7 +101,8 @@ func (s *Service) revisions(ctx context.Context, store cloud.Store) ([]revision,
 		if conditional {
 			name = fmt.Sprintf("%020d.json", hint.Number)
 		}
-		cache := filepath.Join(s.Directory, "revision-"+name)
+		identity := s.Set.CatalogTo + "\x00" + s.prefix() + folder + name
+		cache := filepath.Join(s.Directory, fmt.Sprintf("revision-%x.json", sha256.Sum256([]byte(identity))))
 		b, err := os.ReadFile(cache)
 		if os.IsNotExist(err) {
 			if i < start-1 {
@@ -124,7 +128,18 @@ func (s *Service) revisions(ctx context.Context, store cloud.Store) ([]revision,
 		if _, err = uuid.Parse(v.ID); err != nil {
 			return nil, fmt.Errorf("backup: malformed revision identity")
 		}
-		if v.Version != 2 || v.Set != s.Set.ID || !conditional && v.ID != hint.ID || v.Number != hint.Number || hint.Checkpoint && !v.Checkpoint || !strings.HasPrefix(v.Key, s.prefix()+"batches/") {
+		if err = v.Version.Validate(); err != nil {
+			return nil, fmt.Errorf("backup: read remote revision: %w", err)
+		}
+		if v.Redirect != nil {
+			if err = validateLocator(*v.Redirect); err != nil {
+				return nil, err
+			}
+			if v.Redirect.Set != s.Set.ID {
+				return nil, fmt.Errorf("backup: authority redirect belongs to another set")
+			}
+		}
+		if v.Set != s.Set.ID || !conditional && v.ID != hint.ID || v.Number != hint.Number || hint.Checkpoint && !v.Checkpoint || !strings.HasPrefix(v.Key, s.prefix()+"batches/") {
 			return nil, fmt.Errorf("backup: invalid remote revision")
 		}
 		if i > 0 && out[i-1].ID != "" && v.Parent != out[i-1].ID {
@@ -138,6 +153,10 @@ func (s *Service) revisions(ctx context.Context, store cloud.Store) ([]revision,
 	return out, nil
 }
 func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
+	ctx = cloud.WithTransferLabel(ctx, "catalog metadata")
+	if _, err := catalogStateVersion(ctx, c); err != nil {
+		return fmt.Errorf("backup: publish catalog: %w", err)
+	}
 	if err := s.checkCatalogSecret(ctx, c); err != nil {
 		return err
 	}
@@ -150,7 +169,11 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 	}
 	label := "Publishing catalog"
 	if remote, err := s.Registry.Remote(ctx, s.Set.CatalogTo); err == nil {
-		label += " to " + remote.Name
+		name := remote.Name
+		if name == remote.ID || name == "" {
+			name = remote.Kind + "/" + remote.Bucket
+		}
+		label += " to " + L.Value(name)
 	}
 	progress := L.StartProgress(ctx, label, -1)
 	defer progress.Finish()
@@ -162,6 +185,14 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 	existing, err := s.revisions(ctx, store)
 	if err != nil {
 		return err
+	}
+	if !s.allowRetiredAuthority {
+		if err = s.checkPublishingAuthority(ctx, store); err != nil {
+			return err
+		}
+		if len(existing) > 0 && existing[len(existing)-1].Redirect != nil {
+			return fmt.Errorf("%w: catalog authority retired; run catalog sync before publication", ErrConflict)
+		}
 	}
 	pending, err := c.GetMeta(ctx, "publication")
 	if err != nil {
@@ -187,7 +218,18 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 		if err != nil {
 			return err
 		}
-		v = revision{Version: 2, Set: s.Set.ID, ID: uuid.NewString(), Parent: current, Number: number, Checkpoint: number == 1 || number%32 == 0 || force == "true"}
+		v = revision{Version: model.StateVersionPortable, Set: s.Set.ID, ID: uuid.NewString(), Parent: current, Number: number, Checkpoint: number == 1 || number%32 == 0 || force == "true"}
+		redirect, err := c.GetMeta(ctx, authorityRelocationKey)
+		if err != nil {
+			return err
+		}
+		if redirect != "" {
+			var move authorityRelocation
+			if err = json.Unmarshal([]byte(redirect), &move); err != nil {
+				return err
+			}
+			v.Redirect, v.AuthorityHistory = &move.Locator, move.History
+		}
 		v.Key = s.prefix() + "batches/" + v.ID + ".db.gz"
 		if s.Config.Catalog.Encrypted {
 			v.Key += ".gpg"
@@ -208,8 +250,17 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 	if len(existing) > 0 && existing[len(existing)-1].ID != current {
 		return fmt.Errorf("%w: pending revision has a different remote parent", ErrConflict)
 	}
+	if err = v.Version.Validate(); err != nil {
+		return fmt.Errorf("backup: pending publication: %w", err)
+	}
 	file := filepath.Join(s.Directory, "publication-"+v.ID)
 	if v.Hash == "" {
+		if err = c.SetMeta(ctx, model.StateAuthorityKey, s.Set.CatalogTo); err != nil {
+			return err
+		}
+		if err = c.SetMeta(ctx, stateProtocolMeta, v.Version.String()); err != nil {
+			return err
+		}
 		plain := file + ".db"
 		defer os.Remove(plain)
 		if _, err = os.Stat(plain); err == nil {
@@ -221,7 +272,7 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 		if err = s.encodeMetadata(ctx, plain, file); err != nil {
 			return err
 		}
-		v.Hash, _, err = archive.Hash(ctx, file)
+		v.Hash, _, err = archive.Hash(L.WithProgressLabel(ctx, "Checking catalog metadata"), file)
 		if err != nil {
 			return err
 		}
@@ -230,14 +281,14 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 			return err
 		}
 	}
-	hash, _, err := archive.Hash(ctx, file)
+	hash, _, err := archive.Hash(L.WithProgressLabel(ctx, "Checking catalog metadata"), file)
 	if err != nil || hash != v.Hash {
 		return fmt.Errorf("backup: publication file changed or disappeared")
 	}
 	if _, err = cloud.Create(ctx, store, v.Key, file, "STANDARD"); err != nil {
 		return fmt.Errorf("%w: metadata batch upload: %w", ErrPending, err)
 	}
-	descriptor := Descriptor{Version: 2, Set: s.Set}
+	descriptor := Descriptor{Version: v.Version, Set: portableSet(s.Set)}
 	remoteIDs := map[string]bool{}
 	for _, id := range s.Set.To {
 		remoteIDs[id] = true
@@ -280,7 +331,7 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 	} else if statErr != nil {
 		return statErr
 	}
-	descriptorHash, _, err := archive.Hash(ctx, descriptorFile)
+	descriptorHash, _, err := archive.Hash(L.WithProgressLabel(ctx, "Checking catalog descriptor"), descriptorFile)
 	if err != nil {
 		return err
 	}
@@ -431,9 +482,29 @@ func (s *Service) Pull(ctx context.Context) error {
 	if len(rs) == 0 {
 		return nil
 	}
+	if rs[len(rs)-1].Redirect != nil && !s.allowRetiredAuthority {
+		if err = s.followAuthority(ctx, rs[len(rs)-1]); err != nil {
+			return err
+		}
+		if s.Stores[s.Set.CatalogTo] == nil {
+			return ErrAuthorityMoved
+		}
+		return s.Pull(ctx)
+	}
 	current, err := c.GetMeta(ctx, "remote_revision")
 	if err != nil {
 		return err
+	}
+	authority, err := c.GetMeta(ctx, model.StateAuthorityKey)
+	if err != nil {
+		return err
+	}
+	if authority == "" {
+		authority = s.localAuthority
+	}
+	authorityChanged := authority != "" && authority != s.Set.CatalogTo
+	if authorityChanged {
+		current = ""
 	}
 	if current == rs[len(rs)-1].ID {
 		return nil
@@ -473,10 +544,22 @@ func (s *Service) Pull(ctx context.Context) error {
 		return err
 	}
 	defer staged.Close()
+	progress := L.StartProgress(ctx, "Applying catalog updates", -1)
+	defer progress.Finish()
+	ctx = L.WithProgress(ctx, nil)
 	for i := checkpoint; i < len(rs); i++ {
 		rev := rs[i]
-		r, object, err := store.Get(ctx, rev.Key, "")
+		cached, err := s.cachedMetadata(ctx, store, rev.Key, rev.Hash)
 		if err != nil {
+			return err
+		}
+		r, err := os.Open(cached)
+		if err != nil {
+			return err
+		}
+		info, err := r.Stat()
+		if err != nil {
+			r.Close()
 			return err
 		}
 		downloaded, err := file_io.Temp(s.Directory)
@@ -484,7 +567,7 @@ func (s *Service) Pull(ctx context.Context) error {
 			r.Close()
 			return err
 		}
-		progress := L.StartProgress(ctx, "Downloading catalog", object.Size)
+		progress := L.StartProgress(ctx, "Loading catalog", info.Size())
 		_, err = copyContext(ctx, downloaded, progress.Reader(r))
 		progress.Finish()
 		r.Close()
@@ -525,7 +608,7 @@ func (s *Service) Pull(ctx context.Context) error {
 		}
 		identity, identityErr := repository.ReadCatalogMeta(ctx, plain.Name(), "publication")
 		var published revision
-		if identityErr != nil || json.Unmarshal([]byte(identity), &published) != nil || published.ID != rev.ID || published.Set != rev.Set || published.Parent != rev.Parent || published.Number != rev.Number || published.Key != rev.Key || published.Checkpoint != rev.Checkpoint {
+		if identityErr != nil || json.Unmarshal([]byte(identity), &published) != nil || published.Version != rev.Version || published.ID != rev.ID || published.Set != rev.Set || published.Parent != rev.Parent || published.Number != rev.Number || published.Key != rev.Key || published.Checkpoint != rev.Checkpoint {
 			os.Remove(plain.Name())
 			return fmt.Errorf("backup: authenticated metadata revision identity differs")
 		}
@@ -544,6 +627,20 @@ func (s *Service) Pull(ctx context.Context) error {
 		if err = s.markPublished(ctx, staged, rev); err != nil {
 			return err
 		}
+	}
+	if authorityChanged {
+		if err = c.EachSnapshot(ctx, func(previous model.Snapshot) error {
+			incoming, err := staged.Snapshot(ctx, previous.ID)
+			if err != nil || incoming.Hash != previous.Hash || !sameManifest(incoming.Manifest, previous.Manifest) {
+				return fmt.Errorf("%w: new authority does not preserve snapshot %s", ErrConflict, previous.ID)
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	if err = repository.PreserveLocalPaths(ctx, c, staged); err != nil {
+		return err
 	}
 	if err = repository.Preserve(ctx, c, filepath.Join(s.Directory, "before-pull-"+newID()+".db")); err != nil {
 		return err

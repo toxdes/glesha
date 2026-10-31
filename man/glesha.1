@@ -1,212 +1,161 @@
 .TH "GLESHA" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha \- encrypted archives and indexed cloud backups
+glesha \- encrypted archives and cloud backups
 .SH SYNOPSIS
-.B glesha [GLOBAL OPTIONS] COMMAND [ARGUMENTS] [OPTIONS]
+.B glesha [global options] COMMAND [arguments] [options]
 .SH DESCRIPTION
-Create standalone encrypted archives or manage named backup sets on AWS S3 and Backblaze B2.
-Tar, xz, gzip, bzip2, OpenPGP and SQLite run internally; the installed executable needs no external tools.
-Full archives can also be recovered independently with GPG and tar.
+Create encrypted archives, keep snapshot histories in cloud buckets, and restore files without overwriting existing files.
 .SH COMMANDS
+.SS Back up and recover
 .TP
-.B state migrate
-Move older local state out of the configuration directory. See glesha-state(1).
+.B create SET PATH...
+Register sources and a backup destination
 .TP
-.B create
-Register a backup set and its source paths locally. This creates no archive and makes no cloud requests. See glesha-create(1).
+.B run SET
+Create and upload a backup
 .TP
-.B configure
-Change a set's saved settings or map imported roots. Previously bound source paths cannot be replaced. See glesha-configure(1).
+.B restore SET \-\-into DIR
+Restore files without overwriting existing files
 .TP
-.B run
-Create and upload a full backup, or an explicit incremental. Repeating a pending run resumes recorded work. See glesha-run(1).
-.TP
-.B retry
-Resume a pending backup, move, catalog publication or storage\-class change. Completed uploads are reused. See glesha-retry(1).
+.B import SET
+Register an existing archive
+.SS Inspect
 .TP
 .B list
-Show known sets. Remote discovery registers published set descriptions without downloading backup payloads. See glesha-list(1).
+List locally known sets and IDs
 .TP
-.B status
-Show local backup state. With \-\-refresh, inspect remote classes and retrieval readiness without requesting retrieval. See glesha-status(1).
+.B status [SET]
+Show backup state, sizes, and estimated cost
 .TP
-.B history
-Show completed snapshots, newest first, including transfer and storage status. See glesha-history(1).
+.B history SET
+List snapshots
 .TP
-.B browse
-Browse a snapshot's file metadata in the local catalog. This makes no cloud requests and downloads no file content. See glesha-browse(1).
+.B browse SET
+List files in a snapshot
 .TP
-.B restore
-Reconstruct a full snapshot in a new destination. Cold retrieval requires separate, explicit consent. See glesha-restore(1).
+.B catalog sync [SET]
+Discover sets or synchronize one catalog
 .TP
-.B import
-Catalog an existing full archive without changing its encrypted bytes or uploading a replacement payload. See glesha-import(1).
+.B catalog unlock SET
+Open a downloaded encrypted catalog locally
+.SS Manage
 .TP
-.B move
-Copy and verify the complete set history before switching providers. Existing source copies are retained. See glesha-move(1).
+.B configure SET
+Change saved settings or bind local sources
 .TP
-.B archive
-Create a standalone encrypted tar archive. No set name or cloud provider is needed. See glesha-archive(1).
+.B retry SET
+Resume pending work
 .TP
-.B decrypt
-Validate an encrypted archive and write its compressed tar to a new output file. See glesha-decrypt(1).
+.B cleanup SET|\-\-all
+Remove eligible local archive copies
 .TP
-.B extract
-Validate and extract an encrypted or plaintext compressed tar into a new directory. See glesha-extract(1).
+.B move SET \-\-from A \-\-to B
+Copy history and switch destinations
 .TP
-.B upload
-Upload an existing file. Replacing an existing object key requires \-\-force. See glesha-upload(1).
+.B storage\-class SET
+Change an AWS archive's storage class
 .TP
-.B download
-Download encrypted bytes from explicitly selected providers, trying them in the supplied order. See glesha-download(1).
+.B check \-\-to REMOTE...
+Test bucket access
 .TP
-.B cleanup
-Remove eligible managed local archive copies after remote verification and confirmation.
-See glesha-cleanup(1).
+.B state migrate
+Move legacy local state to the current location
+.SS Standalone files
 .TP
-.B catalog
-Synchronize state with catalog sync SET or catalog sync --all. Resolve conflicting references explicitly; preserve both histories. See glesha-catalog(1).
+.B archive PATH...
+Create an encrypted archive
 .TP
-.B storage-class
-Change an AWS object's storage class with server\-side copy. Archive identity and older versions are retained. See glesha-storage-class(1).
+.B decrypt FILE
+Decrypt to compressed tar
 .TP
-.B check
-Check selected providers using metadata and an owned temporary write/read/delete operation. See glesha-check(1).
+.B extract FILE \-\-into DIR
+Extract into a new directory
 .TP
-.B help
-Show complete command options and examples.
+.B upload FILE \-\-to REMOTE...
+Upload a file
+.TP
+.B download KEY \-\-from REMOTE
+Download a file
+.SS Help and version
+.TP
+.B help [COMMAND [ACTION]]
+Show options and examples
 .TP
 .B version
-Show the executable version and build revision without loading configuration or credentials.
-.SH GLOBAL OPTIONS
-
-.TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
+Show version and build revision
+.SH OPTIONS
 .TP
 .B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
-
+Result format: plain or json; status also supports table and csv (default: plain).
 .TP
-.B \-\-L STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
-.B \-\-color STRING
-yes, no or auto; always/never aliases accepted (default "auto")
+.B \-\-config FILE
+TOML settings file.
 .TP
-.B \-\-config STRING
-TOML configuration file
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
-.B \-\-env STRING
-explicit credential environment file
+.B \-\-env FILE
+Load credentials; existing process variables take priority.
 .TP
-.B \-\-help
-show help
+.B \-\-color MODE
+Color mode: auto, yes, or no (default: auto).
 .TP
-.B \-\-log\-level STRING
-debug, info, warn, error or silent (default "info")
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
 .TP
-.B \-\-version
-show version; \-version is also accepted.
+.B \-h, \-\-help
+Show this command's help.
 .TP
-.B \-v
-Alias for \-\-version.
-.SH DEFAULTS
-Backups are full unless --incremental is explicitly supplied. Archive compression
-is xz at level 6; gzip and bzip2 are selectable. Configuration uses CLI values before TOML
-before built-in defaults. There is no upload or standalone download provider default.
-Supply --to at create time or run time. Comma-separated and repeated selections
-are accepted; --from keeps their order for fallback. An incremental set keeps
-its entire history on one authoritative provider; move copies history before switching.
-XZ levels 1..9 select dictionaries from 64 KiB to 16 MiB, doubling per level;
-level 6 uses 2 MiB. These differ from external xz presets. Higher levels may
-require a larger --memory-max. Existing sets retain their saved compression;
-use configure SET --compression xz to change future runs. Metadata stays gzip.
-XZ imports support LZMA2 without additional filters and reject dictionaries
-that exceed the decoder memory budget.
-.SH SAFETY
-Bound source paths cannot be replaced under the same set name. Restore and extract
-require a new output directory; archive and download require a new output file.
-Incremental removed paths and type replacements require a default-no [y/N] prompt;
---assume-yes permits automation. Raw object replacement requires --force.
-Historical snapshots and moved source copies are retained. Cold retrieval is never
-implicit: use the retrieval confirmation or --request-retrieval. Bulk is the default;
-standard and expedited are explicit opt-ins. Deep Archive does not support expedited.
-.SH CONFIGURATION
-The default config.toml is under the platform user-config directory in glesha.
-Credentials come from process variables or an explicit --env file; existing
-process variables take precedence. No sensitive file is rewritten.
-Archive passwords use --passphrase-file FILE, '-' for stdin, or a confirmed hidden
-prompt. Catalog secrets use GLESHA_CATALOG_PASSPHRASE or --catalog-passphrase-file.
-Snapshots with different passwords accept --archive-passphrase-file ID=FILE overrides.
-.SH FILES
-registry.db stores set and remote identities. Each set UUID has a catalog.db.
-Catalogs contain metadata and hashes, never file content. Local browsing makes no
-cloud requests. Remote catalogs are encrypted by default and use S3 Standard.
+.B \-v, \-\-version
+Show version and build revision.
+.SH OUTPUT
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for result records, one per line.
+Catalog sync records use output version 3; other results retain version 2.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
+Informational text is plain. Errors are red, warnings yellow, and ready states green when color is enabled.
+Color defaults to terminal detection. Human formatting may change independently of JSON records.
+.SH BUCKET ACCESS
+Without \-\-from or \-\-to, configured and saved provider choices apply. An explicit selection limits all bucket access to their union, including catalogs and registry copies.
+Include every required bucket explicitly. Selecting buckets does not make an operation read-only.
+.SH LOCAL STATE
+Use \-\-state\-dir DIR to override catalog.directory for one invocation. This selects local state, not cloud buckets.
+Empty legacy registries do not block existing default state. Nonempty locations are never merged automatically; use state migrate or choose a location explicitly.
+.SH PASSPHRASES
+Catalog and archive passphrases are separate. catalog sync downloads encrypted metadata; catalog unlock SET reads a cached catalog locally.
+Restore requires the archive passphrase as well. File flags can supply passphrases; a dash reads stdin. Hidden prompts support Ctrl+C.
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+An operation or configuration failed.
+.TP
+.B 2
+Invalid command usage or an unknown set.
+.TP
+.B 3
+Pending work must be finished first.
+.TP
+.B 4
+Catalog histories conflict.
+.TP
+.B 130
+Operation cancelled.
 .SH EXAMPLES
 .nf
 glesha create docs ~/Documents \-\-to b2
-
-glesha run docs \-\-env /secure/cloud.env
-
-glesha run docs \-\-incremental \-\-env /secure/cloud.env
-
-glesha browse docs \-\-path Documents \-\-recursive
-
-glesha restore docs \-\-into ~/recovered
-
-glesha archive ~/Documents \-\-compression gzip
-
-glesha import old\-docs \-\-from b2 \-\-key backups/encb\-old.tar.gz.gpg
-
-glesha help run
+glesha run docs
+glesha catalog sync \-\-from b2
+glesha catalog unlock SET
+glesha help restore
 .fi
-.SH OUTPUT
-Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
-or --color=no to disable them. The earlier always and never names remain aliases.
-Interactive stderr displays a progress bar, readable byte counts and average speed.
-Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
-JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
-to disable progress. Progress is disabled at warn/error/silent logging levels.
-Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
-Archiving shows processed/total uncompressed file bytes and a percentage.
-Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
-progress and adapt to about 80 percent of terminal width. Upload progress includes
-in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
-that final validation or catalog publication has finished.
-Use --log-level=debug for operation and worker-budget diagnostics.
-Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
-Explicit worker flags show the effective worker count; archiving and individual
-downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
-.SH COMPATIBILITY
-Existing encb gzip/OpenPGP archives are read without recompression or replacement.
-Compression is detected from the decrypted stream, independent of filenames.
-Passwords are never stored. Archive passwords and the catalog secret are separate.
-Database and JSON formats are versioned. Unsupported catalog schemas are rejected
-without modifying the file; old catalogs are neither migrated nor deleted implicitly.
-.SH EXIT STATUS
-0: success. 1: operation failure. 2: invalid usage or missing selection.
-3: pending work or cold retrieval. 4: conflicting remote history.
 .SH SEE ALSO
-.BR glesha-version (1),
-.BR glesha-help (1),
-.BR glesha-create (1),
-.BR glesha-configure (1),
-.BR glesha-run (1),
-.BR glesha-retry (1),
-.BR glesha-list (1),
-.BR glesha-status (1),
-.BR glesha-history (1),
-.BR glesha-browse (1),
-.BR glesha-restore (1),
-.BR glesha-import (1),
-.BR glesha-move (1),
-.BR glesha-archive (1),
-.BR glesha-decrypt (1),
-.BR glesha-extract (1),
-.BR glesha-upload (1),
-.BR glesha-download (1),
 .BR glesha-catalog (1),
-.BR glesha-storage-class (1),
-.BR glesha-check (1)
+.BR glesha-status (1),
+.BR glesha-restore (1)

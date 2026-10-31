@@ -20,7 +20,8 @@ glesha browse docs --path Documents --recursive
 glesha restore docs --into ~/recovered --env /secure/cloud.env
 ```
 
-`create` only saves settings locally. `run` creates a full backup by default;
+`create` registers sources and publishes initial metadata for remote-backed sets.
+`run` creates a full backup by default;
 `--incremental` must be explicit. Give destinations at creation or run time:
 there is no default provider. A set has a stable UUID and a local name;
 each snapshot has its own UUID. Bound source directories cannot be replaced.
@@ -29,14 +30,24 @@ and verifies the entire history before switching, retaining original copies.
 
 ## Output and progress
 
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to
+stderr. Successful commands report a result; empty inventories show a next step.
+`--format=json` keeps stdout free of prose, color, and progress.
+
+Informational text is plain. Errors are red, warnings and states requiring action
+are yellow, active work is cyan, and synced or ready states are green when color
+is enabled. Repeated shared failures are grouped; final errors keep the exit code
+without repeating a report already printed.
+
 Human command output uses ASCII. Unicode names are shown with escapes without
-changing stored names or JSON values. Help has wrapped descriptions, meaningful
-argument names and separate global options.
+changing stored names or JSON values. Paths and labels escape terminal controls. Help has wrapped descriptions, meaningful
+argument names and task-based option groups. `glesha help catalog ACTION`
+shows focused options for sync, unlock, resolve, and compatibility actions.
 
 `--color=auto` is the default. Use `--color=yes` to force color or `--color=no`
 to disable it. Existing `always` and `never` spellings remain supported.
 `--log-level=debug` enables operation and worker-budget diagnostics. Normal output
-shows readable sizes such as `14.20 MiB`; JSON retains integer bytes and its versioned
+shows compact binary sizes such as `14.20M`; JSON retains integer bytes and its versioned
 structure.
 
 Interactive stderr marks steps with `[+]` and shows a progress bar with compact
@@ -101,7 +112,8 @@ Every command accepts `--format=json` (or `--format json`), before or after the
 command. `--format=plain` is the
 default; `status` also supports `table` and `csv`.
 
-- **stdout:** JSON Lines results, retaining version 2 `{version, kind, data}` envelopes.
+- **stdout:** JSON Lines results in `{version, kind, data}` envelopes. Catalog sync
+  records use version 3; other result records retain version 2.
   Listings emit one record per item; empty listings emit no records.
 - **stderr:** version 1 `{version, kind, data}` diagnostics. `kind` is `progress`,
   `error`, `warning`, `info` or `debug`. No ANSI formatting or inline updates.
@@ -112,7 +124,8 @@ default; `status` also supports `table` and `csv`.
   and the exit code. `--progress=off` disables progress without suppressing errors.
 - Errors contain `code`, `message` and `exit_code`. Codes include `FAILED`,
   `INVALID_ARGUMENT`, `PENDING`, `CONFLICT`, `CONFIRMATION_REQUIRED` and `CANCELED`.
-  Exit codes remain 1 for failures, 2 for CLI errors, 3 for pending work and 4 for conflicts.
+  Exit codes are 1 for failures, 2 for CLI errors, 3 for pending work, 4 for conflicts
+  and 130 for cancellation.
   Structured errors are emitted even with silent logging.
 - JSON does not approve operations or disable hidden password/confirmation prompts.
   For unattended use, supply passphrase files and the operation's explicit consent
@@ -210,26 +223,28 @@ The global options below are also included in each command's option list.
 glesha create SET PATH... [options]
 ```
 
-Register a backup set and its source paths locally. This creates no archive and makes no cloud requests.
+Register a backup set and its local source paths. Remote-backed sets discover
+existing state and publish their initial catalog and discovery record; no archive
+is created. Local-only sets remain local.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--catalog-to STRING` | catalog remote or local |
+| `--catalog-passphrase-file STRING` | catalog passphrase for state publication |
 | `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
 | `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--compression STRING` | xz, gzip or bzip2 |
+| `--compression FORMAT` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
 | `--incremental-storage-class STRING` | AWS incremental storage class |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
-| `--to VALUE` | remote names; comma-separated or repeated |
+| `--to REMOTE...` | remote names; comma-separated or repeated |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
 | `--progress MODE` | auto (default), plain or off |
@@ -248,27 +263,29 @@ glesha configure SET [options]
 ```
 
 Change a set's saved settings or map imported roots. Previously bound source paths cannot be replaced.
+Portable settings synchronize before changes and publish afterward. Source-folder
+bindings remain local to this computer.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--baseline STRING` | explicit snapshot baseline |
+| `--catalog-passphrase-file STRING` | catalog passphrase for synchronization and publication |
 | `--catalog-to STRING` | catalog remote or local |
 | `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
 | `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--compression STRING` | xz, gzip or bzip2 |
+| `--compression FORMAT` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
 | `--incremental-storage-class STRING` | AWS incremental storage class |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--prefix STRING` | glesha or encb |
 | `--root VALUE` | archive root NAME=source PATH |
 | `--storage-class STRING` | AWS storage class |
-| `--to VALUE` | remote names; comma-separated or repeated |
+| `--to REMOTE...` | remote names; comma-separated or repeated |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
 | `--progress MODE` | auto (default), plain or off |
@@ -292,31 +309,30 @@ retain them. Explicit `--output` files are retained; failures keep archives for 
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--archive-mode STRING` | auto, memory or stream |
 | `--assume-yes` | approve user-data removal confirmations |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--chunked[=false]` | bounded-spool encrypted chunks; false selects one archive |
 | `--spool-max SIZE` | chunk spool limit; default 128MiB, supports 128M and 1.1G |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--compression STRING` | xz, gzip or bzip2 |
+| `--compression FORMAT` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
 | `--full` | explicit full snapshot |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
+| `-h, --help` | show command help |
 | `--incremental` | require a baseline on one remote |
 | `--keep-archive` | retain the local archive after a successful backup |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
-| `--output STRING` | new output file |
+| `--memory-max SIZE` | managed memory budget |
+| `--output FILE` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
-| `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `--to REMOTE...` | remote names; comma-separated or repeated |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -342,16 +358,15 @@ Resume a pending backup, move, catalog publication or storage-class change. Comp
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--archive STRING` | relocated completed archive |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
 | `--keep-archive` | retain the local archive after a successful backup |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
 | `--progress MODE` | auto (default), plain or off |
@@ -369,19 +384,20 @@ glesha retry docs --archive /new/location/backup.tar.xz.gpg
 glesha list [--remote --from REMOTE...] [options]
 ```
 
-Show known sets. Remote discovery registers published set descriptions without downloading backup payloads.
+Show cached set names and IDs without cloud requests or password prompts. Use
+`catalog sync` for discovery and `status` for a fuller overview. The existing
+`list --remote --from REMOTE` spelling remains available but is deprecated.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `--from REMOTE...` | ordered source remotes; comma-separated or repeated |
+| `-h, --help` | show command help |
 | `--remote` | discover remote set descriptors |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -391,7 +407,7 @@ Examples:
 
 ```console
 glesha list
-glesha list --remote --from b2 --env /secure/cloud.env
+glesha catalog sync --from b2 --env /secure/cloud.env
 ```
 
 ### status
@@ -414,15 +430,14 @@ local records, not a live recovery check. A stopped publication is `PAUSED`;
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
 | `--format STRING` | plain (default), table, csv or json |
-| `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
+| `--from REMOTE...` | ordered source remotes; comma-separated or repeated |
+| `-h, --help` | show command help |
 | `--refresh` | check live metadata without requesting retrieval |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--progress MODE` | auto (default), plain or off |
@@ -476,6 +491,8 @@ rates mark the estimate partial (`*`). Estimates exclude API requests, retrieval
 egress, temporary restored copies, taxes, discounts, free tiers, pending/untracked
 objects and untracked object versions. They do not predict future backup growth.
 Intelligent-Tiering assumes Frequent Access unless archive access is observed.
+Locked catalogs show `-` for snapshot counts and sizes in human output. Totals
+cover readable catalogs; the report identifies partial coverage.
 JSON retains its version 2 envelope and original fields; additional byte counts
 remain integers and USD estimates are numeric.
 
@@ -488,17 +505,19 @@ totals and prose.
 glesha history SET [options]
 ```
 
+A downloaded locked catalog can be unlocked with `--catalog-passphrase-file FILE`
+or a hidden prompt. Archive passwords are not needed to inspect history.
+
 Show completed snapshots, newest first, including transfer and storage status.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
 | `--refresh` | check live metadata without requesting retrieval |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -517,20 +536,21 @@ glesha history docs --refresh --format=json
 glesha browse SET [options]
 ```
 
-Browse a snapshot's file metadata in the local catalog. This makes no cloud requests and downloads no file content.
+Browse a snapshot's catalog metadata. A downloaded catalog can be unlocked
+locally; missing metadata is fetched from its authority. No archive data is downloaded.
+Use `--catalog-passphrase-file FILE` to unlock without a terminal prompt.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
 | `--path STRING` | catalog path |
 | `--recursive` | include descendants |
-| `--snapshot STRING` | snapshot ID or latest (default "latest") |
+| `--snapshot ID` | snapshot ID or latest (default "latest") |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
 | `--progress MODE` | auto (default), plain or off |
@@ -549,29 +569,32 @@ glesha browse docs --snapshot SNAPSHOT_ID --recursive --format=json
 glesha restore SET --into DIR [options]
 ```
 
-Reconstruct a full snapshot in a new destination. Cold retrieval requires separate, explicit consent.
+Reconstruct a snapshot in a new or existing directory, including `--into .`.
+Existing directories are merged while preserving their permissions. Existing
+files, symlinks, and conflicting paths are rejected before payload downloads;
+files are never overwritten. Interrupted publication preserves verified staging;
+repeat the restore command to resume. Cold retrieval requires explicit consent.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--archive-passphrase-file VALUE` | snapshot ID=passphrase file |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
 | `--days INT` | readable-copy availability days |
-| `--env STRING` | explicit credential environment file |
-| `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
+| `--env FILE` | explicit credential environment file |
+| `--from REMOTE...` | ordered source remotes; comma-separated or repeated |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--into STRING` | new destination directory |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
+| `-h, --help` | show command help |
+| `--into DIR` | destination directory; existing files are never overwritten |
+| `--memory-max SIZE` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
-| `--snapshot STRING` | snapshot ID or latest (default "latest") |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `--snapshot ID` | snapshot ID or latest (default "latest") |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -600,28 +623,27 @@ same import, to finish publication without downloading/cataloging again.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--baseline STRING` | explicit snapshot baseline |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
 | `--date STRING` | known backup date in RFC3339 |
 | `--days INT` | readable-copy availability days |
 | `--deep-verify` | verify associated object bytes |
-| `--env STRING` | explicit credential environment file |
+| `--env FILE` | explicit credential environment file |
 | `--file STRING` | local archive |
-| `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
+| `--from REMOTE...` | ordered source remotes; comma-separated or repeated |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
+| `-h, --help` | show command help |
 | `--key STRING` | exact remote object key |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
+| `--memory-max SIZE` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
 | `--root VALUE` | archive root NAME=source PATH |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -645,22 +667,21 @@ Copy and verify the complete set history before switching providers. Existing so
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--assume-yes` | approve user-data removal confirmations |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
 | `--days INT` | readable-copy availability days |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
+| `--env FILE` | explicit credential environment file |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
+| `-h, --help` | show command help |
+| `--memory-max SIZE` | managed memory budget |
 | `--request-retrieval` | explicitly authorize retrieval charges |
 | `--retrieval STRING` | bulk, standard or expedited (default "bulk") |
-| `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `--to REMOTE...` | remote names; comma-separated or repeated |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -669,8 +690,8 @@ Copy and verify the complete set history before switching providers. Existing so
 Examples:
 
 ```console
-glesha move docs --to b2
-glesha move docs --to other-remote --request-retrieval --retrieval bulk
+glesha move docs --from aws --to b2
+glesha move docs --from aws --to other-remote --request-retrieval --retrieval bulk
 ```
 
 ### archive
@@ -683,23 +704,22 @@ Create a standalone encrypted tar archive. No set name or cloud provider is need
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--archive-mode STRING` | auto, memory or stream |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--compression STRING` | xz, gzip or bzip2 |
+| `--compression FORMAT` | xz, gzip or bzip2 |
 | `--compression-level INT` | compression level 1..9 |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
-| `--output STRING` | new output file |
+| `-h, --help` | show command help |
+| `--memory-max SIZE` | managed memory budget |
+| `--output FILE` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--prefix STRING` | glesha or encb |
 | `--storage-class STRING` | AWS storage class |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -723,15 +743,14 @@ Validate an encrypted archive and write its compressed tar to a new output file.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
-| `--output STRING` | new output file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
+| `--memory-max SIZE` | managed memory budget |
+| `--output FILE` | new output file |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -754,15 +773,14 @@ Validate and extract an encrypted or plaintext compressed tar into a new directo
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--into STRING` | new destination directory |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
+| `--into DIR` | new destination directory |
+| `--memory-max SIZE` | managed memory budget |
 | `--passphrase-file STRING` | passphrase file; '-' reads stdin |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -785,20 +803,19 @@ Upload an existing file. Replacing an existing object key requires --force.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
 | `--force` | explicitly replace an existing remote key |
-| `--h` | show help |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
+| `-h, --help` | show command help |
 | `--key STRING` | remote key (default filename) |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
+| `--memory-max SIZE` | managed memory budget |
 | `--storage-class STRING` | AWS storage class |
-| `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `--to REMOTE...` | remote names; comma-separated or repeated |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -821,18 +838,17 @@ Download encrypted bytes from explicitly selected providers, trying them in the 
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--from VALUE` | ordered source remotes; comma-separated or repeated |
-| `--h` | show help |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `--from REMOTE...` | ordered source remotes; comma-separated or repeated |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
-| `--output STRING` | new output file |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-h, --help` | show command help |
+| `--memory-max SIZE` | managed memory budget |
+| `--output FILE` | new output file |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -848,20 +864,46 @@ glesha download backups/personal.tar.xz.gpg --from b2 --output personal.tar.xz.g
 ### catalog
 
 ```text
-glesha catalog sync SET|--all [options]
+glesha catalog sync [SET] [--from REMOTE...] [options]
+glesha catalog unlock SET [options]
 glesha catalog resolve SET --keep local|remote [--assume-yes]
+glesha catalog resolve SET_UUID --authority REMOTE [--assume-yes]
 glesha catalog pull|push|reconcile|abandon SET [options]
 ```
 
-`sync` pulls remote-only changes, publishes local-only changes and merges compatible
-snapshot histories. It also checks exact remote archive versions and publishes
-storage-class/retrieval observations. These are metadata requests; sync never
-downloads archive payloads or requests cold retrieval. An unchanged sync does not
-publish another batch.
+Bare `sync` discovers configured buckets, reconstructs the local registry, and
+downloads encrypted catalog state without passphrase prompts. Names remain
+private: locked sets appear by UUID. `--all` is an alias for this discovery flow;
+`--from` and `--to` limit all bucket access to their combined selection.
+Following a catalog locator outside this selection fails before contacting that bucket. Other sets continue after individual failures;
+incomplete discovery and failed registry replicas produce a nonzero exit status.
 
-`--all` means all locally registered sets; local-only sets are skipped. Other sets
-continue after an individual failure; any failure yields a nonzero exit code.
-Discover unknown sets first with `list --remote --from REMOTE`.
+`unlock SET` reads an already downloaded catalog locally using its catalog
+passphrase, with no cloud requests. A missing cache directs you to `catalog sync`.
+It emits a version 2 `catalog_unlocked` record under `--format=json`, with `set`, `name`,
+and `already_open` fields.
+
+`sync SET` unlocks that catalog, pulls remote changes, publishes local changes,
+and merges compatible histories. Conflicts require explicit resolution. Migrated
+state uses publication version 3; all writing devices must upgrade. Original
+metadata and archive bytes are preserved. Sync does not inspect archive payloads
+or request cold retrieval. Use `status --refresh` for live archive observations.
+Human output reports **Updated** only when catalog state was downloaded, repaired,
+unlocked into a usable local catalog, or a revision changed. An unchanged run
+prints `Everything is up to date`, with counts of checked and locked catalogs.
+Locked means opening the latest catalog requires its passphrase; it does not mean
+sync failed or that data was downloaded. Shared failures are grouped by cause with catalog counts in human output.
+Failure details and incomplete summaries use red when color is enabled. JSON
+retains individual catalog errors; discovery and registry errors use
+`catalog_sync_error` records. All `catalog_state`, `catalog_sync_summary`, and
+`catalog_sync_error` records use output version 3, replacing the earlier version 2
+`synced`, `skipped`, and `set_error` contract. Other command results remain version 2;
+stderr diagnostics remain version 1. The final terminal error does not repeat details.
+Routine cached checks are quiet. Sync
+still makes metadata API requests to check for remote changes.
+
+An unchanged catalog does not publish another batch. Failed registry replicas
+are repaired by repeating sync without repeating completed archive uploads.
 
 `catalog resolve SET` previews differing references and incremental starting snapshots.
 To apply a choice, use `resolve --keep local|remote`. This selects which
@@ -876,17 +918,18 @@ old local catalog; abandon preserves pending data.
 
 | Option | Meaning |
 | --- | --- |
-| `--all` | synchronize every locally registered remote-backed set |
+| `--all` | alias for bare sync: discover configured buckets and download state |
+| `--from REMOTE...` | limit bucket access; comma-separated or repeated |
+| `--authority REMOTE` | explicitly select a discovered catalog authority during resolve |
 | `--keep STRING` | choose local or remote conflicting metadata during resolve |
 | `--assume-yes` | confirm conflict resolution without prompting |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
 | `--progress MODE` | auto (default), plain or off |
@@ -894,8 +937,10 @@ old local catalog; abandon preserves pending data.
 Examples:
 
 ```console
-glesha catalog sync docs
-glesha catalog sync --all
+glesha catalog sync
+glesha status
+glesha catalog sync SET_UUID
+glesha catalog sync --from b2
 glesha catalog resolve docs --keep remote
 glesha catalog pull docs
 glesha catalog push old-docs
@@ -913,16 +958,15 @@ Change an AWS object's storage class with server-side copy. Archive identity and
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--catalog-passphrase-file STRING` | separate catalog passphrase file |
 | `--class STRING` | AWS storage class |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--snapshot STRING` | snapshot ID or latest (default "latest") |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
+| `-h, --help` | show command help |
+| `--snapshot ID` | snapshot ID or latest (default "latest") |
 | `--storage-class STRING` | AWS storage class |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -952,17 +996,16 @@ test objects.
 
 | Option | Meaning |
 | --- | --- |
-| `--L STRING` | debug, info, warn, error or silent (default "info") |
+| `-L, --log-level LEVEL` | diagnostic verbosity: debug, info, warn, error, or silent |
 | `--color STRING` | yes, no or auto; always/never aliases accepted (default "auto") |
-| `--config STRING` | TOML configuration file |
-| `--env STRING` | explicit credential environment file |
-| `--h` | show help |
+| `--config FILE` | TOML configuration file |
+| `--state-dir DIR` | local state directory; overrides catalog.directory |
+| `--env FILE` | explicit credential environment file |
 | `--hash-workers INT` | hash workers |
-| `--help` | show help |
-| `--log-level STRING` | debug, info, warn, error or silent (default "info") |
-| `--memory-max STRING` | managed memory budget |
-| `--to VALUE` | remote names; comma-separated or repeated |
-| `--transfer-workers INT` | maximum concurrent transfer workers |
+| `-h, --help` | show command help |
+| `--memory-max SIZE` | managed memory budget |
+| `--to REMOTE...` | remote names; comma-separated or repeated |
+| `-j, --jobs, --transfer-workers N` | maximum parallel transfers; memory may lower this limit |
 | `-j N`, `--jobs N` | use up to N transfer workers; effective limits may reduce the count |
 | `--version`, `-version`, `-v` | Show version and build revision. |
 | `--format FORMAT` | plain (default) or json; status also supports table/csv |
@@ -1062,3 +1105,43 @@ glesha cleanup docs --dry-run --env /secure/cloud.env
 glesha cleanup docs --env /secure/cloud.env
 glesha cleanup --all --assume-yes --env /secure/cloud.env
 ```
+
+## Remote access boundaries
+
+When neither --from nor --to is supplied, all configured providers are allowed. Otherwise their combined selection is a strict bucket access boundary for archive operations, discovery, catalogs, migration and registry replication. A required provider outside that boundary causes an error; include it explicitly with --from or --to. These flags do not make commands read-only.
+
+Both flags are accepted by commands that access remote state. Existing source and destination semantics remain: `--to` chooses archive destinations where applicable, and `--from` chooses archive sources where applicable. On other commands either flag adds permitted providers. For example, moving from A to B requires `glesha move SET --from A --to B`; backing up to B with a catalog in A requires `glesha run SET --from A --to B`. Bare scoped catalog sync skips locally known sets whose catalog authority is outside the selection; explicitly targeting such a set fails.
+
+## Choosing local state
+
+`--state-dir DIR` overrides `[catalog] directory` for this invocation and expands
+`~`. It works across commands and does not select or isolate cloud buckets.
+For development, use a separate state directory and test buckets.
+
+An empty legacy directory or supported empty registry does not block the platform
+default state directory. `state migrate` reports that no legacy backups need
+migration and leaves it untouched. If both locations contain state, choose one
+explicitly using `--state-dir`, or migrate the legacy state to an unused
+`--state-dir` destination. Existing databases are never automatically merged.
+
+Catalog sync announces `Checking remote catalogs` before remote checks. Terminals
+show an activity indicator; redirected human output gets a starting line and
+summary. JSON and warn/error/silent logging levels suppress this activity message.
+
+## Cancelling unfinished restores
+
+`glesha restore SET --cancel` clears local unfinished restore tasks for that set.
+Use `--into DIR` to select one destination. It preserves restored files, cached
+archives and staging data, and retains task records with a `.cancelled-UUID`
+suffix. It requires no catalog unlock or cloud access and does not stop cloud
+retrieval requests already submitted. Repeating cancellation is harmless.
+
+Catalog history is applied under one `Applying catalog updates` progress step;
+per-batch cache verification remains quiet. Interactive passphrase reads observe
+Ctrl+C without requiring Enter, restore terminal settings before returning, and
+report cancellation with exit code 130.
+
+The `list`, `history`, and `browse` human formats have headers and explicit empty
+results. Directory entries use `-` for size. Snapshot locations use readable
+provider labels instead of opaque remote IDs. JSON retains original identifiers
+and record fields. Empty and no-change JSON commands do not print human prose.

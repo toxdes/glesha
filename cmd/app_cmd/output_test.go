@@ -91,7 +91,7 @@ func TestStructuredVersionForms(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := decodeRecords(t, out)
-			if len(rows) != 1 || rows[0]["kind"] != "version" {
+			if len(rows) != 1 || rows[0]["version"] != float64(2) || rows[0]["kind"] != "version" {
 				t.Fatal(out)
 			}
 			data := rows[0]["data"].(map[string]any)
@@ -132,7 +132,7 @@ func TestStructuredErrorsPreserveExitCodes(t *testing.T) {
 		exit int
 	}{
 		{backup.ErrPending, "PENDING", 3}, {backup.ErrConflict, "CONFLICT", 4},
-		{backup.ErrConfirmationRequired, "CONFIRMATION_REQUIRED", 1}, {context.Canceled, "CANCELED", 1},
+		{backup.ErrConfirmationRequired, "CONFIRMATION_REQUIRED", 1}, {context.Canceled, "CANCELED", 130},
 		{errors.New("cli: unsupported flag"), "INVALID_ARGUMENT", 2},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
@@ -249,7 +249,7 @@ func TestJSONCatalogCleanupAndEmptyLists(t *testing.T) {
 	}
 	invoke("create", "docs", source, "--catalog-to=local")
 	out := invoke("catalog", "sync", "--all")
-	if !strings.Contains(out, `"kind":"skipped"`) {
+	if !strings.Contains(out, `"kind":"catalog_state"`) || !strings.Contains(out, `"state":"SKIPPED"`) {
 		t.Fatal(out)
 	}
 	out = invoke("cleanup", "--all", "--dry-run")

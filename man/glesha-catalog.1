@@ -1,109 +1,109 @@
 .TH "GLESHA-CATALOG" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-catalog \- synchronize metadata explicitly
+glesha-catalog \- discover, open, or synchronize backup catalogs
 .SH SYNOPSIS
-.B glesha catalog pull|push|reconcile|abandon SET [options]
+.B glesha catalog ACTION [SET] [options]
 .SH DESCRIPTION
-Sync SET or sync \-\-all checks live archive metadata and synchronizes catalog changes.
-Unchanged syncs do not republish. No payload download or cold retrieval is requested.
-Resolve SET previews differences. Add \-\-keep local|remote to apply a choice;
-both histories are preserved and confirmation is required.
-Conflicting archive identities are rejected.
-
-Synchronize metadata explicitly. Pull preserves the old local catalog; reconcile preserves conflicting histories; abandon preserves pending data.
+Discover, open, or synchronize backup catalogs.
+.PP
+sync fetches or synchronizes metadata. unlock opens a cached catalog using its catalog passphrase. resolve handles conflicting metadata. These actions do not restore archive contents.
+.PP
+With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+.SH ACTIONS
+.TP
+.B sync [SET]
+Discover catalogs, or synchronize one set.
+.IP
+Without SET, download catalog metadata without passphrase prompts. With SET, open the catalog, merge changes, and publish metadata. Sync can write to the selected buckets.
+.TP
+.B unlock SET
+Open a downloaded catalog locally.
+.IP
+Requires the catalog passphrase. Uses cached metadata and makes no cloud requests. Archive files stay encrypted.
+.TP
+.B resolve SET
+Review or resolve conflicting catalog metadata.
+.IP
+Omit \-\-keep to review differences. Choose \-\-keep local|remote to resolve references, or \-\-authority REMOTE to select a catalog location. Original histories are preserved.
+.TP
+.B pull SET
+Pull remote metadata into the local catalog.
+.TP
+.B push SET
+Publish pending catalog changes.
+.TP
+.B reconcile SET
+Merge compatible catalog histories.
+.TP
+.B abandon SET
+Discard a pending operation's local work.
+.IP
+Keeps the current catalog and remote objects. Pending chunk spool files may be removed.
 .SH OPTIONS
 
 .TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
-.TP
-.B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
-
-.TP
 .B \-\-all
-Sync all locally registered remote-backed sets; skip local-only sets.
+Alias for bare sync; discover only the allowed buckets.
 .TP
 .B \-\-keep local|remote
-Resolve conflicting references and incremental starting snapshot using the selected side.
+Resolve conflicts using local or remote values.
 .TP
-.B \-\-assume-yes
-Confirm resolution without prompting.
-
+.B \-\-authority REMOTE
+Select the catalog authority during explicit resolution.
+.SS Buckets
 .TP
-.B \-\-L STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-from REMOTE...
+Buckets to discover or access; comma\-separated or repeated.
 .TP
-.B \-\-catalog\-passphrase\-file STRING
-separate catalog passphrase file
+.B \-\-to REMOTE...
+Additional buckets this command may access.
+.SS Passphrases
 .TP
-.B \-\-color STRING
-yes, no or auto; always/never aliases accepted (default "auto")
+.B \-\-catalog\-passphrase\-file FILE|\-
+Catalog passphrase file; '\-' reads stdin.
+.SS Confirmations
 .TP
-.B \-\-config STRING
-TOML configuration file
+.B \-\-assume\-yes
+Skip confirmation prompts for this command.
+.SS Global options
 .TP
-.B \-\-env STRING
-explicit credential environment file
+.B \-\-format FORMAT
+Result format: plain or json; status also supports table and csv (default: plain).
 .TP
-.B \-\-h
-show help
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
-.B \-\-help
-show help
+.B \-\-config FILE
+TOML settings file.
 .TP
-.B \-\-log\-level STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
-.B \-\-version
-show version; \-version is also accepted.
+.B \-\-env FILE
+Load credentials; existing process variables take priority.
 .TP
-.B \-v
-Alias for \-\-version.
+.B \-\-color MODE
+Color mode: auto, yes, or no (default: auto).
+.TP
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
+.TP
+.B \-h, \-\-help
+Show this command's help.
+.TP
+.B \-v, \-\-version
+Show version and build revision.
 .SH EXAMPLES
 .nf
-glesha catalog pull docs
-
-glesha catalog push old\-docs
-
-glesha catalog reconcile docs
-
-glesha catalog abandon docs
+glesha catalog sync \-\-from b2
+glesha catalog unlock SET
+glesha catalog sync SET
 .fi
 .SH OUTPUT
-Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
-or --color=no to disable them. The earlier always and never names remain aliases.
-Interactive stderr displays a progress bar, readable byte counts and average speed.
-Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
-JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
-to disable progress. Progress is disabled at warn/error/silent logging levels.
-Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
-Archiving shows processed/total uncompressed file bytes and a percentage.
-Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
-progress and adapt to about 80 percent of terminal width. Upload progress includes
-in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
-that final validation or catalog publication has finished.
-Use --log-level=debug for operation and worker-budget diagnostics.
-Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
-Explicit worker flags show the effective worker count; archiving and individual
-downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
-.SH COMPATIBILITY
-Existing encb gzip/OpenPGP archives are read without recompression or replacement.
-Compression is detected from the decrypted stream, independent of filenames.
-Passwords are never stored. Archive passwords and the catalog secret are separate.
-Database and JSON formats are versioned. Unsupported catalog schemas are rejected
-without modifying the file; old catalogs are neither migrated nor deleted implicitly.
-.SH EXIT STATUS
-0: success. 1: operation failure. 2: invalid usage or missing selection.
-3: pending work or cold retrieval. 4: conflicting remote history.
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for result records, one per line.
+Catalog sync records use output version 3; other catalog results retain version 2.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1),
-.BR glesha-help (1)
-
-.SH EXAMPLES
-.nf
-glesha catalog sync docs
-glesha catalog sync \-\-all
-glesha catalog resolve docs \-\-keep remote
-.fi
+.BR glesha (1)

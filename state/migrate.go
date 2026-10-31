@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -24,6 +25,8 @@ type migration struct {
 
 const backupDirectory = ".state-migration-backup"
 
+var ErrNoMigrationNeeded = errors.New("state: no legacy state needs migration")
+
 // Lock coordinates migration with every command using the same state directory.
 func Lock(root string, exclusive bool) (*flock.Flock, error) {
 	if err := os.MkdirAll(filepath.Dir(root), 0700); err != nil {
@@ -44,13 +47,28 @@ func Lock(root string, exclusive bool) (*flock.Flock, error) {
 }
 
 // CheckDefault refuses to hide older state behind a fresh registry.
-func CheckDefault(source, target string) error {
+func CheckDefault(ctx context.Context, source, target string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(target + ".migrating"); err == nil {
 		return fmt.Errorf("state: interrupted migration; run glesha state migrate")
 	} else if !os.IsNotExist(err) {
 		return err
 	}
 	if _, err := os.Lstat(source); err == nil {
+		empty, err := emptyState(ctx, source)
+		if err != nil {
+			return err
+		}
+		if empty {
+			return nil
+		}
+		if _, err := os.Lstat(target); err == nil {
+			return existingDestination(source, target)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
 		return fmt.Errorf("state: existing state at %s; run glesha state migrate or select catalog.directory explicitly", source)
 	} else if !os.IsNotExist(err) {
 		return err
@@ -60,6 +78,9 @@ func CheckDefault(source, target string) error {
 
 // Migrate moves archives by rename; only database backups need extra disk space.
 func Migrate(ctx context.Context, source, target string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if !filepath.IsAbs(source) || !filepath.IsAbs(target) || filepath.Clean(source) != source || filepath.Clean(target) != target {
 		return fmt.Errorf("state: migration requires clean absolute paths")
 	}
@@ -84,8 +105,15 @@ func Migrate(ctx context.Context, source, target string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
+	empty, err := emptyState(ctx, source)
+	if err != nil {
+		return err
+	}
+	if empty {
+		return ErrNoMigrationNeeded
+	}
 	if _, err = os.Lstat(target); err == nil {
-		return fmt.Errorf("state: destination already exists; refusing to merge: %s", target)
+		return existingDestination(source, target)
 	} else if !os.IsNotExist(err) {
 		return err
 	}

@@ -3,11 +3,14 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
+
+	"glesha/database/model"
 )
 
 // checkpoints and change batches use the same schema; deltas contain changed rows only
@@ -115,12 +118,33 @@ func ValidateCatalog(ctx context.Context, p string) error {
 	if err = db.QueryRowContext(ctx, "SELECT value FROM meta WHERE key='version'").Scan(&v); err != nil || v != "2" {
 		return fmt.Errorf("catalog: unsupported schema %q", v)
 	}
+	if err = validateStateProtocol(ctx, db); err != nil {
+		return err
+	}
 	for _, q := range []string{"SELECT id,parent,name FROM nodes LIMIT 0", "SELECT node,version,begin,end FROM membership LIMIT 0", "SELECT seq,id,baseline,wrapper FROM snapshots LIMIT 0"} {
 		rows, err := db.QueryContext(ctx, q)
 		if err != nil {
 			return err
 		}
 		rows.Close()
+	}
+	return nil
+}
+
+func validateStateProtocol(ctx context.Context, db *sql.DB) error {
+	var value string
+	err := db.QueryRowContext(ctx, "SELECT value FROM meta WHERE key=?", model.StateProtocolKey).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("catalog: read state protocol: %w", err)
+	}
+	if value == "" {
+		return nil
+	}
+	if _, err = model.ParseStateVersion(value); err != nil {
+		return fmt.Errorf("catalog: %w", err)
 	}
 	return nil
 }

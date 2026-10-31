@@ -36,7 +36,8 @@ glesha browse docs --path Documents --recursive
 glesha restore docs --into ~/recovered
 ```
 
-`create` saves the set's settings. `run` creates a full snapshot unless you pass `--incremental`.
+`create` saves the set's settings and publishes initial state for remote-backed sets.
+`run` creates a full snapshot unless you pass `--incremental`.
 
 For limited local disk space:
 
@@ -52,6 +53,30 @@ glesha archive ~/Documents
 
 Use `glesha help COMMAND` or `man glesha` for options and examples.
 See the [guides](https://glesha.toxdes.com/guides.html), [sample configuration](config-sample.toml) and [compatibility notes](compatibility.md) for more.
+
+## Recover on another computer
+
+Configure access to your buckets, then:
+
+```sh
+glesha catalog sync
+glesha status
+glesha catalog unlock SET_UUID
+glesha restore SET_UUID --into .
+```
+
+Sync discovers sets and downloads catalog state without downloading archive data.
+Encrypted sets appear by UUID until their catalogs are unlocked; restore asks for
+that set's catalog and archive passphrases as needed. Use the name after unlocking.
+`glesha catalog unlock SET_UUID` reads cached metadata locally.
+`glesha catalog sync SET_UUID` unlocks and synchronizes one set, including remote metadata writes.
+Source-folder bindings stay local and must be configured before making new backups
+on that computer. State-changing commands synchronize and publish portable state.
+Use `--state-dir /tmp/glesha-dev-state` to isolate local state when testing a build.
+Remote bucket selection still comes from configuration and `--from`/`--to`.
+
+Existing archives are unchanged. Upgrading a catalog requires the new Glesha version
+on every device writing to that set. Original metadata is retained for recovery.
 
 ## Development
 

@@ -10,8 +10,32 @@ import (
 	"glesha/database/repository"
 )
 
+const stateProtocolMeta = model.StateProtocolKey
+
+func catalogStateVersion(ctx context.Context, c repository.Cataloger) (model.StateVersion, error) {
+	value, err := c.GetMeta(ctx, stateProtocolMeta)
+	if err != nil {
+		return 0, err
+	}
+	if value == "" {
+		return model.StateVersionLegacy, nil
+	}
+	return model.ParseStateVersion(value)
+}
+
 // Sync never resolves divergent changes by replacing remote history.
 func (s *Service) Sync(ctx context.Context) error {
+	if err := s.SyncCatalog(ctx); err != nil {
+		return err
+	}
+	return s.syncObservations(ctx)
+}
+
+// SyncCatalog synchronizes portable state without probing archive objects.
+func (s *Service) SyncCatalog(ctx context.Context) error {
+	if err := s.useLocator(ctx); err != nil {
+		return err
+	}
 	if s.Set.CatalogTo == "" || s.Set.CatalogTo == "local" {
 		return nil
 	}
@@ -63,12 +87,34 @@ func (s *Service) Sync(ctx context.Context) error {
 		publish = dirty != ""
 	}
 	if publish {
+		file := s.path()
+		if s.Pending() {
+			file = s.pending()
+		}
+		local, err := repository.NewCatalogRepository(ctx, file)
+		if err != nil {
+			return err
+		}
+		authority, err := local.GetMeta(ctx, model.StateAuthorityKey)
+		local.Close()
+		if err != nil {
+			return err
+		}
+		if authority == "" {
+			authority = s.localAuthority
+		}
+		if authority != "" && authority != s.Set.CatalogTo {
+			return fmt.Errorf("%w: catalog authority changed with unpublished work; use catalog resolve --keep local or remote", ErrConflict)
+		}
 		if err := s.Push(ctx); err != nil {
 			if !errors.Is(err, ErrConflict) {
 				return err
 			}
 			if dirty == "baseline" {
 				return fmt.Errorf("%w: incremental starting snapshot changed on both sides", ErrConflict)
+			}
+			if dirty == "configuration" {
+				return fmt.Errorf("%w: unpublished configuration conflicts with remote state; use catalog resolve", ErrConflict)
 			}
 			if err = s.Reconcile(ctx); err != nil {
 				return err
@@ -77,7 +123,49 @@ func (s *Service) Sync(ctx context.Context) error {
 	} else if err := s.Pull(ctx); err != nil {
 		return err
 	}
+	migrate, err := s.prepareStateMigration(ctx)
+	if err != nil {
+		return err
+	}
+	if migrate {
+		if err = s.Push(ctx); err != nil {
+			return err
+		}
+	}
+	if err = s.rememberAuthority(ctx, ""); err != nil {
+		return err
+	}
+	c, err := s.Catalog(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	return c.SetMeta(ctx, "last_sync", now().Format(time.RFC3339Nano))
+}
 
+func (s *Service) prepareStateMigration(ctx context.Context) (bool, error) {
+	c, err := s.Catalog(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer c.Close()
+	version, err := catalogStateVersion(ctx, c)
+	if err != nil {
+		return false, fmt.Errorf("backup: migrate catalog state: %w", err)
+	}
+	if version == model.StateVersionPortable {
+		return false, nil
+	}
+	if err = c.SetMeta(ctx, "force_checkpoint", "true"); err != nil {
+		return false, err
+	}
+	if err = c.SetMeta(ctx, "dirty", "migration"); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+func (s *Service) syncObservations(ctx context.Context) error {
 	if err := s.Refresh(ctx); err != nil {
 		return err
 	}

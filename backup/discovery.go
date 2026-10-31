@@ -80,7 +80,10 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 			if err = json.Unmarshal(b, &committed); err != nil {
 				return err
 			}
-			if committed.Version != 2 || committed.Set != setID || committed.Number != numbers[setID] {
+			if err = committed.Version.Validate(); err != nil {
+				return fmt.Errorf("backup: discover committed revision: %w", err)
+			}
+			if committed.Set != setID || committed.Number != numbers[setID] {
 				return fmt.Errorf("backup: invalid committed discovery revision")
 			}
 			if _, err = uuid.Parse(committed.ID); err != nil {
@@ -124,7 +127,10 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 		if err != nil {
 			return err
 		}
-		if d.Version != 2 || d.Set.ID != setID || !validName.MatchString(d.Set.Name) {
+		if err = d.Version.Validate(); err != nil {
+			return fmt.Errorf("backup: discover descriptor: %w", err)
+		}
+		if d.Set.ID != setID || !validName.MatchString(d.Set.Name) {
 			return fmt.Errorf("backup: invalid set descriptor")
 		}
 		if _, err = uuid.Parse(d.Set.ID); err != nil {
@@ -140,6 +146,9 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 			}
 		}
 		if _, err = s.Registry.Set(ctx, d.Set.ID); err != nil {
+			for i := range d.Set.Roots {
+				d.Set.Roots[i].Path = ""
+			}
 			if err = s.Registry.Create(ctx, d.Set); err != nil {
 				return fmt.Errorf("backup: discovered set name conflicts; metadata is preserved remotely: %w", err)
 			}

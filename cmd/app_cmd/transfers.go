@@ -14,6 +14,7 @@ import (
 	"glesha/cloud"
 	"glesha/database/model"
 	"glesha/file_io"
+	L "glesha/logger"
 )
 
 func (r *runtime) retrieval() (backup.RetrievalOptions, error) {
@@ -55,6 +56,11 @@ func importArchive(r *runtime, args []string) error {
 	ids, err := r.remoteIDs(r.env.From)
 	if err != nil {
 		return err
+	}
+	if _, err = r.registry.Set(r.ctx, args[0]); errors.Is(err, sql.ErrNoRows) && len(r.env.From) > 0 {
+		if err = r.discoverState(nil); err != nil {
+			return err
+		}
 	}
 	if _, err = r.registry.Set(r.ctx, args[0]); errors.Is(err, sql.ErrNoRows) {
 		var set model.Set
@@ -99,7 +105,14 @@ func importArchive(r *runtime, args []string) error {
 				return err
 			}
 		}
-		return r.service.ResumeImportPublication(r.ctx, r.env.Key, file)
+		if err = r.service.ResumeImportPublication(r.ctx, r.env.Key, file); err != nil {
+			return err
+		}
+		return r.publishState()
+	}
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if err = r.prepareMutation(); err != nil {
+		return err
 	}
 	retrieval, err := r.retrieval()
 	if err != nil {
@@ -179,7 +192,7 @@ func importArchive(r *runtime, args []string) error {
 			return last
 		}
 	}
-	pw, err := password(r.env.PasswordFile, "Archive passphrase", false)
+	pw, err := password(r.ctx, r.env.PasswordFile, "Archive passphrase", false)
 	if err != nil {
 		return err
 	}
@@ -210,17 +223,51 @@ func importArchive(r *runtime, args []string) error {
 			return err
 		}
 	}
+	if err = r.publishState(); err != nil {
+		return err
+	}
 	return r.emit("snapshot", v, fmt.Sprintf("Imported %s into %q.", v.ID, r.service.Set.Name))
 }
 func restore(r *runtime, args []string) error {
+	if r.env.CancelRestore {
+		if r.env.present["snapshot"] || r.env.RequestRetrieval {
+			return fmt.Errorf("cli: --cancel selects restore tasks by --into, not snapshot or retrieval flags")
+		}
+		unlock, err := requireSet(r, args)
+		if err != nil {
+			return err
+		}
+		defer unlock()
+		output, err := file_io.Expand(r.env.Into)
+		if err != nil {
+			return err
+		}
+		result, err := r.service.CancelRestore(r.ctx, output)
+		if err != nil {
+			return err
+		}
+		text := "No unfinished restore tasks found."
+		if result.Tasks > 0 {
+			noun := "restore tasks"
+			if result.Tasks == 1 {
+				noun = "restore task"
+			}
+			text = fmt.Sprintf("Cancelled %d %s. Restored files and staging data were preserved.", result.Tasks, noun)
+		}
+		return r.emit("restore_cancelled", result, text)
+	}
 	if r.env.Into == "" {
-		return fmt.Errorf("cli: restore requires --into")
+		return fmt.Errorf("cli: restore requires --into DIR, or --cancel to clear unfinished tasks")
 	}
 	unlock, err := requireSet(r, args)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if err = r.readableCatalog(); err != nil {
+		return err
+	}
 	into, err := file_io.Expand(r.env.Into)
 	if err != nil {
 		return err
@@ -229,8 +276,12 @@ func restore(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	if _, err = os.Lstat(into); !os.IsNotExist(err) {
-		return fmt.Errorf("cli: restore destination exists")
+	snapshot, err := r.service.RestoreSelection(r.ctx, r.env.Snapshot, into)
+	if err != nil {
+		return err
+	}
+	if err = r.service.CheckRestoreDestination(r.ctx, snapshot, into); err != nil {
+		return err
 	}
 	from, err := r.remoteIDs(r.env.From)
 	if err != nil {
@@ -239,7 +290,7 @@ func restore(r *runtime, args []string) error {
 	if len(from) == 0 {
 		from = r.service.Set.To
 	}
-	needsRemote, err := r.service.RestoreNeedsDownload(r.ctx, r.env.Snapshot, into)
+	needsRemote, err := r.service.RestoreNeedsDownload(r.ctx, snapshot, into)
 	if err != nil {
 		return err
 	}
@@ -253,7 +304,7 @@ func restore(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	id, job, err := r.service.PrepareRestore(r.ctx, r.env.Snapshot, into, from, retrieval)
+	id, job, err := r.service.PrepareRestore(r.ctx, snapshot, into, from, retrieval)
 	if err != nil {
 		return err
 	}
@@ -267,21 +318,21 @@ func restore(r *runtime, args []string) error {
 		if file == "-" {
 			if stdin == nil {
 				var err error
-				stdin, err = password(file, "Archive passphrase", false)
+				stdin, err = password(r.ctx, file, "Archive passphrase", false)
 				if err != nil {
 					return nil, err
 				}
 			}
 			return append([]byte(nil), stdin...), nil
 		}
-		return password(file, "Archive "+v.ID+" passphrase", false)
+		return password(r.ctx, file, "Archive "+v.ID+" passphrase", false)
 	}})
 	if err == nil {
 		os.Remove(job)
 		return r.emit("restore", struct {
 			Snapshot string `json:"snapshot"`
 			Path     string `json:"path"`
-		}{id, into}, fmt.Sprintf("Restored %s to %q.", id, into))
+		}{id, into}, fmt.Sprintf("Restored %q to %q.", r.service.Set.Name, into))
 	}
 	return err
 }
@@ -327,10 +378,10 @@ func upload(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = backup.Upload(r.ctx, r.service.Stores, to, key, file, class, r.env.Force); err != nil {
+	if err = backup.Upload(cloud.WithTransferLabel(r.ctx, "file"), r.service.Stores, to, key, file, class, r.env.Force); err != nil {
 		return err
 	}
-	return r.completed(file, key, "")
+	return r.completed(file, key, fmt.Sprintf("Uploaded %q to %s as %q.", file, strings.Join(r.env.To, ", "), key))
 }
 func download(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
@@ -362,7 +413,7 @@ func download(r *runtime, args []string) error {
 	return r.emit("download", struct {
 		Path   string       `json:"path"`
 		Object cloud.Object `json:"object"`
-	}{output, object}, "")
+	}{output, object}, fmt.Sprintf("Downloaded %q to %q.", args[0], output))
 }
 func check(r *runtime, args []string) error {
 	if err := count(args, 0); err != nil {
@@ -436,22 +487,30 @@ func check(r *runtime, args []string) error {
 		if report.Key != "" && report.Steps[4].Status != cloud.CHECK_PASSED {
 			fmt.Fprintf(&text, "  Remaining object: %s (version %s)\n", report.Key, report.Version)
 		}
-		if err := r.emit("provider_check", struct {
+		level := L.INFO
+		if !ok {
+			level = L.ERROR
+		}
+		if err := r.emitAtLevel("provider_check", struct {
 			Provider   string            `json:"provider"`
 			Passed     bool              `json:"passed"`
 			SetupError string            `json:"setup_error,omitempty"`
 			Report     cloud.CheckReport `json:"report"`
-		}{remote.Name, ok, errorText(setupErr), report}, text.String()); err != nil {
+		}{remote.Name, ok, errorText(setupErr), report}, text.String(), level); err != nil {
 			return err
 		}
 		if r.ctx.Err() != nil {
 			return r.ctx.Err()
 		}
 	}
-	if err := r.emit("check_summary", struct {
+	level := L.INFO
+	if failed > 0 {
+		level = L.ERROR
+	}
+	if err := r.emitAtLevel("check_summary", struct {
 		Passed int `json:"passed"`
 		Failed int `json:"failed"`
-	}{passed, failed}, fmt.Sprintf("Summary: %d passed, %d failed.", passed, failed)); err != nil {
+	}{passed, failed}, fmt.Sprintf("Summary: %d passed, %d failed.", passed, failed), level); err != nil {
 		return err
 	}
 	if failed > 0 {
@@ -475,6 +534,10 @@ func storageClass(r *runtime, args []string) error {
 		return err
 	}
 	defer unlock()
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if err = r.prepareMutation(); err != nil {
+		return err
+	}
 	if err = backup.ValidateClass(r.env.Class); err != nil {
 		return err
 	}
@@ -492,7 +555,13 @@ func storageClass(r *runtime, args []string) error {
 		return err
 	}
 	defer wipe(r.service.CatalogPassword)
-	return r.service.StorageClass(r.ctx, r.env.Snapshot, r.env.Class)
+	if err = r.service.StorageClass(r.ctx, r.env.Snapshot, r.env.Class); err != nil {
+		return err
+	}
+	if err := r.publishState(); err != nil {
+		return err
+	}
+	return r.result(fmt.Sprintf("Storage class updated to %s for %q.", r.env.Class, r.service.Set.Name))
 }
 func move(r *runtime, args []string) error {
 	if len(r.env.To) != 1 {
@@ -503,6 +572,10 @@ func move(r *runtime, args []string) error {
 		return err
 	}
 	defer unlock()
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if err = r.prepareMutation(); err != nil {
+		return err
+	}
 	to, err := r.remoteIDs(r.env.To)
 	if err != nil {
 		return err
@@ -522,5 +595,11 @@ func move(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	return r.service.Move(r.ctx, to[0], retrieval)
+	if err = r.service.Move(r.ctx, to[0], retrieval); err != nil {
+		return err
+	}
+	if err := r.publishState(); err != nil {
+		return err
+	}
+	return r.result(fmt.Sprintf("Moved %q to %s. Source copies were retained.", r.service.Set.Name, r.env.To[0]))
 }

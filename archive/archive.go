@@ -391,6 +391,9 @@ func writeTar(ctx context.Context, o Options, stem string, tw *tar.Writer, progr
 		h.Name = path.Join(stem, v.Path)
 		h.Format = tar.FormatPAX
 		h.ModTime = time.Unix(0, v.ModTime)
+		// access and change times are not part of the frozen inventory
+		h.AccessTime = time.Time{}
+		h.ChangeTime = time.Time{}
 		if v.Type == "hardlink" {
 			h.Typeflag = tar.TypeLink
 			h.Linkname = path.Join(stem, v.Link)

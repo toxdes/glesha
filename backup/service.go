@@ -29,14 +29,19 @@ var ErrConflict = errors.New("backup: catalog conflict")
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
 type Service struct {
-	Config          config.Config
-	Budget          memory.Budget
-	Registry        repository.Registryor
-	Set             model.Set
-	Directory       string
-	Stores          map[string]cloud.Store
-	Kinds           map[string]string
-	CatalogPassword []byte
+	Config                config.Config
+	Budget                memory.Budget
+	Registry              repository.Registryor
+	Set                   model.Set
+	Directory             string
+	Stores                map[string]cloud.Store
+	Kinds                 map[string]string
+	CatalogPassword       []byte
+	DiscoveryPrefix       string
+	localAuthority        string
+	allowRetiredAuthority bool
+	redirectHops          int
+	metadataDownloads     int
 }
 
 func (s *Service) Catalog(ctx context.Context) (repository.Cataloger, error) {
@@ -70,8 +75,15 @@ func (s *Service) OpenSet(ctx context.Context, name string, root string) error {
 		return fmt.Errorf("backup: unknown set %q: %w", name, err)
 	}
 	s.Set = v
+	s.localAuthority = v.CatalogTo
 	s.Directory = filepath.Join(root, v.ID)
-	return os.MkdirAll(s.Directory, 0700)
+	if err = os.MkdirAll(s.Directory, 0700); err != nil {
+		return err
+	}
+	if err = s.useLocator(ctx); errors.Is(err, ErrConflict) {
+		return nil
+	}
+	return err
 }
 func NewSet(name string, roots []model.Root, c config.Config) (model.Set, error) {
 	if !validName.MatchString(name) {

@@ -278,6 +278,15 @@ func (s *Service) reconcile(ctx context.Context, keep string) error {
 		}
 		head = localHead
 	}
+	if keep == "remote" {
+		if err = peer.loadDescriptor(ctx); err != nil {
+			return err
+		}
+		s.Set = peer.Set
+		if err = s.Registry.Save(ctx, s.Set); err != nil {
+			return err
+		}
+	}
 	if head != "" {
 		if err = remote.SetMeta(ctx, "head", head); err != nil {
 			return err

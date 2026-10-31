@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -51,6 +52,22 @@ func (s *Service) ResolutionDifferences(ctx context.Context, show func(Resolutio
 		return err
 	}
 	defer remote.Close()
+	if err = peer.loadDescriptor(ctx); err != nil {
+		return err
+	}
+	localConfig, err := json.Marshal(portableSet(s.Set))
+	if err != nil {
+		return err
+	}
+	remoteConfig, err := json.Marshal(portableSet(peer.Set))
+	if err != nil {
+		return err
+	}
+	if string(localConfig) != string(remoteConfig) {
+		if err = show(ResolutionDifference{Field: "Set configuration", Local: string(localConfig), Remote: string(remoteConfig)}); err != nil {
+			return err
+		}
+	}
 	localHead, err := local.GetMeta(ctx, "head")
 	if err != nil {
 		return err

@@ -1,89 +1,73 @@
 .TH "GLESHA-STORAGE-CLASS" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-storage-class \- change an aws object's storage class with server-side copy
+glesha-storage-class \- change an AWS archive's storage class
 .SH SYNOPSIS
-.B glesha storage\-class SET \-\-snapshot ID \-\-class CLASS [options]
+.B glesha storage\-class SET \-\-class CLASS [options]
 .SH DESCRIPTION
-Change an AWS object's storage class with server\-side copy. Archive identity and older versions are retained.
+Change an AWS archive's storage class.
+.PP
+Changes the AWS storage class of one snapshot, latest by default. Cold source objects may need retrieval first.
+.PP
+With \-\-from or \-\-to, only their combined bucket selection may be accessed.
 .SH OPTIONS
 
 .TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
+.B \-\-class CLASS
+AWS storage class.
+.TP
+.B \-\-snapshot ID|latest
+Snapshot ID or latest (default: latest).
+.SS Buckets
+.TP
+.B \-\-to REMOTE...
+Additional buckets this command may access.
+.TP
+.B \-\-from REMOTE...
+Source or catalog buckets this command may access.
+.SS Passphrases
+.TP
+.B \-\-catalog\-passphrase\-file FILE|\-
+Catalog passphrase file; '\-' reads stdin.
+.SS Cloud retrieval
+.TP
+.B \-\-storage\-class CLASS
+AWS storage class.
+.SS Global options
 .TP
 .B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
-
+Result format: plain or json; status also supports table and csv (default: plain).
 .TP
-.B \-\-L STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
-.B \-\-catalog\-passphrase\-file STRING
-separate catalog passphrase file
+.B \-\-config FILE
+TOML settings file.
 .TP
-.B \-\-class STRING
-AWS storage class
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
-.B \-\-color STRING
-yes, no or auto; always/never aliases accepted (default "auto")
+.B \-\-env FILE
+Load credentials; existing process variables take priority.
 .TP
-.B \-\-config STRING
-TOML configuration file
+.B \-\-color MODE
+Color mode: auto, yes, or no (default: auto).
 .TP
-.B \-\-env STRING
-explicit credential environment file
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
 .TP
-.B \-\-h
-show help
+.B \-h, \-\-help
+Show this command's help.
 .TP
-.B \-\-help
-show help
-.TP
-.B \-\-log\-level STRING
-debug, info, warn, error or silent (default "info")
-.TP
-.B \-\-snapshot STRING
-snapshot ID or latest (default "latest")
-.TP
-.B \-\-storage\-class STRING
-AWS storage class
-.TP
-.B \-\-version
-show version; \-version is also accepted.
-.TP
-.B \-v
-Alias for \-\-version.
+.B \-v, \-\-version
+Show version and build revision.
 .SH EXAMPLES
 .nf
-glesha storage\-class docs \-\-snapshot SNAPSHOT_ID \-\-class DEEP_ARCHIVE
+glesha storage\-class docs \-\-snapshot SNAPSHOT \-\-class DEEP_ARCHIVE
 .fi
 .SH OUTPUT
-Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
-or --color=no to disable them. The earlier always and never names remain aliases.
-Interactive stderr displays a progress bar, readable byte counts and average speed.
-Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
-JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
-to disable progress. Progress is disabled at warn/error/silent logging levels.
-Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
-Archiving shows processed/total uncompressed file bytes and a percentage.
-Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
-progress and adapt to about 80 percent of terminal width. Upload progress includes
-in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
-that final validation or catalog publication has finished.
-Use --log-level=debug for operation and worker-budget diagnostics.
-Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
-Explicit worker flags show the effective worker count; archiving and individual
-downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
-.SH COMPATIBILITY
-Existing encb gzip/OpenPGP archives are read without recompression or replacement.
-Compression is detected from the decrypted stream, independent of filenames.
-Passwords are never stored. Archive passwords and the catalog secret are separate.
-Database and JSON formats are versioned. Unsupported catalog schemas are rejected
-without modifying the file; old catalogs are neither migrated nor deleted implicitly.
-.SH EXIT STATUS
-0: success. 1: operation failure. 2: invalid usage or missing selection.
-3: pending work or cold retrieval. 4: conflicting remote history.
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for version 2 result records, one per line.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1),
-.BR glesha-help (1)
+.BR glesha (1)

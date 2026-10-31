@@ -1,6 +1,10 @@
 package model
 
-import "time"
+import (
+	"time"
+
+	"github.com/google/uuid"
+)
 
 type Set struct {
 	Chunked          bool      `json:"chunked,omitempty"`
@@ -25,4 +29,8 @@ type Remote struct {
 	Bucket   string `json:"bucket"`
 	Endpoint string `json:"endpoint"`
 	Region   string `json:"region"`
+}
+
+func (r Remote) Identity() string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(r.Kind+"\x00"+r.Bucket+"\x00"+r.Endpoint+"\x00"+r.Region)).String()
 }

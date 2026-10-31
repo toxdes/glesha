@@ -1,105 +1,63 @@
 .TH "GLESHA-STATUS" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-status \- show local backup state
+glesha-status \- show backup state, size, and estimated storage cost
 .SH SYNOPSIS
 .B glesha status [SET] [options]
 .SH DESCRIPTION
-Show SET, STATE, SIZE, SNAPSHOTS, STORAGE CLASS and EST/YR in aligned columns.
-Sizes use binary B/K/M/G/T units. Storage class is dominant by recorded archive bytes.
-With SET, add source paths, backup/sync timestamps and class size breakdowns.
-Show pending work and next actions. Colors affect state labels only.
-States: NEW, SYNCED, RUNNING, PAUSED, LOCAL, PUBLISHING, WAITING, STALE, CONFLICT, FAILED.
-SYNCED describes last-known local state, not live verification.
-Plain status makes no cloud requests. With \-\-refresh, check live object metadata;
-this does not pull catalogs, download archives or request retrieval.
+Show backup state, size, and estimated storage cost.
 .PP
-Pending cold imports and restores add Retrieval Status with TASK, STATE, READY,
-WAITING and EXPIRES columns. With no SET argument, also show SET.
-READY and WAITING count archives. Retrieval states are QUEUED, PARTIAL, READY
-and EXPIRED. Expiry is the earliest deadline once all requested archives are ready.
-Last checked shows the oldest observation, or a dash when unknown.
-Human timestamps use local time. JSON timestamps remain UTC.
-Completed operations leave this section. JSON includes individual object references;
-CSV appends a retrievals JSON column.
+Reads cached state by default. \-\-refresh checks remote archive availability. '\-' means unavailable, not zero. Locked catalogs need metadata or a catalog passphrase.
+.PP
+With \-\-from or \-\-to, only their combined bucket selection may be accessed.
 .SH OPTIONS
 .TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
-.TP
-.B \-\-format STRING
-plain (default), table, csv or json. CSV uses numeric bytes/USD; JSON retains version 2.
-
-.TP
-.B \-\-L STRING
-debug, info, warn, error or silent (default "info")
-.TP
-.B \-\-color STRING
-yes, no or auto; always/never aliases accepted (default "auto")
-.TP
-.B \-\-config STRING
-TOML configuration file
-.TP
-.B \-\-env STRING
-explicit credential environment file
-.TP
-.B \-\-from VALUE
-ordered source remotes; comma\-separated or repeated
-.TP
-.B \-\-h
-show help
-.TP
-.B \-\-help
-show help
-.TP
-.B \-\-log\-level STRING
-debug, info, warn, error or silent (default "info")
-.TP
 .B \-\-refresh
-check live metadata without requesting retrieval
+Check live metadata without requesting retrieval.
+.SS Buckets
 .TP
-.B \-\-version
-show version; \-version is also accepted.
+.B \-\-from REMOTE...
+Source or catalog buckets this command may access.
 .TP
-.B \-v
-Alias for \-\-version.
+.B \-\-to REMOTE...
+Additional buckets this command may access.
+.SS Global options
+.TP
+.B \-\-format FORMAT
+Result format: plain or json; status also supports table and csv (default: plain).
+.TP
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
+.TP
+.B \-\-config FILE
+TOML settings file.
+.TP
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
+.TP
+.B \-\-env FILE
+Load credentials; existing process variables take priority.
+.TP
+.B \-\-color MODE
+Color mode: auto, yes, or no (default: auto).
+.TP
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
+.TP
+.B \-h, \-\-help
+Show this command's help.
+.TP
+.B \-v, \-\-version
+Show version and build revision.
 .SH EXAMPLES
 .nf
 glesha status
-
-glesha status docs \-\-refresh \-\-env /secure/cloud.env
+glesha status docs \-\-refresh
 .fi
-.SH ESTIMATES
-Rates are embedded and dated 2026-10-01. Annual estimates assume current recorded copies remain unchanged for twelve months. Unknown regions, classes or sizes mark the estimate partial with an asterisk.
-Local SQLite size differs from compressed/encrypted remote metadata size. Older catalogs without size records require \-\-refresh. Cached catalog availability means previously synchronized or published, not guaranteed current.
-Estimates exclude API requests, retrievals, egress, temporary restored copies, taxes, discounts, free tiers, pending/untracked objects and untracked older object versions. Future backup growth is not predicted. Intelligent-Tiering assumes Frequent Access unless archive access is observed.
-Last upload includes recorded archive uploads and catalog publication writes; unavailable values appear as a dash. Estimation assumptions are documented here rather than printed after every status table.
 .SH OUTPUT
-Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
-or --color=no to disable them. The earlier always and never names remain aliases.
-Interactive stderr displays a progress bar, readable byte counts and average speed.
-Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
-JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
-to disable progress. Progress is disabled at warn/error/silent logging levels.
-Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
-Archiving shows processed/total uncompressed file bytes and a percentage.
-Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled
-progress and adapt to about 80 percent of terminal width. Upload progress includes
-in-flight payload bytes; checksum reads and retries do not count bytes twice. Bytes reaching 100 percent do not imply
-that final validation or catalog publication has finished.
-Use --log-level=debug for operation and worker-budget diagnostics.
-Progress counters use compact binary units: [63.35%] [1.27G/2.34G] [1.22M/s].
-Explicit worker flags show the effective worker count; archiving and individual
-downloads use one worker. Other human sizes use KiB, MiB and GiB. JSON retains integer byte counts.
-.SH COMPATIBILITY
-Existing encb gzip/OpenPGP archives are read without recompression or replacement.
-Compression is detected from the decrypted stream, independent of filenames.
-Passwords are never stored. Archive passwords and the catalog secret are separate.
-Database and JSON formats are versioned. Unsupported catalog schemas are rejected
-without modifying the file; old catalogs are neither migrated nor deleted implicitly.
-.SH EXIT STATUS
-0: success. 1: operation failure. 2: invalid usage or missing selection.
-3: pending work or cold retrieval. 4: conflicting remote history.
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for version 2 result records, one per line.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
+Use \-\-format=csv for a header and comma-separated rows. A dash means unavailable; totals cover readable catalogs.
 .SH SEE ALSO
-.BR glesha (1),
-.BR glesha-help (1)
+.BR glesha (1)

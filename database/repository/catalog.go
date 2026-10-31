@@ -60,6 +60,10 @@ func NewCatalogRepository(ctx context.Context, p string) (Cataloger, error) {
 				db.Close()
 				return nil, fmt.Errorf("catalog: existing database is not schema version 2; it was left unchanged")
 			}
+			if err = validateStateProtocol(ctx, db); err != nil {
+				db.Close()
+				return nil, err
+			}
 		} else if statErr != nil && !os.IsNotExist(statErr) {
 			db.Close()
 			return nil, statErr

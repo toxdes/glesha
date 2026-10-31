@@ -1,56 +1,48 @@
 .TH "GLESHA-HELP" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-help \- show command options and examples
+glesha-help \- show command help and examples
 .SH SYNOPSIS
-.B glesha help [COMMAND]
+.B glesha help [COMMAND [ACTION]] [options]
 .SH DESCRIPTION
-Without a command, show general help. With a command, show its options and examples.
-The catalog operations pull, push, reconcile and abandon accept a second help word.
-Help does not load configuration, read credentials or contact providers.
+Show command help and examples.
 .SH OPTIONS
-
-.TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
+.SS Global options
 .TP
 .B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
-
+Result format: plain or json; status also supports table and csv (default: plain).
 .TP
-.B \-\-L STRING
-debug, info, warn, error or silent (default "info")
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
-.B \-\-color STRING
-yes, no or auto; always/never aliases accepted (default "auto")
+.B \-\-config FILE
+TOML settings file.
 .TP
-.B \-\-config STRING
-TOML configuration file
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
-.B \-\-env STRING
-explicit credential environment file
+.B \-\-env FILE
+Load credentials; existing process variables take priority.
 .TP
-.B \-\-help
-show help
+.B \-\-color MODE
+Color mode: auto, yes, or no (default: auto).
 .TP
-.B \-h
-Alias for \-\-help.
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
 .TP
-.B \-\-log\-level STRING
-debug, info, warn, error or silent (default "info")
+.B \-h, \-\-help
+Show this command's help.
 .TP
-.B \-\-version
-show version; \-version is also accepted.
-.TP
-.B \-v
-Alias for \-\-version.
+.B \-v, \-\-version
+Show version and build revision.
 .SH EXAMPLES
 .nf
-glesha help
-
 glesha help run
-
-glesha help catalog pull
+glesha help catalog unlock
 .fi
+.SH OUTPUT
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for version 2 result records, one per line.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
 .BR glesha (1)
