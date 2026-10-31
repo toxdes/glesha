@@ -7,8 +7,13 @@ glesha-check \- check selected providers using metadata and an owned temporary w
 Test selected providers with an owned temporary object. Print separate safety, write, metadata, read and cleanup results, then a summary. A failed provider does not stop checks of the remaining selections.
 .SH OPTIONS
 .TP
-.B \-\-json
-Print versioned JSON provider results and the final summary.
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
 .TP
 .B \-\-L STRING
 debug, info, warn, error or silent (default "info")
@@ -56,7 +61,7 @@ Alias for \-\-version.
 glesha check \-\-to b2 \-\-env /secure/cloud.env
 glesha check \-\-to aws,b2 \-\-env /secure/cloud.env
 
-glesha check \-\-to b2 \-\-json \-\-env /secure/cloud.env
+glesha check \-\-to b2 \-\-format=json \-\-env /secure/cloud.env
 .fi
 .SH RESULTS
 OK means the step completed successfully. FAILED includes its error. SKIPPED
@@ -69,7 +74,9 @@ is replaced or deleted. The command exits nonzero if any selected provider fails
 Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
 or --color=no to disable them. The earlier always and never names remain aliases.
 Interactive stderr displays a progress bar, readable byte counts and average speed.
-Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
+JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
+to disable progress. Progress is disabled at warn/error/silent logging levels.
 Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
 Archiving shows processed/total uncompressed file bytes and a percentage.
 Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled

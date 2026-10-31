@@ -7,13 +7,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"golang.org/x/term"
-
 	"glesha/archive"
 	"glesha/database/model"
 	"glesha/database/repository"
 	"glesha/file_io"
-	L "glesha/logger"
 )
 
 func localArchive(r *runtime, args []string) error {
@@ -59,7 +56,7 @@ func localArchive(r *runtime, args []string) error {
 	defer wipe(pw)
 	_, _, err = archive.Create(r.ctx, archive.Options{Output: output, Compression: r.config.Archive.Compression, Level: r.config.Archive.Level, Mode: r.config.Archive.Mode, Budget: r.budget, Password: pw, Manifest: model.Manifest{Version: 1, ID: id, Full: true, Roots: roots, Compression: r.config.Archive.Compression}, Catalog: c, Exclusions: exclude})
 	if err == nil {
-		fmt.Fprintln(r.out, L.HumanText(output, term.IsTerminal(int(os.Stdout.Fd()))))
+		return r.completed(output, "", output)
 	}
 	return err
 }
@@ -82,7 +79,7 @@ func decrypt(r *runtime, args []string) error {
 		if output == "" {
 			output = filepath.Join(filepath.Dir(input), archive.Stem(input)+archive.Extension(format))
 		}
-		fmt.Fprintln(r.out, L.HumanText(output, term.IsTerminal(int(os.Stdout.Fd()))))
+		return r.completed(output, "", output)
 	}
 	return err
 }
@@ -117,5 +114,8 @@ func extract(r *runtime, args []string) error {
 
 	defer wipe(pw)
 	_, _, err = archive.Extract(r.ctx, archive.ExtractOptions{Input: input, Output: r.env.Into, Password: pw})
-	return err
+	if err != nil {
+		return err
+	}
+	return r.completed(r.env.Into, "", "")
 }

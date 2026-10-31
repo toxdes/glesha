@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"glesha/backup"
 	"glesha/database/model"
@@ -36,7 +37,9 @@ func catalogSync(r *runtime, args []string) error {
 			return err
 		}
 		if set.CatalogTo == "" || set.CatalogTo == "local" {
-			fmt.Fprintf(r.out, "%s  SKIPPED  Local-only set\n", L.ASCII(set.Name))
+			if err := r.setEvent("skipped", set, "", "Local-only set"); err != nil {
+				return err
+			}
 			continue
 		}
 		err := func() (result error) {
@@ -71,10 +74,14 @@ func catalogSync(r *runtime, args []string) error {
 			return r.service.Sync(r.ctx)
 		}()
 		if err != nil {
-			fmt.Fprintf(r.out, "%s  FAILED  %s\n", L.ASCII(set.Name), L.ASCII(err.Error()))
+			if outputErr := r.setEvent("set_error", set, model.STATUS_FAILED, err.Error()); outputErr != nil {
+				return outputErr
+			}
 			failures = append(failures, fmt.Errorf("%s: %w", set.Name, err))
 		} else {
-			fmt.Fprintf(r.out, "%s  SYNCED\n", L.ASCII(set.Name))
+			if err := r.setEvent("synced", set, model.STATUS_COMPLETED, ""); err != nil {
+				return err
+			}
 		}
 	}
 	return errors.Join(failures...)
@@ -109,19 +116,22 @@ func catalogResolve(r *runtime, args []string) (result error) {
 	}
 	defer wipe(r.service.CatalogPassword)
 	if err = r.service.ResolutionDifferences(r.ctx, func(d backup.ResolutionDifference) error {
-		_, err := fmt.Fprintf(r.out, "%s\n  Local   %s\n  Remote  %s\n", L.ASCII(d.Field), L.ASCII(d.Local), L.ASCII(d.Remote))
-		return err
+		return r.emit("resolution_difference", d, fmt.Sprintf("%s\n  Local   %s\n  Remote  %s", L.ASCII(d.Field), L.ASCII(d.Local), L.ASCII(d.Remote)))
 	}); err != nil {
 		return err
 	}
 	if r.env.Keep == "" {
-		fmt.Fprintln(r.out, "Choose --keep local or --keep remote; both histories are preserved.")
-		return nil
+		return r.emit("resolution_choices", struct {
+			Choices []string `json:"choices"`
+		}{[]string{"local", "remote"}}, "Choose --keep local or --keep remote; both histories are preserved.")
 	}
 	if err = confirm(r.ctx, "Resolve "+r.service.Set.Name+" using "+r.env.Keep+" values for conflicting metadata?", r.env.AssumeYes); err != nil {
 		return err
 	}
-	return r.service.Resolve(r.ctx, r.env.Keep)
+	if err = r.service.Resolve(r.ctx, r.env.Keep); err != nil {
+		return err
+	}
+	return r.completed("", "", "")
 }
 func cleanup(r *runtime, args []string) error {
 	sets, err := r.selectedSets(args)
@@ -165,7 +175,9 @@ func cleanup(r *runtime, args []string) error {
 				return err
 			}
 			if reason != "" {
-				fmt.Fprintf(r.out, "%s  SKIPPED  %s\n", L.ASCII(set.Name), reason)
+				if err := r.setEvent("skipped", set, "", reason); err != nil {
+					return err
+				}
 				return nil
 			}
 			ids, err := r.service.CleanupRemotes(r.ctx)
@@ -180,7 +192,9 @@ func cleanup(r *runtime, args []string) error {
 				return err
 			}
 			if plan.Skipped != "" {
-				fmt.Fprintf(r.out, "%s  SKIPPED  %s\n", L.ASCII(set.Name), plan.Skipped)
+				if err := r.setEvent("skipped", set, "", plan.Skipped); err != nil {
+					return err
+				}
 				return nil
 			}
 			if len(plan.Files) == 0 {
@@ -191,7 +205,13 @@ func cleanup(r *runtime, args []string) error {
 			deferRelease = append(deferRelease, release)
 			plans = append(plans, work{r.service, plan})
 			for _, file := range plan.Files {
-				fmt.Fprintf(r.out, "%s  %s\n", compactSize(file.Size), L.ASCII(file.Path))
+				if err := r.emit("cleanup_candidate", struct {
+					Set  string `json:"set"`
+					Path string `json:"path"`
+					Size int64  `json:"size"`
+				}{set.ID, file.Path, file.Size}, fmt.Sprintf("%s  %s", compactSize(file.Size), L.ASCII(file.Path))); err != nil {
+					return err
+				}
 				total += file.Size
 				count++
 			}
@@ -199,15 +219,20 @@ func cleanup(r *runtime, args []string) error {
 		}()
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", set.Name, err))
-			fmt.Fprintf(r.out, "%s  SKIPPED  %s\n", L.ASCII(set.Name), L.ASCII(err.Error()))
+			if outputErr := r.setEvent("set_error", set, model.STATUS_FAILED, err.Error()); outputErr != nil {
+				return outputErr
+			}
 		}
 	}
 	if count == 0 {
-		fmt.Fprintln(r.out, "No archives eligible for cleanup.")
+		if err := r.emit("cleanup_summary", cleanupSummary{DryRun: r.env.DryRun}, "No archives eligible for cleanup."); err != nil {
+			return err
+		}
 		return errors.Join(failures...)
 	}
-	fmt.Fprintf(r.out, "\n%d local archives; %s reclaimable.\n", count, compactSize(total))
-	fmt.Fprintln(r.out, "Remote backups and catalogs are kept; cold copies require retrieval to download again.")
+	if err := r.emit("cleanup_summary", cleanupSummary{Files: count, Bytes: total, DryRun: r.env.DryRun}, fmt.Sprintf("\n%d local archives; %s reclaimable.\nRemote backups and catalogs are kept; cold copies require retrieval to download again.", count, compactSize(total))); err != nil {
+		return err
+	}
 	if r.env.DryRun {
 		return errors.Join(failures...)
 	}
@@ -218,8 +243,34 @@ func cleanup(r *runtime, args []string) error {
 		for _, file := range w.plan.Files {
 			if err = w.service.RemoveCleanupFile(r.ctx, file); err != nil {
 				failures = append(failures, err)
+			} else if err := r.emit("cleanup_removed", struct {
+				Path string `json:"path"`
+				Size int64  `json:"size"`
+			}{file.Path, file.Size}, ""); err != nil {
+				return err
 			}
 		}
 	}
 	return errors.Join(failures...)
+}
+
+type cleanupSummary struct {
+	Files  int   `json:"candidate_files"`
+	Bytes  int64 `json:"reclaimable_bytes"`
+	DryRun bool  `json:"dry_run"`
+}
+
+func (r *runtime) setEvent(kind string, set model.Set, status model.Status, reason string) error {
+	label := "SKIPPED"
+	if status == model.STATUS_FAILED {
+		label = "FAILED"
+	} else if status == model.STATUS_COMPLETED {
+		label = "SYNCED"
+	}
+	return r.emit(kind, struct {
+		Set    string       `json:"set"`
+		Name   string       `json:"name"`
+		State  model.Status `json:"state,omitempty"`
+		Reason string       `json:"reason,omitempty"`
+	}{set.ID, set.Name, status, reason}, strings.TrimSpace(fmt.Sprintf("%s  %s  %s", L.ASCII(set.Name), label, L.ASCII(reason))))
 }

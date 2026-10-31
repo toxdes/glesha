@@ -2,13 +2,10 @@ package app_cmd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/term"
 
 	"glesha/archive"
 	"glesha/backup"
@@ -18,17 +15,6 @@ import (
 	L "glesha/logger"
 )
 
-func (r *runtime) emit(kind string, v any, text string) error {
-	if r.env.JSON {
-		return json.NewEncoder(r.out).Encode(struct {
-			Version int    `json:"version"`
-			Kind    string `json:"kind"`
-			Data    any    `json:"data"`
-		}{2, kind, v})
-	}
-	_, err := fmt.Fprintln(r.out, L.HumanText(text, term.IsTerminal(int(os.Stdout.Fd()))))
-	return err
-}
 func create(r *runtime, args []string) error {
 	if len(args) < 2 {
 		return fmt.Errorf("cli: create requires SET and source paths")
@@ -317,15 +303,14 @@ func run(r *runtime, args []string) error {
 		}
 		defer wipe(pw)
 	} else {
-		fmt.Fprintln(os.Stderr, "Resuming previous run.")
+		L.Info("Resuming previous run.")
 	}
 	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.present["chunked"], SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
 	if err != nil {
 		return err
 	}
 	if v.ID == "" {
-		fmt.Fprintln(r.out, "No changes.")
-		return nil
+		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, "No changes.")
 	}
 	message := fmt.Sprintf("Backup %s completed for %q.", v.ID, s.Set.Name)
 	if _, err := os.Lstat(v.File); err == nil {

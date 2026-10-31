@@ -153,7 +153,7 @@ func TestStatusRefreshesPendingImportWithoutCatalogOrPayloadRead(t *testing.T) {
 		t.Fatal("refresh did not expose ready import:", out.String())
 	}
 	out.Reset()
-	r.env.Refresh, r.env.Format, r.env.JSON = false, "plain", false
+	r.env.Refresh, r.env.Format = false, "plain"
 	if err = status(r, nil); err != nil {
 		t.Fatal(err)
 	}

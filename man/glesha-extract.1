@@ -6,6 +6,15 @@ glesha-extract \- validate and extract an encrypted or plaintext compressed tar 
 .SH DESCRIPTION
 Validate and extract an encrypted or plaintext compressed tar into a new directory.
 .SH OPTIONS
+
+.TP
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
 .TP
 .B \-\-L STRING
 debug, info, warn, error or silent (default "info")
@@ -52,7 +61,9 @@ glesha extract recovered.tar.gz \-\-into ~/recovered
 Colors default to auto: enabled only on a terminal. Use --color=yes to force colors,
 or --color=no to disable them. The earlier always and never names remain aliases.
 Interactive stderr displays a progress bar, readable byte counts and average speed.
-Progress is disabled for redirected stderr, JSON output and warn/error/silent logging.
+Redirected stderr and TERM=dumb use plain step lines. JSON mode emits versioned
+JSON Lines progress/errors on stderr without ANSI controls. Use --progress=off
+to disable progress. Progress is disabled at warn/error/silent logging levels.
 Scanning uses an ASCII spinner (minus, backslash, vertical bar, slash).
 Archiving shows processed/total uncompressed file bytes and a percentage.
 Finalization and metadata publication show status without an indefinite bar. Bars refresh every 100 ms, use # for filled

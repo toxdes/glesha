@@ -29,12 +29,6 @@ func status(r *runtime, args []string) error {
 	if format == "" {
 		format = "plain"
 	}
-	if r.env.JSON {
-		if format != "plain" && format != "json" {
-			return fmt.Errorf("cli: --json conflicts with --format")
-		}
-		format = "json"
-	}
 	switch format {
 	case "plain", "table", "csv", "json":
 	default:
@@ -83,7 +77,6 @@ func status(r *runtime, args []string) error {
 		return err
 	}
 	if format == "json" {
-		r.env.JSON = true
 		for _, d := range rows {
 			if err := r.emit("status", d, ""); err != nil {
 				return err

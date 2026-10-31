@@ -3,7 +3,7 @@
 Encrypted archives and backups to AWS S3, Backblaze B2 and compatible S3 endpoints.
 One standalone executable.
 
-[Website](https://glesha.toxdes.com) · [Docs](https://glesha.toxdes.com/docs.html) · [CLI reference](cli_reference.md)
+[Website](https://glesha.toxdes.com) · [Docs](https://glesha.toxdes.com/docs.html) · [CLI reference](cli_reference.md) · [Changelog](CHANGELOG.md)
 
 - Full and incremental snapshots, with a browsable file catalog.
 - XZ compression by default; gzip and bzip2 also supported.

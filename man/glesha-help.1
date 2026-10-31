@@ -8,6 +8,15 @@ Without a command, show general help. With a command, show its options and examp
 The catalog operations pull, push, reconcile and abandon accept a second help word.
 Help does not load configuration, read credentials or contact providers.
 .SH OPTIONS
+
+.TP
+.B \-\-progress MODE
+auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
+
+.TP
+.B \-\-format FORMAT
+plain or json; status also supports table and csv. JSON results use stdout.
+
 .TP
 .B \-\-L STRING
 debug, info, warn, error or silent (default "info")
