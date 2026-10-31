@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare relocatable Linux, macOS and Windows release bundles."""
+"""Validate the Linux package and derive macOS and Windows release bundles."""
 
 import gzip
 import os
@@ -11,42 +11,31 @@ import zipfile
 from pathlib import Path, PurePosixPath
 
 
-def prepare_archive(archive: Path) -> None:
-    temporary = archive.with_name(archive.name + ".tmp")
-    try:
-        with tarfile.open(archive, "r:gz") as source:
-            with temporary.open("wb") as output:
-                with gzip.GzipFile(filename="", mode="wb", fileobj=output, mtime=0) as compressed:
-                    with tarfile.open(fileobj=compressed, mode="w|") as target:
-                        names = set()
-                        for member in source:
-                            path = PurePosixPath(member.name)
-                            if path.is_absolute() or ".." in path.parts or not (member.isfile() or member.isdir()):
-                                raise ValueError(f"Unexpected archive member: {member.name}")
-                            parts = path.parts
-                            if parts and parts[0] == "usr":
-                                parts = parts[1:]
-                            if not parts:
-                                continue
-                            member.name = str(PurePosixPath(*parts))
-                            if member.name in names:
-                                raise ValueError(f"Duplicate archive member: {member.name}")
-                            names.add(member.name)
-                            member.uid = member.gid = 0
-                            member.uname = member.gname = "root"
-                            member.mtime = 0
-                            body = source.extractfile(member) if member.isfile() else None
-                            try:
-                                target.addfile(member, body)
-                            finally:
-                                if body is not None:
-                                    body.close()
-                        required = {"bin/glesha", "share/man/man1/glesha.1", "install.txt", "LICENSE"}
-                        if not required.issubset(names):
-                            raise ValueError("Release archive is missing installation assets")
-        temporary.replace(archive)
-    finally:
-        temporary.unlink(missing_ok=True)
+def validate_linux_archive(archive: Path) -> None:
+    names = set()
+    files = set()
+    with tarfile.open(archive, "r:gz") as source:
+        for member in source:
+            path = PurePosixPath(member.name)
+            if (
+                path.is_absolute() or ".." in path.parts
+                or not (member.isfile() or member.isdir())
+                or (path.parts and path.parts[0] != "usr")
+            ):
+                raise ValueError(f"Unexpected archive member: {member.name}")
+            name = str(path)
+            if name in names:
+                raise ValueError(f"Duplicate archive member: {member.name}")
+            names.add(name)
+            if member.isfile():
+                files.add(name)
+    required = {
+        "usr/bin/glesha", "usr/share/man/man1/glesha.1",
+        "usr/share/doc/glesha/install.txt", "usr/share/licenses/glesha/LICENSE",
+        "usr/share/doc/glesha/config-sample.toml",
+    }
+    if not required.issubset(files):
+        raise ValueError("Release archive is missing installation assets")
 
 
 def main() -> None:
@@ -55,14 +44,15 @@ def main() -> None:
     if architecture not in {"amd64", "arm64"} or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9.+_-]*", version):
         raise SystemExit("Expected TARGETARCH=amd64|arm64 and a valid VERSION")
     archive = Path(os.environ.get("OUTPUT_DIR", "/output")) / f"glesha_{version}_{architecture}.tar.gz"
-    prepare_archive(archive)
-    print(f"Prepared relocatable archive: {archive.name}")
+    validate_linux_archive(archive)
+    print(f"Validated Linux archive: {archive.name}")
     prepare_platform_archive(archive, "macos", architecture, version)
     if architecture == "amd64":
         prepare_platform_archive(archive, "windows", architecture, version)
 
 
 def prepare_platform_archive(source: Path, platform: str, architecture: str, version: str) -> Path:
+    validate_linux_archive(source)
     suffix = "zip" if platform == "windows" else "tar.gz"
     archive = source.parent / f"glesha_{version}_{platform}_{architecture}.{suffix}"
     temporary = archive.with_name(archive.name + ".tmp")
@@ -74,7 +64,7 @@ def prepare_platform_archive(source: Path, platform: str, architecture: str, ver
                     path = PurePosixPath(member.name)
                     if path.is_absolute() or ".." in path.parts or not (member.isfile() or member.isdir()):
                         raise ValueError(f"Unexpected archive member: {member.name}")
-                    target = root.joinpath(*path.parts)
+                    target = root.joinpath(*path.parts[1:])
                     if member.isdir():
                         target.mkdir(parents=True, exist_ok=True)
                     else:
@@ -88,6 +78,8 @@ def prepare_platform_archive(source: Path, platform: str, architecture: str, ver
             shutil.copyfile(Path.cwd() / binary, destination)
             destination.chmod(0o755)
             shutil.copyfile(Path(__file__).with_name(f"install-{platform}.txt"), root / "install.txt")
+            (root / "share/doc/glesha/install.txt").unlink()
+            (root / "share/licenses/glesha/LICENSE").replace(root / "LICENSE")
             files = sorted(path for path in root.rglob("*") if path.is_file())
             if platform == "windows":
                 with zipfile.ZipFile(temporary, "w", compression=zipfile.ZIP_DEFLATED) as bundle:

@@ -6,7 +6,7 @@ pkgdesc='Encrypted archives and indexed cloud backups'
 arch=('x86_64' 'aarch64')
 url='https://github.com/toxdes/glesha'
 license=('MIT')
-provides=('glesha')
+provides=("glesha=${pkgver}")
 conflicts=('glesha' 'glesha-bin')
 depends=()
 makedepends=('git' 'go>=1.25')

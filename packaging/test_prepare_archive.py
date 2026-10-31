@@ -8,7 +8,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from prepare_archive import prepare_archive, prepare_platform_archive
+from prepare_archive import validate_linux_archive, prepare_platform_archive
 
 
 class ArchiveTests(unittest.TestCase):
@@ -21,8 +21,8 @@ class ArchiveTests(unittest.TestCase):
             "usr/bin/glesha": b"linux executable",
             "usr/share/man/man1/glesha.1": b".TH GLESHA 1\n",
             "usr/share/doc/glesha/config-sample.toml": b"[archive]\n",
-            "install.txt": b"Linux instructions",
-            "LICENSE": b"MIT",
+            "usr/share/doc/glesha/install.txt": b"Linux instructions",
+            "usr/share/licenses/glesha/LICENSE": b"MIT",
         }
         with tarfile.open(self.source, "w:gz") as bundle:
             for name, data in files.items():
@@ -30,7 +30,7 @@ class ArchiveTests(unittest.TestCase):
                 member.size = len(data)
                 member.mode = 0o755 if name.endswith("/glesha") else 0o644
                 bundle.addfile(member, io.BytesIO(data))
-        prepare_archive(self.source)
+        validate_linux_archive(self.source)
         (self.root / "glesha-macos").write_bytes(b"macos executable")
         (self.root / "glesha-windows.exe").write_bytes(b"windows executable")
 
@@ -52,7 +52,39 @@ class ArchiveTests(unittest.TestCase):
                         self.assertIn(b"macOS", bundle.extractfile("install.txt").read())
                         self.assertIn("share/man/man1/glesha.1", bundle.getnames())
                 with tarfile.open(self.source) as bundle:
-                    self.assertEqual(bundle.extractfile("bin/glesha").read(), b"linux executable")
+                    self.assertEqual(bundle.extractfile("usr/bin/glesha").read(), b"linux executable")
+
+    def test_validation_and_platform_packaging_preserve_linux_bytes(self):
+        original = self.source.read_bytes()
+        validate_linux_archive(self.source)
+        with contextlib.chdir(self.root):
+            prepare_platform_archive(self.source, "macos", "amd64", "0.5.1")
+        self.assertEqual(self.source.read_bytes(), original)
+
+    def test_nonstandard_linux_entries_are_rejected_without_mutation(self):
+        original = self.source.read_bytes()
+        for name, kind in (
+            ("bin/glesha", tarfile.REGTYPE),
+            ("LICENSE", tarfile.REGTYPE),
+            ("/usr/bin/escaped", tarfile.REGTYPE),
+            ("usr/../escaped", tarfile.REGTYPE),
+            ("usr/bin/link", tarfile.SYMTYPE),
+            ("usr/bin/hardlink", tarfile.LNKTYPE),
+        ):
+            with self.subTest(name=name, kind=kind):
+                with tarfile.open(fileobj=io.BytesIO(original), mode="r:gz") as bundle:
+                    members = [(member, bundle.extractfile(member).read()) for member in bundle]
+                with tarfile.open(self.source, "w:gz") as bundle:
+                    for member, data in members:
+                        bundle.addfile(member, io.BytesIO(data))
+                    member = tarfile.TarInfo(name)
+                    member.type = kind
+                    member.linkname = "glesha" if kind != tarfile.REGTYPE else ""
+                    bundle.addfile(member)
+                invalid = self.source.read_bytes()
+                with self.assertRaises(ValueError):
+                    validate_linux_archive(self.source)
+                self.assertEqual(self.source.read_bytes(), invalid)
 
     def test_failed_packaging_preserves_existing_archive(self):
         archive = self.root / "glesha_0.5.1_macos_amd64.tar.gz"

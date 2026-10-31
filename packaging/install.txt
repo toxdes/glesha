@@ -1,6 +1,7 @@
 glesha - Linux installation
 
-This archive contains bin/glesha, share/man/man1/, a sample TOML file, and LICENSE.
+This archive uses the standard Linux package layout: usr/bin/glesha,
+usr/share/man/man1/, usr/share/doc/glesha/, and usr/share/licenses/glesha/LICENSE.
 The executable includes its runtime dependencies. No GPG, tar or compression
 program is required to run glesha.
 
@@ -20,13 +21,13 @@ program is required to run glesha.
 
    Current user:
      install -d "$HOME/.local/bin" "$HOME/.local/share/man/man1"
-     install -m 755 bin/glesha "$HOME/.local/bin/glesha"
-     install -m 644 share/man/man1/glesha*.1 "$HOME/.local/share/man/man1/"
+     install -m 755 usr/bin/glesha "$HOME/.local/bin/glesha"
+     install -m 644 usr/share/man/man1/glesha*.1 "$HOME/.local/share/man/man1/"
 
    System-wide:
      sudo install -d /usr/local/bin /usr/local/share/man/man1
-     sudo install -m 755 bin/glesha /usr/local/bin/glesha
-     sudo install -m 644 share/man/man1/glesha*.1 /usr/local/share/man/man1/
+     sudo install -m 755 usr/bin/glesha /usr/local/bin/glesha
+     sudo install -m 644 usr/share/man/man1/glesha*.1 /usr/local/share/man/man1/
 
 5. Ensure your chosen bin directory is in PATH, then run:
 
@@ -38,7 +39,7 @@ If user-installed manuals are not found, run:
    man -M "$HOME/.local/share/man" glesha
 
 Configuration is optional; glesha uses platform defaults. The sample is at
-share/doc/glesha/config-sample.toml. Keep passwords and provider credentials out
+usr/share/doc/glesha/config-sample.toml. Keep passwords and provider credentials out
 of TOML; pass an existing credential file with --env or use environment variables.
 Do not replace an existing configuration or copy credentials into this archive.
 
