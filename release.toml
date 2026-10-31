@@ -377,12 +377,12 @@ mode = 0o644
 
 [[package.archive.assets]]
 source = "packaging/install.txt"
-dest = "/install.txt"
+dest = "/usr/share/doc/glesha/install.txt"
 mode = 0o644
 
 [[package.archive.assets]]
 source = "LICENSE"
-dest = "/LICENSE"
+dest = "/usr/share/licenses/glesha/LICENSE"
 mode = 0o644
 
 [[package.archive.assets]]

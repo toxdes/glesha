@@ -8,7 +8,6 @@ Commit the intended release changes before building so `GIT_SHA` identifies the 
 python3 -m unittest discover -s packaging -p 'test_*.py'
 ./yesb/release_apt.py --dry-run
 ./yesb/release_rpm.py --dry-run
-./packaging/publish_aur.py --dry-run
 ```
 
 ## Direct downloads
@@ -23,7 +22,12 @@ Files are published under `https://packages.toxdes.com/glesha/releases/`:
 | macOS Apple Silicon | `glesha_VERSION_macos_arm64.tar.gz` |
 | Windows x64 | `glesha_VERSION_windows_amd64.zip` |
 
-Every bundle includes its binary, manual sources, sample configuration, LICENSE and `install.txt`.
+Every bundle includes its binary, manual sources, sample configuration, license and installation instructions.
+Linux archives retain Yesb's standard `usr/bin` and `usr/share` layout. Their
+instructions are in `usr/share/doc/glesha/install.txt`; licenses are in
+`usr/share/licenses/glesha/LICENSE`. Installers map `usr/` into the selected
+prefix. macOS and Windows bundles retain their `bin/`, `share/`, `LICENSE` and
+`install.txt` layout.
 Build output includes individual `.sha256` files and `SHA256SUMS`.
 The direct publisher uploads the five bundles and their individual checksums.
 
@@ -35,7 +39,7 @@ Run these after verifying the build:
 ./yesb/release_direct.py --env /path/to/release.env
 ./yesb/release_apt.py --env /path/to/release.env
 ./yesb/release_rpm.py --env /path/to/release.env
-./packaging/publish_aur.py --env /path/to/release.env --type both
+./yesb/release_aur.py --env /path/to/release.env --type both
 ./yesb/release_homebrew.py
 ```
 
@@ -49,10 +53,9 @@ Homebrew publishes the `glesha` formula to `toxdes/homebrew-tap`:
 brew install toxdes/tap/glesha
 ```
 
-The AUR adapter publishes `glesha-bin` and `glesha-git` using Yesb's unchanged
-publication helpers. It maps the relocatable bundle into `/usr` for Arch packages.
-Use it instead of `yesb/release_aur.py --type bin|both`, whose generic binary
-recipe expects a different archive layout. `--type git` and `--type bin` select one package.
+Yesb's standard AUR publisher handles `glesha-bin` and `glesha-git`. Its binary
+recipe extracts the Linux archive directly into the package root, preserving
+`/usr/bin` and `/usr/share`. `--type git` and `--type bin` select one package.
 The same pinned `.SRCINFO` helper image as vylk is configured; publication needs AUR SSH access.
 
 The macOS and Windows executables are cross-compiled with cgo disabled.
@@ -60,3 +63,8 @@ Native execution tests still require those operating systems; macOS bundles are 
 
 After publishing, merge the release version onto main and rebuild/deploy the website.
 Its build reads main's `version.txt` for `/install` and download links.
+
+The Linux archive layout changes after 0.5.1. Update the curl installer before
+publishing a new version, and retain support for the old `bin/` layout when
+installing historical releases. Publish under a new version; do not replace
+the immutable 0.5.1 archives.
