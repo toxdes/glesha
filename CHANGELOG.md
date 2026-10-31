@@ -4,6 +4,10 @@
 
 ## 0.5.2 - 2026-10-31
 
+### Fixed
+
+- Include the state package in the Docker build context so release builds compile.
+
 ### Added
 
 - JSON results for every command, with structured progress and errors on stderr.

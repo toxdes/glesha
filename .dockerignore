@@ -31,6 +31,8 @@
 !memory/**
 !pricing/
 !pricing/**
+!state/
+!state/**
 !man/
 !man/**
 !packaging/
