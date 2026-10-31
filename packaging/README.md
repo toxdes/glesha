@@ -39,7 +39,7 @@ Run these after verifying the build:
 ./yesb/release_direct.py --env /path/to/release.env
 ./yesb/release_apt.py --env /path/to/release.env
 ./yesb/release_rpm.py --env /path/to/release.env
-./yesb/release_aur.py --env /path/to/release.env --type both
+./yesb/release_aur.py --env /path/to/release.env --type all
 ./yesb/release_homebrew.py
 ```
 
@@ -53,9 +53,12 @@ Homebrew publishes the `glesha` formula to `toxdes/homebrew-tap`:
 brew install toxdes/tap/glesha
 ```
 
-Yesb's standard AUR publisher handles `glesha-bin` and `glesha-git`. Its binary
+Use `yay -S glesha` to build the latest tagged release, `glesha-bin` for the
+prebuilt release, or `glesha-git` for the latest development source.
+
+Yesb's standard AUR publisher handles all three variants. Its binary
 recipe extracts the Linux archive directly into the package root, preserving
-`/usr/bin` and `/usr/share`. `--type git` and `--type bin` select one package.
+`/usr/bin` and `/usr/share`. `--type source`, `--type git` and `--type bin` select one package.
 The same pinned `.SRCINFO` helper image as vylk is configured; publication needs AUR SSH access.
 
 The macOS and Windows executables are cross-compiled with cgo disabled.

@@ -410,6 +410,7 @@ maintainer = "toxdes <hi@toxdes.com>"
 [aur]
 binary_package = "glesha-bin"
 git_package = "glesha-git"
+source_pkgbuild = "PKGBUILD.source"
 git_pkgbuild = "PKGBUILD"
 srcinfo_helper_image = "docker.io/toxdes/yesb-aur-helper@sha256:e0b511b58baf4d1e281b154a50fd15125f886472dc7166a4aa578cb7a40435ea"
 
