@@ -1,11 +1,13 @@
 package app_cmd
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
 	"glesha/config"
 	"glesha/file_io"
+	L "glesha/logger"
 	"glesha/state"
 )
 
@@ -30,8 +32,10 @@ func migrateState(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = state.Migrate(r.ctx, source, target); err != nil {
+	if err = state.Migrate(r.ctx, source, target); errors.Is(err, state.ErrNoMigrationNeeded) {
+		return r.completed(target, "", fmt.Sprintf("No legacy backups to migrate.\nState location: %s", L.Value(target)))
+	} else if err != nil {
 		return err
 	}
-	return r.completed(target, "", fmt.Sprintf("State moved to %s", target))
+	return r.completed(target, "", fmt.Sprintf("State moved to %s", L.Value(target)))
 }

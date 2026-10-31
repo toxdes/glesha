@@ -4,12 +4,16 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 
 	"glesha/database/model"
 )
+
+var ErrRemoteLocationChanged = errors.New("registry: remote location changed")
+var ErrAmbiguousSetName = errors.New("registry: ambiguous set name; select a set UUID")
 
 type Registryor interface {
 	Close() error
@@ -19,6 +23,11 @@ type Registryor interface {
 	Each(context.Context, func(model.Set) error) error
 	BindRemote(context.Context, model.Remote) (model.Remote, error)
 	Remote(context.Context, string) (model.Remote, error)
+	PutLocator(context.Context, string, model.Locator) error
+	Locators(context.Context, string) (map[string]model.Locator, error)
+	LocatorReplicated(context.Context, string, string) (bool, error)
+	MarkLocatorReplicated(context.Context, string, string) error
+	ForgetLocatorReplicas(context.Context, string) error
 }
 type registry struct{ db *sql.DB }
 
@@ -30,7 +39,7 @@ func NewRegistryRepository(ctx context.Context, file string) (Registryor, error)
 	db.SetMaxOpenConns(1)
 	if _, err = db.ExecContext(ctx, `PRAGMA cache_size=-2048;
  CREATE TABLE IF NOT EXISTS sets(id TEXT PRIMARY KEY,name TEXT UNIQUE NOT NULL,data TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS remotes(id TEXT PRIMARY KEY,name TEXT UNIQUE NOT NULL,data TEXT NOT NULL);`); err != nil {
+ CREATE TABLE IF NOT EXISTS remotes(id TEXT PRIMARY KEY,name TEXT UNIQUE NOT NULL,data TEXT NOT NULL);`+model.DiscoverySchema); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -50,11 +59,28 @@ func (r *registry) Save(ctx context.Context, v model.Set) error {
 	if err != nil {
 		return err
 	}
-	_, err = r.db.ExecContext(ctx, "UPDATE sets SET data=? WHERE id=? AND name=?", string(b), v.ID, v.Name)
+	name := v.Name
+	var conflictingID string
+	lookupErr := r.db.QueryRowContext(ctx, "SELECT id FROM sets WHERE name=? AND id<>?", v.Name, v.ID).Scan(&conflictingID)
+	if lookupErr == nil {
+		name = v.ID
+	} else if !errors.Is(lookupErr, sql.ErrNoRows) {
+		return lookupErr
+	}
+	_, err = r.db.ExecContext(ctx, "UPDATE sets SET name=?,data=? WHERE id=?", name, string(b), v.ID)
 	return err
 }
 func (r *registry) Set(ctx context.Context, name string) (model.Set, error) {
 	var v model.Set
+	if _, err := uuid.Parse(name); err != nil {
+		var count int
+		if err = r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sets WHERE json_extract(data,'$.name')=?", name).Scan(&count); err != nil {
+			return v, err
+		}
+		if count > 1 {
+			return v, fmt.Errorf("%w: %q", ErrAmbiguousSetName, name)
+		}
+	}
 	var b string
 	err := r.db.QueryRowContext(ctx, "SELECT data FROM sets WHERE name=? OR id=?", name, name).Scan(&b)
 	if err == nil {
@@ -93,17 +119,23 @@ func (r *registry) Remote(ctx context.Context, name string) (model.Remote, error
 	return v, err
 }
 func (r *registry) BindRemote(ctx context.Context, v model.Remote) (model.Remote, error) {
+	identity := v.Identity()
+	if existing, err := r.Remote(ctx, identity); err == nil {
+		return existing, nil
+	} else if err != sql.ErrNoRows {
+		return model.Remote{}, err
+	}
 	old, err := r.Remote(ctx, v.Name)
 	if err == nil {
 		if old.Kind != v.Kind || old.Bucket != v.Bucket || old.Endpoint != v.Endpoint || old.Region != v.Region {
-			return v, fmt.Errorf("registry: remote %q location changed; use a new remote name and explicit move", v.Name)
+			return v, fmt.Errorf("%w: remote %q; use a new remote name and explicit move", ErrRemoteLocationChanged, v.Name)
 		}
 		return old, nil
 	}
 	if err != sql.ErrNoRows {
 		return v, err
 	}
-	v.ID = uuid.NewSHA1(uuid.NameSpaceURL, []byte(v.Kind+"\x00"+v.Bucket+"\x00"+v.Endpoint+"\x00"+v.Region)).String()
+	v.ID = identity
 	b, err := json.Marshal(v)
 	if err != nil {
 		return v, err

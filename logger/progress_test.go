@@ -247,6 +247,43 @@ func TestASCIIHumanTextPreservesUnicodeAsEscapes(t *testing.T) {
 	}
 }
 
+func TestPauseProgressProtectsInteractivePrompt(t *testing.T) {
+	var output bytes.Buffer
+	renderer := NewProgressRenderer(&output, false)
+	defer renderer.Close()
+	ctx := WithProgress(context.Background(), renderer)
+	progress := StartProgress(ctx, "Checking remote catalogs", -1)
+	defer progress.Finish()
+	var once sync.Once
+	resume := PauseProgress(ctx)
+	unpause := func() { once.Do(resume) }
+	defer unpause()
+	if renderer.width != 0 {
+		t.Fatal("activity line was not cleared before prompting")
+	}
+	io.WriteString(&output, "Catalog passphrase: ")
+	drawn := make(chan struct{})
+	go func() {
+		renderer.draw()
+		close(drawn)
+	}()
+	select {
+	case <-drawn:
+		t.Fatal("progress redrew while input was pending")
+	case <-time.After(20 * time.Millisecond):
+	}
+	if !strings.HasSuffix(output.String(), "Catalog passphrase: ") {
+		t.Fatalf("prompt was overwritten: %q", output.String())
+	}
+	io.WriteString(&output, "\n")
+	unpause()
+	select {
+	case <-drawn:
+	case <-time.After(time.Second):
+		t.Fatal("progress did not resume after input")
+	}
+}
+
 func TestProgressAdaptsToLineWidth(t *testing.T) {
 	previousBar := 0
 	for _, width := range []int{8, 24, 64, 80, 120, 180} {

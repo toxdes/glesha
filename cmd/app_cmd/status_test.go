@@ -286,7 +286,7 @@ func TestCleanupAndSyncSelection(t *testing.T) {
 	if err = catalogSync(r, nil); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output.String(), "SKIPPED") {
+	if !strings.Contains(output.String(), "1 skipped") {
 		t.Fatal(output.String())
 	}
 	if err = cleanup(r, nil); err != nil {
@@ -354,16 +354,12 @@ func TestStatusTotalDeduplicatesSharedArchiveVersions(t *testing.T) {
 
 func TestNewRemoteBackedSetReportsNew(t *testing.T) {
 	ctx := context.Background()
-	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer registry.Close()
-	cfg := config.Defaults()
-	cfg.B2.Bucket = "test"
-	var out bytes.Buffer
-	r := &runtime{ctx: ctx, registry: registry, config: cfg, root: t.TempDir(), env: &AppCmdEnv{To: destinations{"b2"}}, out: &out}
-	if err = create(r, []string{"docs", t.TempDir()}); err != nil {
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	_, server := newTestBucket(t)
+	r := portableRuntime(t, server.URL)
+	r.env.To = destinations{"aws"}
+	if err := create(r, []string{"docs", t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
 	condition, err := r.service.Condition(ctx)

@@ -2,6 +2,7 @@ package app_cmd
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"io"
@@ -13,8 +14,8 @@ import (
 	L "glesha/logger"
 )
 
-func password(file, label string, confirm bool) ([]byte, error) {
-	label = L.ASCII(label)
+func password(ctx context.Context, file, label string, confirm bool) ([]byte, error) {
+	label = L.Value(label)
 	if file != "" {
 		var r io.Reader
 		if file == "-" {
@@ -51,8 +52,10 @@ func password(file, label string, confirm bool) ([]byte, error) {
 	if !term.IsTerminal(fd) {
 		return nil, fmt.Errorf("cli: hidden prompt needs a terminal; provide --passphrase-file")
 	}
+	resume := L.PauseProgress(ctx)
+	defer resume()
 	fmt.Fprint(os.Stderr, label+": ")
-	b, e := term.ReadPassword(fd)
+	b, e := file_io.ReadPassword(ctx, os.Stdin)
 	fmt.Fprintln(os.Stderr)
 	if e != nil {
 		wipe(b)
@@ -63,7 +66,7 @@ func password(file, label string, confirm bool) ([]byte, error) {
 	}
 	if confirm {
 		fmt.Fprint(os.Stderr, "Confirm "+label+": ")
-		c, e := term.ReadPassword(fd)
+		c, e := file_io.ReadPassword(ctx, os.Stdin)
 		defer wipe(c)
 		fmt.Fprintln(os.Stderr)
 		if e != nil {

@@ -2,8 +2,11 @@ package app_cmd
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"glesha/backup"
@@ -17,33 +20,64 @@ func (r *runtime) selectedSets(args []string) ([]model.Set, error) {
 	}
 	if !r.env.All {
 		set, err := r.registry.Set(r.ctx, args[0])
-		return []model.Set{set}, err
+		return []model.Set{set}, setError(args[0], err)
 	}
 	sets := []model.Set{}
 	err := r.registry.Each(r.ctx, func(set model.Set) error { sets = append(sets, set); return nil })
 	return sets, err
 }
 func catalogSync(r *runtime, args []string) error {
-	if r.env.Keep != "" {
-		return fmt.Errorf("cli: --keep requires catalog resolve")
+	if r.env.Keep != "" || r.env.Authority != "" {
+		return fmt.Errorf("cli: --keep and --authority require catalog resolve")
+	}
+	if len(args) > 1 || r.env.All && len(args) > 0 {
+		return fmt.Errorf("cli: choose SET or bare catalog sync, not both SET and --all")
+	}
+	if err := r.selectCommandRemotes(); err != nil {
+		return err
+	}
+	if err := r.beginCatalogCheck(); err != nil {
+		return err
+	}
+	defer r.finishCatalogCheck()
+	if len(args) == 0 {
+		return catalogDiscover(r)
+	}
+	if _, err := r.registry.Set(r.ctx, args[0]); errors.Is(err, sql.ErrNoRows) {
+		if discoveryErr := r.discoverState(r.env.From); discoveryErr != nil {
+			return discoveryErr
+		}
+	} else if err != nil {
+		return err
 	}
 	sets, err := r.selectedSets(args)
 	if err != nil {
 		return err
 	}
-	var failures []error
+	r.catalogReplicasUpdated = 0
+	summary := catalogSyncSummary{}
+	failures := catalogFailures{}
 	for _, set := range sets {
 		if err := r.ctx.Err(); err != nil {
 			return err
 		}
 		if set.CatalogTo == "" || set.CatalogTo == "local" {
-			if err := r.setEvent("skipped", set, "", "Local-only set"); err != nil {
+			summary.Skipped++
+			summary.localOnly++
+			if !r.env.jsonOutput() {
+				continue
+			}
+			if err := r.emit("catalog_state", catalogSyncResult{Set: set.ID, State: backup.CatalogStateSkipped}, fmt.Sprintf("%s  SKIPPED  Local-only set", L.ASCII(set.Name))); err != nil {
 				return err
 			}
 			continue
 		}
+		updated := false
 		err := func() (result error) {
 			if err := r.openSet(set.ID); err != nil {
+				return err
+			}
+			if err := r.checkRemote(r.service.Set.CatalogTo); err != nil {
 				return err
 			}
 			unlock, err := r.lock()
@@ -51,40 +85,49 @@ func catalogSync(r *runtime, args []string) error {
 				return err
 			}
 			defer unlock()
+			r.catalogCacheUpdated = false
+			before, err := r.localCatalogRevision()
+			if err != nil {
+				return err
+			}
 			defer func() {
 				if e := r.service.RecordResult(context.WithoutCancel(r.ctx), "sync", result); e != nil {
 					L.Debug(e.Error())
 				}
 			}()
-			ids, err := r.service.CleanupRemotes(r.ctx)
-			if err != nil {
+			defer func() { wipe(r.service.CatalogPassword) }()
+			if r.service.Pending() {
+				if err = r.syncStores(); err != nil {
+					return err
+				}
+				if err = r.catalogSecret(true); err != nil {
+					return err
+				}
+				if err = r.service.SyncCatalog(r.ctx); err != nil {
+					return err
+				}
+			} else if err = r.prepareMutation(); err != nil {
 				return err
 			}
-			ids = append(ids, set.To...)
-			if err = r.stores(ids); err != nil {
+			if err = r.replicateDirectory(); err != nil {
 				return err
 			}
-			if err = r.syncStores(); err != nil {
-				return err
-			}
-			if err = r.catalogSecret(true); err != nil {
-				return err
-			}
-			defer wipe(r.service.CatalogPassword)
-			return r.service.Sync(r.ctx)
+			after, err := r.localCatalogRevision()
+			updated = r.catalogCacheUpdated || before != after
+			return err
 		}()
 		if err != nil {
-			if outputErr := r.setEvent("set_error", set, model.STATUS_FAILED, err.Error()); outputErr != nil {
-				return outputErr
+			summary.Failed++
+			if outputErr := failures.addSet(r, set, err); outputErr != nil {
+				return errors.Join(err, outputErr)
 			}
-			failures = append(failures, fmt.Errorf("%s: %w", set.Name, err))
 		} else {
-			if err := r.setEvent("synced", set, model.STATUS_COMPLETED, ""); err != nil {
-				return err
+			if outputErr := r.emitCatalogResult(backup.CatalogStateSynced, updated, false, &summary); outputErr != nil {
+				return outputErr
 			}
 		}
 	}
-	return errors.Join(failures...)
+	return failures.finish(r, summary)
 }
 func catalogResolve(r *runtime, args []string) (result error) {
 	if len(args) != 1 || r.env.All {
@@ -92,6 +135,9 @@ func catalogResolve(r *runtime, args []string) (result error) {
 	}
 	if r.env.Keep != "" && r.env.Keep != "local" && r.env.Keep != "remote" {
 		return fmt.Errorf("cli: --keep must be local or remote")
+	}
+	if r.env.Authority != "" && r.env.Keep != "" {
+		return fmt.Errorf("cli: choose --authority or --keep, not both")
 	}
 	if err := r.openSet(args[0]); err != nil {
 		return err
@@ -101,6 +147,29 @@ func catalogResolve(r *runtime, args []string) (result error) {
 		return err
 	}
 	defer unlock()
+	if r.env.Authority != "" {
+		ids, err := r.remoteIDs([]string{r.env.Authority})
+		if err != nil {
+			return err
+		}
+		if err = r.stores(ids); err != nil {
+			return err
+		}
+		if err = r.catalogSecret(false); err != nil {
+			return err
+		}
+		defer wipe(r.service.CatalogPassword)
+		if err = confirm(r.ctx, "Select "+r.env.Authority+" as catalog authority for "+r.service.Set.ID+"? Both original histories will be preserved.", r.env.AssumeYes); err != nil {
+			return err
+		}
+		if err = r.service.ResolveAuthority(r.ctx, ids[0]); err != nil {
+			return err
+		}
+		if err := r.publishState(); err != nil {
+			return err
+		}
+		return r.result(fmt.Sprintf("Catalog resolved for %q.", r.service.Set.Name))
+	}
 	if r.env.Keep != "" {
 		defer func() {
 			if e := r.service.RecordResult(context.WithoutCancel(r.ctx), "sync", result); e != nil {
@@ -109,6 +178,19 @@ func catalogResolve(r *runtime, args []string) (result error) {
 		}()
 	}
 	if err = r.syncStores(); err != nil {
+		return err
+	}
+	if err = r.cacheCatalog(); err != nil {
+		return err
+	}
+	if err = r.service.CachedEncryption(r.ctx); err != nil {
+		return err
+	}
+	if _, err = os.Stat(filepath.Join(r.service.Directory, "catalog.db")); errors.Is(err, os.ErrNotExist) {
+		if err = r.readableCatalog(); err != nil {
+			return err
+		}
+	} else if err != nil {
 		return err
 	}
 	if err = r.catalogSecret(true); err != nil {
@@ -131,7 +213,10 @@ func catalogResolve(r *runtime, args []string) (result error) {
 	if err = r.service.Resolve(r.ctx, r.env.Keep); err != nil {
 		return err
 	}
-	return r.completed("", "", "")
+	if err := r.publishState(); err != nil {
+		return err
+	}
+	return r.completed("", "", fmt.Sprintf("Catalog resolved for %q.", r.service.Set.Name))
 }
 func cleanup(r *runtime, args []string) error {
 	sets, err := r.selectedSets(args)
@@ -180,6 +265,20 @@ func cleanup(r *runtime, args []string) error {
 				}
 				return nil
 			}
+			if r.env.DryRun {
+				if err = r.syncStores(); err != nil {
+					return err
+				}
+				if err = r.catalogSecret(false); err != nil {
+					return err
+				}
+				if err = r.service.Pull(r.ctx); err != nil {
+					return err
+				}
+			} else if err = r.prepareMutation(); err != nil {
+				return err
+			}
+			defer wipe(r.service.CatalogPassword)
 			ids, err := r.service.CleanupRemotes(r.ctx)
 			if err != nil {
 				return err
@@ -209,7 +308,7 @@ func cleanup(r *runtime, args []string) error {
 					Set  string `json:"set"`
 					Path string `json:"path"`
 					Size int64  `json:"size"`
-				}{set.ID, file.Path, file.Size}, fmt.Sprintf("%s  %s", compactSize(file.Size), L.ASCII(file.Path))); err != nil {
+				}{set.ID, file.Path, file.Size}, fmt.Sprintf("%10s  %s", compactSize(file.Size), L.Value(file.Path))); err != nil {
 					return err
 				}
 				total += file.Size
@@ -220,38 +319,50 @@ func cleanup(r *runtime, args []string) error {
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", set.Name, err))
 			if outputErr := r.setEvent("set_error", set, model.STATUS_FAILED, err.Error()); outputErr != nil {
-				return outputErr
+				return errors.Join(err, outputErr)
 			}
 		}
 	}
 	if count == 0 {
-		if err := r.emit("cleanup_summary", cleanupSummary{DryRun: r.env.DryRun}, "No archives eligible for cleanup."); err != nil {
-			return err
+		if len(failures) > 0 {
+			return reportedError("cleanup", errors.Join(failures...))
 		}
-		return errors.Join(failures...)
+		return r.emit("cleanup_summary", cleanupSummary{DryRun: r.env.DryRun}, "No local archives are eligible for cleanup.")
 	}
-	if err := r.emit("cleanup_summary", cleanupSummary{Files: count, Bytes: total, DryRun: r.env.DryRun}, fmt.Sprintf("\n%d local archives; %s reclaimable.\nRemote backups and catalogs are kept; cold copies require retrieval to download again.", count, compactSize(total))); err != nil {
+	if err := r.emit("cleanup_summary", cleanupSummary{Files: count, Bytes: total, DryRun: r.env.DryRun}, fmt.Sprintf("\n%d local archives; %s reclaimable.", count, compactSize(total))); err != nil {
 		return err
 	}
 	if r.env.DryRun {
-		return errors.Join(failures...)
+		return reportedError("cleanup", errors.Join(failures...))
 	}
-	if err = confirm(r.ctx, "Remove these local archives?", r.env.AssumeYes); err != nil {
+	if err = confirm(r.ctx, "Remove these local archives? Remote copies will be kept.", r.env.AssumeYes); err != nil {
 		return err
 	}
-	for _, w := range plans {
-		for _, file := range w.plan.Files {
-			if err = w.service.RemoveCleanupFile(r.ctx, file); err != nil {
+	removed := 0
+	var reclaimed int64
+	for _, work := range plans {
+		for _, file := range work.plan.Files {
+			if err = work.service.RemoveCleanupFile(r.ctx, file); err != nil {
 				failures = append(failures, err)
-			} else if err := r.emit("cleanup_removed", struct {
-				Path string `json:"path"`
-				Size int64  `json:"size"`
-			}{file.Path, file.Size}, ""); err != nil {
-				return err
+				if outputErr := r.emitAtLevel("", nil, fmt.Sprintf("Could not remove %q: %s", file.Path, err), L.ERROR); outputErr != nil {
+					return errors.Join(err, outputErr)
+				}
+			} else {
+				if err := r.emit("cleanup_removed", struct {
+					Path string `json:"path"`
+					Size int64  `json:"size"`
+				}{file.Path, file.Size}, ""); err != nil {
+					return err
+				}
+				removed++
+				reclaimed += file.Size
 			}
 		}
 	}
-	return errors.Join(failures...)
+	if err := r.result(fmt.Sprintf("Removed %d local archives; reclaimed %s.", removed, compactSize(reclaimed))); err != nil {
+		return err
+	}
+	return reportedError("cleanup", errors.Join(failures...))
 }
 
 type cleanupSummary struct {
@@ -267,10 +378,16 @@ func (r *runtime) setEvent(kind string, set model.Set, status model.Status, reas
 	} else if status == model.STATUS_COMPLETED {
 		label = "SYNCED"
 	}
-	return r.emit(kind, struct {
+	level := L.INFO
+	if kind == "set_error" {
+		level = L.ERROR
+	} else if kind == "skipped" {
+		level = L.WARN
+	}
+	return r.emitAtLevel(kind, struct {
 		Set    string       `json:"set"`
 		Name   string       `json:"name"`
 		State  model.Status `json:"state,omitempty"`
 		Reason string       `json:"reason,omitempty"`
-	}{set.ID, set.Name, status, reason}, strings.TrimSpace(fmt.Sprintf("%s  %s  %s", L.ASCII(set.Name), label, L.ASCII(reason))))
+	}{set.ID, set.Name, status, reason}, strings.TrimSpace(fmt.Sprintf("%s  %s  %s", L.Value(set.Name), label, L.Value(reason))), level)
 }

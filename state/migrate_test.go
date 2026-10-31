@@ -68,7 +68,7 @@ func stateFixture(t *testing.T) (string, string) {
 func TestMigratePreservesPendingStateAndPayloads(t *testing.T) {
 	source, target := stateFixture(t)
 	ctx := context.Background()
-	if err := CheckDefault(source, target); err == nil {
+	if err := CheckDefault(ctx, source, target); err == nil {
 		t.Fatal("older state was hidden")
 	}
 	before, _ := os.Stat(filepath.Join(source, "set", "payload.gpg"))
@@ -115,7 +115,7 @@ func TestMigratePreservesPendingStateAndPayloads(t *testing.T) {
 			t.Fatal("original database backup missing:", err)
 		}
 	}
-	if err := CheckDefault(source, target); err != nil {
+	if err := CheckDefault(ctx, source, target); err != nil {
 		t.Fatal(err)
 	}
 }

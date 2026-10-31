@@ -2,7 +2,6 @@ package backup
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
@@ -29,8 +28,17 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 	if o.Output == "" || o.Password == nil {
 		return fmt.Errorf("backup: restore output and password callback are required")
 	}
-	if _, e := os.Lstat(o.Output); !os.IsNotExist(e) {
-		return fmt.Errorf("backup: restore output already exists")
+	output, err := filepath.Abs(o.Output)
+	if err != nil {
+		return err
+	}
+	o.Output = output
+	o.ID, err = s.RestoreSelection(ctx, o.ID, output)
+	if err != nil {
+		return err
+	}
+	if err = s.CheckRestoreDestination(ctx, o.ID, o.Output); err != nil {
+		return err
 	}
 	c, e := s.Catalog(ctx)
 	if e != nil {
@@ -49,136 +57,159 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 		return e
 	}
 	defer chain.Close()
-	stage, e := os.MkdirTemp(filepath.Dir(o.Output), ".glesha-restore-*")
-	if e != nil {
-		return e
+	stage := ""
+	resume := false
+	if publication, err := s.readRestorePublication(o.Output); err == nil {
+		stage, resume = publication.Stage, true
+		target, e = Resolve(ctx, c, publication.Snapshot)
+		if e != nil {
+			return e
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	} else {
+		parent := filepath.Dir(o.Output)
+		if _, err = os.Stat(o.Output); err == nil {
+			parent = o.Output
+		}
+		stage, e = os.MkdirTemp(parent, ".glesha-restore-*")
+		if e != nil {
+			return e
+		}
 	}
-	defer os.RemoveAll(stage)
+	preserve := resume
+	defer func() {
+		if !preserve {
+			os.RemoveAll(stage)
+		}
+	}()
 	root, e := os.OpenRoot(stage)
 	if e != nil {
 		return e
 	}
 	defer root.Close()
-	if e = chain.EachReverse(ctx, func(v model.Snapshot) error {
-		if v.Layout != "" && v.Layout != "single" && v.Layout != "chunked" {
-			return fmt.Errorf("backup: unsupported archive layout %q", v.Layout)
-		}
-		decodedHash, err := hex.DecodeString(v.Hash)
-		if err != nil || len(decodedHash) != 32 {
-			return fmt.Errorf("backup: invalid archive checksum")
-		}
-		file := v.File
-		if v.Layout != "chunked" {
-			hash, size, he := archive.Hash(ctx, file)
-			if he != nil || hash != v.Hash || size != v.Size {
-				locations, e := c.Locations(ctx, v.ID)
-				if e != nil {
-					return e
-				}
-				file = filepath.Join(s.Directory, "payload-"+v.Hash+".gpg")
-				cachedHash, cachedSize, cacheErr := archive.Hash(ctx, file)
-				if cacheErr != nil || cachedHash != v.Hash || cachedSize != v.Size {
-					if _, err := os.Stat(file); err == nil {
-						return fmt.Errorf("backup: cached archive checksum mismatch; preserve and remove the cache before retrying")
-					}
-					found := false
-					order := o.From
-					if len(order) == 0 {
-						order = s.Set.To
-					}
-					var last error
-					for _, provider := range order {
-						for _, l := range locations {
-							if l.Provider != provider || l.Status != "COMPLETED" {
-								continue
-							}
-							store := s.Stores[provider]
-							if store == nil {
-								continue
-							}
-							r, _, e := store.Get(ctx, l.Key, l.Version)
-							if e != nil {
-								last = e
-								continue
-							}
-							out, e := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-							if e != nil {
-								r.Close()
-								return e
-							}
-							progress := L.StartWorkerProgress(ctx, "Downloading for restore", v.Size, 1)
-							_, e = copyContext(ctx, out, progress.Reader(r))
-							progress.Finish()
-							r.Close()
-							ce := out.Close()
-							if e == nil {
-								e = ce
-							}
-							if e != nil {
-								os.Remove(file)
-								last = e
-								continue
-							}
-							hash, size, e = archive.Hash(ctx, file)
-							if e != nil || hash != v.Hash || size != v.Size {
-								os.Remove(file)
-								last = fmt.Errorf("backup: archive checksum mismatch")
-								continue
-							}
-							found = true
-							break
-						}
-						if found {
-							break
-						}
-					}
-					if !found {
-						if last != nil {
-							return last
-						}
-						return fmt.Errorf("backup: no readable copy of %s", v.ID)
-					}
-				}
+	if !resume {
+		if e = chain.EachReverse(ctx, func(v model.Snapshot) error {
+			if v.Layout != "" && v.Layout != "single" && v.Layout != "chunked" {
+				return fmt.Errorf("backup: unsupported archive layout %q", v.Layout)
 			}
-		}
-		if !v.Full {
-			if e = c.EachEntry(ctx, v.Parent, func(entry model.Entry) error {
-				_, e := c.Entry(ctx, v.ID, entry.Path)
-				if errors.Is(e, sql.ErrNoRows) {
-					if _, e = archive.SafeName(entry.Path); e != nil {
+			decodedHash, err := hex.DecodeString(v.Hash)
+			if err != nil || len(decodedHash) != 32 {
+				return fmt.Errorf("backup: invalid archive checksum")
+			}
+			file := v.File
+			if v.Layout != "chunked" {
+				hash, size, he := archive.Hash(ctx, file)
+				if he != nil || hash != v.Hash || size != v.Size {
+					locations, e := c.Locations(ctx, v.ID)
+					if e != nil {
 						return e
 					}
-					return root.RemoveAll(entry.Path)
+					file = filepath.Join(s.Directory, "payload-"+v.Hash+".gpg")
+					cachedHash, cachedSize, cacheErr := archive.Hash(ctx, file)
+					if cacheErr != nil || cachedHash != v.Hash || cachedSize != v.Size {
+						if _, err := os.Stat(file); err == nil {
+							return fmt.Errorf("backup: cached archive checksum mismatch; preserve and remove the cache before retrying")
+						}
+						found := false
+						order := o.From
+						if len(order) == 0 {
+							order = s.Set.To
+						}
+						var last error
+						for _, provider := range order {
+							for _, l := range locations {
+								if l.Provider != provider || l.Status != "COMPLETED" {
+									continue
+								}
+								store := s.Stores[provider]
+								if store == nil {
+									continue
+								}
+								r, _, e := store.Get(ctx, l.Key, l.Version)
+								if e != nil {
+									last = e
+									continue
+								}
+								out, e := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+								if e != nil {
+									r.Close()
+									return e
+								}
+								progress := L.StartWorkerProgress(ctx, "Downloading for restore", v.Size, 1)
+								_, e = copyContext(ctx, out, progress.Reader(r))
+								progress.Finish()
+								r.Close()
+								ce := out.Close()
+								if e == nil {
+									e = ce
+								}
+								if e != nil {
+									os.Remove(file)
+									last = e
+									continue
+								}
+								hash, size, e = archive.Hash(ctx, file)
+								if e != nil || hash != v.Hash || size != v.Size {
+									os.Remove(file)
+									last = fmt.Errorf("backup: archive checksum mismatch")
+									continue
+								}
+								found = true
+								break
+							}
+							if found {
+								break
+							}
+						}
+						if !found {
+							if last != nil {
+								return last
+							}
+							return fmt.Errorf("backup: no readable copy of %s", v.ID)
+						}
+					}
 				}
-				return e
-			}); e != nil {
-				return e
 			}
-			if e = c.EachEntry(ctx, v.ID, func(entry model.Entry) error {
-				if entry.Archive != v.ID {
-					return nil
-				}
-				info, e := root.Lstat(entry.Path)
-				if os.IsNotExist(e) {
-					return nil
-				}
-				if e != nil {
+			if !v.Full {
+				if e = c.EachEntry(ctx, v.Parent, func(entry model.Entry) error {
+					_, e := c.Entry(ctx, v.ID, entry.Path)
+					if errors.Is(e, sql.ErrNoRows) {
+						if _, e = archive.SafeName(entry.Path); e != nil {
+							return e
+						}
+						return root.RemoveAll(entry.Path)
+					}
+					return e
+				}); e != nil {
 					return e
 				}
-				if entry.Type == "directory" && info.IsDir() {
-					return nil
+				if e = c.EachEntry(ctx, v.ID, func(entry model.Entry) error {
+					if entry.Archive != v.ID {
+						return nil
+					}
+					info, e := root.Lstat(entry.Path)
+					if os.IsNotExist(e) {
+						return nil
+					}
+					if e != nil {
+						return e
+					}
+					if entry.Type == "directory" && info.IsDir() {
+						return nil
+					}
+					return root.RemoveAll(entry.Path)
+				}); e != nil {
+					return e
 				}
-				return root.RemoveAll(entry.Path)
-			}); e != nil {
-				return e
 			}
+			if v.Layout == "chunked" {
+				return s.restoreChunks(ctx, v, stage, o)
+			}
+			return s.restoreArchive(ctx, v, file, stage, o.Password)
+		}); e != nil {
+			return e
 		}
-		if v.Layout == "chunked" {
-			return s.restoreChunks(ctx, v, stage, o)
-		}
-		return s.restoreArchive(ctx, v, file, stage, o.Password)
-	}); e != nil {
-		return e
 	}
 	if e = c.EachDirectory(ctx, target.ID, func(entry model.Entry) error {
 		if e := file_io.SetOwner(root, entry.Path, entry.UID, entry.GID, false); e != nil {
@@ -233,10 +264,28 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 	if count != want {
 		return fmt.Errorf("backup: restored inventory differs")
 	}
-	if _, e = os.Lstat(o.Output); !os.IsNotExist(e) {
-		return fmt.Errorf("backup: output appeared during restore")
+	if _, e = os.Lstat(o.Output); os.IsNotExist(e) {
+		return file_io.PublishDir(stage, o.Output)
+	} else if e != nil {
+		return e
 	}
-	return file_io.PublishDir(stage, o.Output)
+	if filepath.Dir(stage) != o.Output {
+		return fmt.Errorf("backup: restore destination appeared during reconstruction")
+	}
+	publication := restorePublication{Version: restorePublicationVersion, Snapshot: target.ID, Output: o.Output, Stage: stage}
+	journal := s.restorePublicationPath(o.Output)
+	if e = s.saveJob(journal, publication); e != nil {
+		return e
+	}
+	preserve = true
+	if e = file_io.MergeDir(ctx, stage, o.Output, journal+".merge"); e != nil {
+		return fmt.Errorf("backup: restore publication incomplete; repeat restore to resume; verified staging at %s: %w", stage, e)
+	}
+	if e = os.Remove(journal); e != nil {
+		return e
+	}
+	preserve = false
+	return nil
 }
 
 func (s *Service) restoreArchive(ctx context.Context, v model.Snapshot, file, stage string, passwordFor func(model.Snapshot) ([]byte, error)) error {
@@ -289,8 +338,7 @@ func (s *Service) RestoreNeedsDownload(ctx context.Context, id, output string) (
 	if err != nil {
 		return false, err
 	}
-	digest := sha256.Sum256([]byte(output))
-	jobFile := filepath.Join(s.Directory, "restore-"+hex.EncodeToString(digest[:16])+".json")
+	jobFile := s.restoreJobPath(output)
 	if b, err := os.ReadFile(jobFile); err == nil {
 		var job restoreJob
 		if err = json.Unmarshal(b, &job); err != nil {

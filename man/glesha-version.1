@@ -1,61 +1,47 @@
 .TH "GLESHA-VERSION" "1" "" "glesha" "User Commands"
 .SH NAME
-glesha-version \- show the executable version and build revision
+glesha-version \- show version and build revision
 .SH SYNOPSIS
-.B glesha version [GLOBAL OPTIONS]
-.br
-.B glesha \-v
-.br
-.B glesha \-version
-.br
-.B glesha \-\-version
+.B glesha version [options]
 .SH DESCRIPTION
-All forms print glesha VERSION (GIT_SHA) and exit successfully.
-Development builds print glesha dev (unknown) unless values were embedded
-at build time. This command does not load configuration or credentials and
-makes no cloud requests. Extra positional arguments are rejected.
+Show version and build revision.
 .SH OPTIONS
-
-.TP
-.B \-\-progress MODE
-auto, plain or off (default auto). JSON mode emits JSON progress on stderr; off disables it.
-
+.SS Global options
 .TP
 .B \-\-format FORMAT
-plain or json; status also supports table and csv. JSON results use stdout.
-
+Result format: plain or json; status also supports table and csv (default: plain).
+.TP
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto).
 .TP
 .B \-\-config FILE
-Accepted without loading the file.
+TOML settings file.
+.TP
+.B \-\-state\-dir DIR
+Local state directory; overrides catalog.directory.
 .TP
 .B \-\-env FILE
-Accepted without reading credentials.
-.TP
-.B \-L, \-\-log\-level LEVEL
-Accepted; no operation diagnostics are produced.
+Load credentials; existing process variables take priority.
 .TP
 .B \-\-color MODE
-Accepted; version output is plain ASCII.
+Color mode: auto, yes, or no (default: auto).
+.TP
+.B \-L, \-\-log\-level LEVEL
+Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
 .TP
 .B \-h, \-\-help
-Show command help and examples.
+Show this command's help.
 .TP
-.B \-v, \-version, \-\-version
-Print the executable version and build revision.
+.B \-v, \-\-version
+Show version and build revision.
 .SH EXAMPLES
 .nf
-glesha version
-
-glesha \-v
-
-glesha \-version
-
 glesha \-\-version
-
-glesha help version
 .fi
-.SH EXIT STATUS
-0 on success. 2 for invalid usage.
+.SH OUTPUT
+Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
+Use \-\-format=json for version 2 result records, one per line.
+JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
+Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1),
-.BR glesha-help (1)
+.BR glesha (1)

@@ -2,6 +2,7 @@ package backup
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,13 +29,14 @@ const (
 	STATE_STALE      SetState = "STALE"
 	STATE_CONFLICT   SetState = "CONFLICT"
 	STATE_FAILED     SetState = "FAILED"
+	STATE_LOCKED     SetState = "LOCKED"
 )
 
 func (s SetState) String() string { return string(s) }
 func ParseSetState(value string) (SetState, error) {
 	s := SetState(value)
 	switch s {
-	case STATE_NEW, STATE_SYNCED, STATE_RUNNING, STATE_PAUSED, STATE_LOCAL, STATE_PUBLISHING, STATE_WAITING, STATE_STALE, STATE_CONFLICT, STATE_FAILED:
+	case STATE_NEW, STATE_SYNCED, STATE_RUNNING, STATE_PAUSED, STATE_LOCAL, STATE_PUBLISHING, STATE_WAITING, STATE_STALE, STATE_CONFLICT, STATE_FAILED, STATE_LOCKED:
 		return s, nil
 	}
 	return "", fmt.Errorf("backup: unknown set state %q", value)
@@ -90,6 +92,9 @@ func (s *Service) RecordResult(ctx context.Context, operation string, err error)
 		state = STATE_WAITING
 		action = "Repeat the " + operation + " command when readable."
 	}
+	if operation == "restore" && (state == STATE_PAUSED || state == STATE_WAITING) {
+		action = "Repeat the restore command, or run glesha restore " + s.Set.ID + " --cancel."
+	}
 	if operation == "import" && state == STATE_PAUSED {
 		action = "Repeat the import command."
 	}
@@ -99,6 +104,29 @@ func (s *Service) RecordResult(ctx context.Context, operation string, err error)
 func (s *Service) Condition(ctx context.Context) (Condition, error) {
 	if err := ctx.Err(); err != nil {
 		return Condition{}, err
+	}
+	if pending, err := s.DirectoryRepairPending(ctx); err != nil {
+		return Condition{}, err
+	} else if pending && !s.Pending() {
+		return Condition{State: STATE_STALE, Reason: "Catalog committed; registry replica repair pending", Action: "glesha retry " + s.Set.ID}, nil
+	}
+	if _, err := s.Locator(ctx, s.Set.ID); errors.Is(err, ErrConflict) {
+		return Condition{State: STATE_CONFLICT, Reason: err.Error(), Action: "glesha catalog resolve " + s.Set.ID + " --authority REMOTE"}, nil
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return Condition{}, err
+	}
+	if locked, err := s.CatalogLocked(ctx); err != nil {
+		return Condition{}, err
+	} else if locked {
+		action := "glesha catalog unlock " + s.Set.ID
+		reason := "Catalog passphrase required"
+		if _, err := os.Stat(filepath.Join(s.Directory, "downloaded-state.json")); errors.Is(err, os.ErrNotExist) {
+			action = "glesha catalog sync " + s.Set.ID
+			reason = "Catalog metadata has not been downloaded"
+		} else if err != nil {
+			return Condition{}, err
+		}
+		return Condition{State: STATE_LOCKED, Reason: reason, Action: action}, nil
 	}
 	var result operationResult
 	b, err := os.ReadFile(filepath.Join(s.Directory, "operation-result.json"))
@@ -156,6 +184,17 @@ func (s *Service) Condition(ctx context.Context) (Condition, error) {
 	}
 	if dirty != "" {
 		return Condition{State: STATE_LOCAL, Reason: "Unpublished " + dirty + " changes", Action: "glesha catalog sync " + s.Set.Name}, nil
+	}
+	if downloaded, err := s.downloadedState(); err == nil {
+		ahead, err := catalogCacheAhead(ctx, c, downloaded, s.localAuthority)
+		if err != nil {
+			return Condition{}, err
+		}
+		if ahead {
+			return Condition{State: STATE_STALE, Reason: "Downloaded catalog changes have not been unlocked", Action: "glesha catalog sync " + s.Set.ID}, nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Condition{}, err
 	}
 
 	job, unfinished, err := s.pendingJobCondition(ctx, c)
@@ -251,7 +290,7 @@ func (s *Service) pendingJobCondition(ctx context.Context, c repository.Cataloge
 				}
 				condition.Operation = "restore"
 				condition.Reason = "Restore unfinished"
-				condition.Action = "Repeat the restore command."
+				condition.Action = "Repeat the restore command, or run glesha restore " + s.Set.ID + " --cancel."
 				for _, request := range job.Requests {
 					l := request.Location
 					if err = s.observeLocation(ctx, l.Snapshot, &l); err != nil {

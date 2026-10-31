@@ -61,9 +61,11 @@ func (m *mappings) Set(value string) error {
 }
 
 type AppCmdEnv struct {
+	CancelRestore                                                                                                                                                                                                         bool
+	StateDirectory                                                                                                                                                                                                        string
 	Chunked                                                                                                                                                                                                               bool
 	SpoolMax                                                                                                                                                                                                              string
-	Progress, Format, Keep                                                                                                                                                                                                string
+	Progress, Format, Keep, Authority                                                                                                                                                                                     string
 	All, DryRun                                                                                                                                                                                                           bool
 	Config, Env, LogLevel, Color, Output, Into, File, Archive, Key, CatalogTo, Compression, Prefix, Mode, Class, IncrementalClass, Snapshot, Filter, Memory, PasswordFile, CatalogPasswordFile, Date, Baseline, Retrieval string
 	To, From                                                                                                                                                                                                              destinations
@@ -76,21 +78,27 @@ type AppCmdEnv struct {
 var appCmdEnv *AppCmdEnv
 
 type runtime struct {
-	emitted            int
-	command            string
-	operationLocked    bool
-	statusCopies       *sql.DB
-	statusArchiveBytes int64
-	statusArchiveCost  float64
-	ctx                context.Context
-	env                *AppCmdEnv
-	config             config.Config
-	budget             memory.Budget
-	registry           repository.Registryor
-	root               string
-	service            *backup.Service
-	out                io.Writer
-	limit              chan struct{}
+	emitted                int
+	command                string
+	catalogCheckProgress   *L.Progress
+	catalogCheckActive     bool
+	catalogCacheUpdated    bool
+	catalogReplicasUpdated int
+	remoteScope            *remoteScope
+	operationLocked        bool
+	statusCopies           *sql.DB
+	statusArchiveBytes     int64
+	statusArchiveCost      float64
+	ctx                    context.Context
+	env                    *AppCmdEnv
+	config                 config.Config
+	budget                 memory.Budget
+	registry               repository.Registryor
+	root                   string
+	service                *backup.Service
+	out                    io.Writer
+	errOut                 io.Writer
+	limit                  chan struct{}
 }
 type handler func(*runtime, []string) error
 
@@ -104,56 +112,66 @@ func Usage() string {
 
 Usage:
   glesha [global options] COMMAND [arguments] [options]
-  glesha help COMMAND
 
-Commands:
-  create SET PATH...          Register a backup set
-  configure SET               Change settings or map imported sources
+Back up and recover:
+  create SET PATH...          Register sources and a backup destination
   run SET                     Create and upload a backup
-  retry SET                   Resume pending work
-  list                        List local sets; --remote discovers sets
-  status [SET]                Show backup state, sizes and estimated cost
-  history SET                 List snapshots and transfer status
-  browse SET                  Browse the local catalog
-  restore SET --into DIR      Recover a snapshot into a new directory
+  restore SET --into DIR      Restore files without overwriting existing files
   import SET                  Register an existing archive
-  move SET --to REMOTE        Copy complete history, then switch providers
-  archive PATH...             Create a standalone encrypted archive
-  decrypt FILE                Validate and decrypt to compressed tar
-  extract FILE --into DIR     Extract into a new directory
-  upload FILE --to REMOTE     Upload bytes; replacement needs --force
-  download KEY --from REMOTE  Download using ordered provider fallback
-  catalog ACTION [SET]        Sync or resolve backup metadata
+
+Inspect:
+  list                        List locally known sets and IDs
+  status [SET]                Show backup state, sizes, and estimated cost
+  history SET                 List snapshots
+  browse SET                  List files in a snapshot
+  catalog sync [SET]          Discover sets or synchronize one catalog
+  catalog unlock SET          Open a downloaded encrypted catalog locally
+
+Manage:
+  configure SET               Change saved settings or bind local sources
+  retry SET                   Resume pending work
   cleanup SET|--all           Remove eligible local archive copies
-  state migrate              Move state out of the config directory
+  move SET --from A --to B     Copy history and switch destinations
   storage-class SET           Change an AWS archive's storage class
-  check --to REMOTE           Test provider access
-  help [COMMAND]              Show options and examples
+  check --to REMOTE...        Test bucket access
+  state migrate              Move legacy local state to the current location
+
+Standalone files:
+  archive PATH...             Create an encrypted archive
+  decrypt FILE                Decrypt to compressed tar
+  extract FILE --into DIR     Extract into a new directory
+  upload FILE --to REMOTE...  Upload a file
+  download KEY --from REMOTE  Download a file
+
+Help and version:
+  help [COMMAND [ACTION]]     Show options and examples
   version                     Show version and build revision
 
 Global options:
-  --config FILE               Nonsecret TOML settings
+  --config FILE               TOML settings
+  --state-dir DIR             Local state directory override
   --env FILE                  Credential file; process variables take priority
+  --color MODE                auto, yes, or no (default: auto)
   -L, --log-level LEVEL       debug, info, warn, error, silent (default: info)
-  --color MODE                yes, no, auto (default: auto)
   --format FORMAT             plain or json; status also supports table/csv
   --progress MODE             auto, plain or off (default: auto)
   -h, --help                  Show help
   -v, --version               Show version
 
 Examples:
-  glesha create music ~/Music --to b2
-  glesha run music --to b2 --env /secure/cloud.env
-  glesha run music --incremental --env /secure/cloud.env
-  glesha help run
+  glesha create docs ~/Documents --to b2
+  glesha run docs
+  glesha help catalog
 
 `
 }
+
 func PrintUsage() { fmt.Print(Usage()) }
 func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	f := flag.NewFlagSet(command, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
 	f.StringVar(&e.Config, "config", "", "TOML configuration file")
+	f.StringVar(&e.StateDirectory, "state-dir", "", "local state directory; overrides catalog.directory")
 	f.StringVar(&e.Env, "env", "", "explicit credential environment file")
 	f.StringVar(&e.LogLevel, "log-level", "info", "debug, info, warn, error or silent")
 	f.StringVar(&e.LogLevel, "L", "info", "debug, info, warn, error or silent")
@@ -165,11 +183,9 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	f.BoolVar(&e.Version, "version", false, "show version")
 	f.BoolVar(&e.Version, "v", false, "show version")
 	allowed := func(names string) bool { return strings.Contains(" "+names+" ", " "+command+" ") }
-	if allowed("create configure run upload move check") {
-		f.Var(&e.To, "to", "remote names; comma-separated or repeated")
-	}
-	if allowed("restore import download list status") {
-		f.Var(&e.From, "from", "ordered source remotes; comma-separated or repeated")
+	if allowed("create configure run retry restore import move storage-class history browse list status catalog upload download check cleanup") {
+		f.Var(&e.To, "to", "destination/allowed remotes; combined with --from limits all bucket access")
+		f.Var(&e.From, "from", "ordered source/allowed remotes; combined with --to limits all bucket access")
 	}
 	if allowed("create configure") {
 		f.StringVar(&e.CatalogTo, "catalog-to", "", "catalog remote or local")
@@ -192,8 +208,15 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 	if allowed("run archive decrypt download") {
 		f.StringVar(&e.Output, "output", "", "new output file")
 	}
+	if command == "restore" {
+		f.BoolVar(&e.CancelRestore, "cancel", false, "cancel local restore tasks; preserve restored files and staging")
+	}
 	if allowed("restore extract") {
-		f.StringVar(&e.Into, "into", "", "new destination directory")
+		description := "new destination directory"
+		if command == "restore" {
+			description = "destination directory; existing files are never overwritten"
+		}
+		f.StringVar(&e.Into, "into", "", description)
 	}
 	if allowed("configure import") {
 		e.Roots = mappings{}
@@ -243,9 +266,14 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 		f.BoolVar(&e.Refresh, "refresh", false, "check live metadata without requesting retrieval")
 	}
 	if allowed("catalog cleanup") {
-		f.BoolVar(&e.All, "all", false, "process all locally registered sets")
+		description := "process all locally registered sets"
+		if command == "catalog" {
+			description = "discover configured buckets and download catalog state"
+		}
+		f.BoolVar(&e.All, "all", false, description)
 		if command == "catalog" {
 			f.StringVar(&e.Keep, "keep", "", "resolve conflicts using local or remote values")
+			f.StringVar(&e.Authority, "authority", "", "select the catalog authority during explicit resolution")
 		}
 	}
 	if command == "cleanup" {
@@ -261,7 +289,7 @@ func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
 		e.Passwords = mappings{}
 		f.Var(&e.Passwords, "archive-passphrase-file", "snapshot ID=passphrase file")
 	}
-	if allowed("catalog run retry restore import move list storage-class") {
+	if allowed("catalog run retry restore import move list storage-class create configure history browse") {
 		f.StringVar(&e.CatalogPasswordFile, "catalog-passphrase-file", "", "separate catalog passphrase file")
 	}
 	if allowed("run archive import restore upload download move check decrypt extract") {
@@ -287,7 +315,7 @@ func reorder(f *flag.FlagSet, args []string) ([]string, error) {
 			name := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
 			v := f.Lookup(name)
 			if v == nil {
-				return nil, fmt.Errorf("cli: unsupported flag %s", a)
+				return nil, fmt.Errorf("cli: unsupported flag %s; see glesha help %s", a, f.Name())
 			}
 			options = append(options, a)
 			b, ok := v.Value.(interface{ IsBoolFlag() bool })
@@ -315,7 +343,7 @@ func ResolveCommand(args []string) (string, []string, error) {
 		}
 		if strings.HasPrefix(a, "-") {
 			name := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
-			if name != "config" && name != "env" && name != "color" && name != "log-level" && name != "L" && name != "format" && name != "progress" {
+			if !globalFlag(name) {
 				return "", nil, fmt.Errorf("cli: put operation options after the command")
 			}
 			if !strings.Contains(a, "=") {
@@ -323,7 +351,7 @@ func ResolveCommand(args []string) (string, []string, error) {
 			}
 			continue
 		}
-		return "", nil, fmt.Errorf("cli: unknown command %q", a)
+		return "", nil, fmt.Errorf("cli: unknown command %q; see glesha help", a)
 	}
 	return "", args, nil
 }
@@ -349,6 +377,9 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	L.SetStructuredDiagnostics(e.jsonOutput())
 	defer L.SetStructuredDiagnostics(false)
 	early := &runtime{ctx: ctx, env: e, out: os.Stdout, command: command}
+	if e.present["state-dir"] && e.StateDirectory == "" {
+		return fmt.Errorf("cli: --state-dir requires a directory")
+	}
 	for _, p := range []*string{&e.Output, &e.Into, &e.File, &e.Archive, &e.PasswordFile, &e.CatalogPasswordFile} {
 		if *p != "" && *p != "-" {
 			expanded, err := file_io.Expand(*p)
@@ -377,7 +408,11 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		if command == "" {
 			return early.help(nil)
 		}
-		return early.help([]string{command})
+		helpArgs := []string{command}
+		if (command == "catalog" || command == "state") && len(f.Args()) > 0 {
+			helpArgs = append(helpArgs, f.Args()[0])
+		}
+		return early.help(helpArgs)
 	}
 	if err = L.SetLevelFromString(e.LogLevel); err != nil {
 		return err
@@ -385,9 +420,21 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if err = L.SetColorModeFromString(e.Color); err != nil {
 		return err
 	}
+	if command == "catalog" {
+		if len(f.Args()) == 0 {
+			return fmt.Errorf("cli: choose a catalog action: sync, unlock, or resolve; see glesha help catalog")
+		}
+		if !knownHelpAction("catalog", f.Args()[0]) {
+			return fmt.Errorf("cli: unknown catalog action %q; see glesha help catalog", f.Args()[0])
+		}
+	}
+
 	c, err := config.Load(e.Config)
 	if err != nil {
 		return err
+	}
+	if e.StateDirectory != "" {
+		c.Catalog.Directory = e.StateDirectory
 	}
 	if command == "state" {
 		early.config = c
@@ -442,7 +489,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 			return err
 		}
 		if !localOnly {
-			if err = state.CheckDefault(legacy, root); err != nil {
+			if err = state.CheckDefault(ctx, legacy, root); err != nil {
 				return err
 			}
 		}
@@ -486,8 +533,11 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 		r.ctx = L.WithProgress(ctx, renderer)
 	}
 	L.Debug(fmt.Sprintf("command=%s; memory=%s; hash-workers=%d; transfer-workers=%d", command, L.Bytes(budget.Total), budget.HashWorkers, budget.TransferWorkers))
+	if err := r.selectCommandRemotes(); err != nil {
+		return err
+	}
 	err = handlers[command](r, f.Args())
-	if r.operationLocked && r.service != nil && r.service.Set.ID != "" && strings.Contains(" run retry import restore move storage-class ", " "+command+" ") && !e.All {
+	if r.operationLocked && r.service != nil && r.service.Set.ID != "" && strings.Contains(" run retry import restore move storage-class ", " "+command+" ") && !e.All && !e.CancelRestore {
 		lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
 		if free, lockErr := lock.TryLock(); lockErr == nil && free {
 			if recordErr := r.service.RecordResult(context.WithoutCancel(r.ctx), command, err); recordErr != nil {
@@ -509,7 +559,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 }
 func (r *runtime) openSet(name string) error {
 	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}, Kinds: map[string]string{}}
-	return r.service.OpenSet(r.ctx, name, r.root)
+	return setError(name, r.service.OpenSet(r.ctx, name, r.root))
 }
 func (r *runtime) lock() (func(), error) {
 	lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
@@ -543,6 +593,14 @@ func (r *runtime) remoteIDs(names []string) ([]string, error) {
 	return ids, nil
 }
 func (r *runtime) stores(ids []string) error {
+	if err := r.selectCommandRemotes(); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := r.checkRemote(id); err != nil {
+			return err
+		}
+	}
 	for _, id := range ids {
 		if r.service.Stores[id] != nil {
 			continue
@@ -551,12 +609,18 @@ func (r *runtime) stores(ids []string) error {
 		if err != nil {
 			return err
 		}
-		p, ok := r.config.RemotesByName()[remote.Name]
-		if !ok {
-			return fmt.Errorf("cli: remote %q is not configured", remote.Name)
+		var p config.Provider
+		found := false
+		for _, name := range r.configuredRemotes() {
+			candidate := r.config.RemotesByName()[name]
+			identity := model.Remote{Kind: candidate.Kind, Bucket: candidate.Bucket, Endpoint: candidate.Endpoint, Region: candidate.Region}
+			if identity.Identity() == remote.ID {
+				p, found = candidate, true
+				break
+			}
 		}
-		if _, err = r.registry.BindRemote(r.ctx, model.Remote{Name: remote.Name, Kind: p.Kind, Bucket: p.Bucket, Endpoint: p.Endpoint, Region: p.Region}); err != nil {
-			return err
+		if !found {
+			return fmt.Errorf("cli: catalog requires access to %s bucket %q; configure that location before syncing", remote.Kind, remote.Bucket)
 		}
 		store, err := cloud.New(r.ctx, p.Kind, p, r.budget.TransferWorkers, r.limit)
 		if err != nil {
@@ -571,10 +635,17 @@ func (r *runtime) catalogSecret(confirm bool) error {
 	return r.catalogSecretFor(r.service.Set.CatalogTo, confirm)
 }
 func (r *runtime) catalogSecretFor(remote string, confirm bool) error {
-	if !r.config.Catalog.Encrypted || remote == "local" {
+	if len(r.service.CatalogPassword) > 0 {
 		return nil
 	}
-	if confirm && r.service.Set.ID != "" {
+	if remote == "local" {
+		return nil
+	}
+	provided := r.env.CatalogPasswordFile != "" || os.Getenv("GLESHA_CATALOG_PASSPHRASE") != ""
+	if !r.service.Config.Catalog.Encrypted && !provided {
+		return nil
+	}
+	if confirm && r.service.Set.ID != "" && r.service.Set.Name != r.service.Set.ID {
 		c, err := r.service.Catalog(r.ctx)
 		if err != nil {
 			return err
@@ -587,9 +658,12 @@ func (r *runtime) catalogSecretFor(remote string, confirm bool) error {
 		confirm = check == ""
 	}
 	secret := []byte(os.Getenv("GLESHA_CATALOG_PASSPHRASE"))
+	if len(secret) == 0 && r.env.CatalogPasswordFile == "" && !term.IsTerminal(int(os.Stdin.Fd())) {
+		return fmt.Errorf("cli: catalog passphrase needs a terminal; provide --catalog-passphrase-file FILE")
+	}
 	if r.env.CatalogPasswordFile != "" || len(secret) == 0 {
 		var err error
-		secret, err = password(r.env.CatalogPasswordFile, "Catalog passphrase", confirm)
+		secret, err = password(r.ctx, r.env.CatalogPasswordFile, "Catalog passphrase", confirm)
 		if err != nil {
 			return err
 		}
@@ -605,7 +679,14 @@ func (r *runtime) syncStores() error {
 }
 func count(args []string, n int) error {
 	if len(args) != n {
-		return fmt.Errorf("cli: expected %d positional arguments", n)
+		if n == 0 {
+			return fmt.Errorf("cli: unexpected arguments; see --help for usage")
+		}
+		noun := "arguments"
+		if n == 1 {
+			noun = "argument"
+		}
+		return fmt.Errorf("cli: expected %d %s; see --help for usage", n, noun)
 	}
 	return nil
 }
@@ -619,6 +700,13 @@ func requireSet(r *runtime, args []string) (func(), error) {
 	return r.lock()
 }
 func ExitCode(err error) int {
+	if errors.Is(err, context.Canceled) {
+		return 130
+	}
+	var syncError *reportedCommandError
+	if errors.As(err, &syncError) {
+		return ExitCode(syncError.cause)
+	}
 	if errors.Is(err, backup.ErrConflict) {
 		return 4
 	}
@@ -634,52 +722,4 @@ func ExitCode(err error) int {
 	return 1
 }
 
-func CommandUsage(name string) string {
-	var out strings.Builder
-	out.WriteString("Usage:\n")
-	fmt.Fprintf(&out, "  glesha %s [options]\n\n", strings.TrimSpace(name+" "+commandArguments[name]))
-	out.WriteString(wrapHelp(commandDescriptions[name], "", 78) + "\n\n")
-	flags := flagSet(name, &AppCmdEnv{})
-	for _, group := range []struct {
-		title  string
-		global bool
-	}{{"Command options", false}, {"Global options", true}} {
-		var lines strings.Builder
-		flags.VisitAll(func(f *flag.Flag) {
-			if globalFlag(f.Name) != group.global || f.Name == "L" || f.Name == "h" || f.Name == "v" || f.Name == "j" {
-				return
-			}
-			label := "--" + f.Name
-			if f.Name == "log-level" {
-				label = "-L, " + label
-			}
-			if f.Name == "help" {
-				label = "-h, " + label
-			}
-			if f.Name == "version" {
-				label = "-v, " + label
-			}
-			if f.Name == "jobs" {
-				label = "-j, " + label
-			}
-			if value := flagValueName(f); value != "" {
-				label += " " + value
-			}
-			description := f.Usage
-			if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "0" {
-				description += " (default: " + f.DefValue + ")"
-			}
-			fmt.Fprintf(&lines, "  %s\n%s\n", label, wrapHelp(description, "    ", 78))
-		})
-		if lines.Len() > 0 {
-			out.WriteString(group.title + ":\n" + lines.String() + "\n")
-		}
-	}
-	if examples := commandExamples[name]; len(examples) > 0 {
-		out.WriteString("Examples:\n")
-		for _, example := range examples {
-			out.WriteString(wrapExample(example) + "\n")
-		}
-	}
-	return L.ASCII(out.String())
-}
+func CommandUsage(name string) string { return CommandActionUsage(name, "") }

@@ -190,6 +190,13 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 }
 
 func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOptions) error {
+	if err := s.rememberAuthority(ctx, ""); err != nil {
+		return err
+	}
+	previousAuthority, err := s.Locator(ctx, s.Set.ID)
+	if err != nil {
+		return err
+	}
 	if !s.Pending() && (to == "" || s.Stores[to] == nil) {
 		return fmt.Errorf("backup: destination remote is required")
 	}
@@ -236,6 +243,35 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 	}
 	if s.Stores[to] == nil {
 		return fmt.Errorf("backup: destination remote unavailable")
+	}
+	var moveSource model.Set
+	sourceJSON, err := p.GetMeta(ctx, "move_source_set")
+	if err != nil {
+		return err
+	}
+	if sourceJSON == "" {
+		moveSource = s.Set
+		b, err := json.Marshal(moveSource)
+		if err != nil {
+			return err
+		}
+		if err = p.SetMeta(ctx, "move_source_set", string(b)); err != nil {
+			return err
+		}
+		c, err := s.Catalog(ctx)
+		if err != nil {
+			return err
+		}
+		revision, readErr := c.GetMeta(ctx, "remote_revision")
+		c.Close()
+		if readErr != nil {
+			return readErr
+		}
+		if err = p.SetMeta(ctx, "move_source_revision", revision); err != nil {
+			return err
+		}
+	} else if err = json.Unmarshal([]byte(sourceJSON), &moveSource); err != nil || moveSource.ID != s.Set.ID {
+		return fmt.Errorf("backup: invalid move source journal")
 	}
 	policy, err := p.GetMeta(ctx, "move_retrieval")
 	if err != nil {
@@ -355,12 +391,22 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 	}
 	previous := s.Set
 	s.Set = next
-	if err = s.publish(ctx, p); err != nil {
+	s.allowRetiredAuthority = true
+	err = s.publish(ctx, p)
+	s.allowRetiredAuthority = false
+	if err != nil {
+		s.Set = previous
+		return err
+	}
+	if err = s.retireMoveSource(ctx, p, moveSource, previousAuthority); err != nil {
 		s.Set = previous
 		return err
 	}
 	if err = s.Registry.Save(ctx, next); err != nil {
 		s.Set = previous
+		return err
+	}
+	if err = s.rememberAuthority(ctx, locatorID(previousAuthority)); err != nil {
 		return err
 	}
 	return s.finishPending(ctx, p)
@@ -376,6 +422,7 @@ func (s *Service) prepareMoveCatalog(ctx context.Context, p repository.Cataloger
 	}
 	peer := *s
 	peer.Set = next
+	peer.allowRetiredAuthority = true
 	peer.Directory = filepath.Join(s.Directory, ".glesha-move-view-"+newID())
 	if err = os.Mkdir(peer.Directory, 0700); err != nil {
 		return err
@@ -409,7 +456,7 @@ func (s *Service) prepareMoveCatalog(ctx context.Context, p repository.Cataloger
 	if err != nil {
 		return err
 	}
-	for key, value := range map[string]string{"remote_revision": revision, "remote_number": number, "publication": "", "force_checkpoint": "true", "move_metadata_ready": "true"} {
+	for key, value := range map[string]string{"remote_revision": revision, "remote_number": number, "publication": "", "force_checkpoint": "true", "move_metadata_ready": "true", authorityRelocationKey: ""} {
 		if err = p.SetMeta(ctx, key, value); err != nil {
 			return err
 		}

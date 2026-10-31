@@ -27,6 +27,8 @@ func readConfirmation(ctx context.Context, in io.Reader, out io.Writer, terminal
 	if !terminal {
 		return fmt.Errorf("%w: %s", backup.ErrConfirmationRequired, message)
 	}
+	resume := L.PauseProgress(ctx)
+	defer resume()
 	if _, err := fmt.Fprintf(out, "%s [y/N] ", L.ASCII(message)); err != nil {
 		return err
 	}

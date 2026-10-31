@@ -11,6 +11,7 @@ import (
 	"glesha/database/model"
 	"glesha/database/repository"
 	"glesha/file_io"
+	L "glesha/logger"
 )
 
 func localArchive(r *runtime, args []string) error {
@@ -49,14 +50,14 @@ func localArchive(r *runtime, args []string) error {
 	if err = archive.Inventory(r.ctx, c, id, roots, exclude, r.budget.HashWorkers); err != nil {
 		return err
 	}
-	pw, err := password(r.env.PasswordFile, "Archive passphrase", true)
+	pw, err := password(r.ctx, r.env.PasswordFile, "Archive passphrase", true)
 	if err != nil {
 		return err
 	}
 	defer wipe(pw)
 	_, _, err = archive.Create(r.ctx, archive.Options{Output: output, Compression: r.config.Archive.Compression, Level: r.config.Archive.Level, Mode: r.config.Archive.Mode, Budget: r.budget, Password: pw, Manifest: model.Manifest{Version: 1, ID: id, Full: true, Roots: roots, Compression: r.config.Archive.Compression}, Catalog: c, Exclusions: exclude})
 	if err == nil {
-		return r.completed(output, "", output)
+		return r.completed(output, "", fmt.Sprintf("Created archive: %s", L.Value(output)))
 	}
 	return err
 }
@@ -64,7 +65,7 @@ func decrypt(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
 	}
-	pw, err := password(r.env.PasswordFile, "Archive passphrase", false)
+	pw, err := password(r.ctx, r.env.PasswordFile, "Archive passphrase", false)
 	if err != nil {
 		return err
 	}
@@ -79,7 +80,7 @@ func decrypt(r *runtime, args []string) error {
 		if output == "" {
 			output = filepath.Join(filepath.Dir(input), archive.Stem(input)+archive.Extension(format))
 		}
-		return r.completed(output, "", output)
+		return r.completed(output, "", fmt.Sprintf("Decrypted to %q.", output))
 	}
 	return err
 }
@@ -106,7 +107,7 @@ func extract(r *runtime, args []string) error {
 	}
 	var pw []byte
 	if !archive.IsCompressed(signature[:]) {
-		pw, err = password(r.env.PasswordFile, "Archive passphrase", false)
+		pw, err = password(r.ctx, r.env.PasswordFile, "Archive passphrase", false)
 		if err != nil {
 			return err
 		}
@@ -117,5 +118,5 @@ func extract(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	return r.completed(r.env.Into, "", "")
+	return r.completed(r.env.Into, "", fmt.Sprintf("Extracted to %q.", r.env.Into))
 }

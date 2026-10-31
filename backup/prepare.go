@@ -46,23 +46,7 @@ func (s *Service) saveJob(file string, v any) error {
 	if err != nil {
 		return err
 	}
-	temp, err := file_io.Temp(s.Directory)
-	if err != nil {
-		return err
-	}
-	defer os.Remove(temp.Name())
-	if _, err = temp.Write(b); err != nil {
-		temp.Close()
-		return err
-	}
-	if err = temp.Sync(); err != nil {
-		temp.Close()
-		return err
-	}
-	if err = temp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temp.Name(), file)
+	return file_io.WriteAtomic(context.Background(), file, b)
 }
 func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []string, o RetrievalOptions) (string, string, error) {
 	useSavedDays := o.UseSavedDays || o.Days == 0
@@ -70,8 +54,7 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 	if err != nil {
 		return "", "", err
 	}
-	digest := sha256.Sum256([]byte(output))
-	jobFile := filepath.Join(s.Directory, "restore-"+hex.EncodeToString(digest[:16])+".json")
+	jobFile := s.restoreJobPath(output)
 	if o.Tier == "" {
 		o.Tier = "bulk"
 	}

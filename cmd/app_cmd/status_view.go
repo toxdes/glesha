@@ -34,6 +34,15 @@ func status(r *runtime, args []string) error {
 	default:
 		return fmt.Errorf("cli: format must be plain, table, csv or json")
 	}
+	var refreshProgress *L.Progress
+	if r.env.Refresh {
+		var err error
+		refreshProgress, err = r.startActivity("Refreshing archive availability")
+		if err != nil {
+			return err
+		}
+		defer refreshProgress.Stop()
+	}
 	tracker, err := file_io.Temp(r.root)
 	if err != nil {
 		return err
@@ -54,6 +63,12 @@ func status(r *runtime, args []string) error {
 	}
 	rows := []statusData{}
 	var failures []error
+	if len(args) == 0 {
+		if err := r.discoveryStatus(); err != nil {
+			L.Warn(err.Error())
+			failures = append(failures, err)
+		}
+	}
 	collect := func(set model.Set) error {
 		d, err := collectStatus(r, set)
 		if err != nil {
@@ -68,7 +83,7 @@ func status(r *runtime, args []string) error {
 	if len(args) == 1 {
 		set, err := r.registry.Set(r.ctx, args[0])
 		if err != nil {
-			return err
+			return setError(args[0], err)
 		}
 		if err = collect(set); err != nil {
 			return err
@@ -76,6 +91,7 @@ func status(r *runtime, args []string) error {
 	} else if err := r.registry.Each(r.ctx, collect); err != nil {
 		return err
 	}
+	refreshProgress.Stop()
 	if format == "json" {
 		for _, d := range rows {
 			if err := r.emit("status", d, ""); err != nil {
@@ -97,14 +113,24 @@ func status(r *runtime, args []string) error {
 		writer.Flush()
 		return errors.Join(writer.Error(), errors.Join(failures...))
 	}
+	if len(rows) == 0 {
+		return errors.Join(errors.Join(failures...), r.emptyInventory())
+	}
+	locked, unavailable := 0, 0
 	cells := [][]string{{"SET", "STATE", "SIZE", "SNAPSHOTS", "STORAGE CLASS", "EST/YR"}}
 	total := statusData{EstimateComplete: true}
 	for _, d := range rows {
 		size := compactSize(d.ArchiveBytes)
-		if !d.CatalogAvailable {
-			size = "-"
+		snapshots := fmt.Sprint(d.Snapshots)
+		if d.Condition.State == backup.STATE_LOCKED {
+			locked++
 		}
-		cells = append(cells, []string{d.Set.Name, d.Condition.State.String(), size, fmt.Sprint(d.Snapshots), dominantClass(d.Classes), totalCost(d)})
+		if !d.CatalogAvailable {
+			unavailable++
+			size = "-"
+			snapshots = "-"
+		}
+		cells = append(cells, []string{d.Set.Name, d.Condition.State.String(), size, snapshots, dominantClass(d.Classes), totalCost(d)})
 		total.ArchiveBytes += d.ArchiveBytes
 		total.Snapshots += d.Snapshots
 		total.ArchiveAnnualUSD += d.ArchiveAnnualUSD
@@ -114,7 +140,11 @@ func status(r *runtime, args []string) error {
 	if len(args) == 0 {
 		total.ArchiveBytes = r.statusArchiveBytes
 		total.ArchiveAnnualUSD = r.statusArchiveCost
-		cells = append(cells, []string{"TOTAL", "", compactSize(total.ArchiveBytes), fmt.Sprint(total.Snapshots), "", totalCost(total)})
+		totalSize, totalSnapshots := compactSize(total.ArchiveBytes), fmt.Sprint(total.Snapshots)
+		if unavailable == len(rows) {
+			totalSize, totalSnapshots = "-", "-"
+		}
+		cells = append(cells, []string{"TOTAL", "", totalSize, totalSnapshots, "", totalCost(total)})
 	}
 	color := L.ColorEnabled(term.IsTerminal(int(os.Stdout.Fd())))
 	_, err = fmt.Fprint(r.out, renderColumns(cells, format, color))
@@ -122,42 +152,35 @@ func status(r *runtime, args []string) error {
 		return err
 	}
 	if len(args) == 1 && len(rows) == 1 {
-		fmt.Fprint(r.out, statusDetails(rows[0]))
+		details := rows[0]
+		details.Providers = make(map[string]string, len(details.Set.To))
+		for _, id := range details.Set.To {
+			details.Providers[id] = r.remoteLabel(id)
+		}
+		if _, err := fmt.Fprint(r.out, statusDetails(details)); err != nil {
+			return err
+		}
 	}
 	if err = renderRetrievals(r.out, rows, len(args) == 1, format, color); err != nil {
 		return err
 	}
-	heading := ""
-	for _, waiting := range []bool{false, true} {
-		heading = ""
-		for _, d := range rows {
-			if len(d.Retrievals) > 0 && (d.Condition.Operation == "import" || d.Condition.Operation == "restore") && (d.Condition.State == backup.STATE_WAITING || d.Condition.State == backup.STATE_PAUSED) {
-				continue
-			}
-			if d.Condition.Reason == "" || (d.Condition.State == backup.STATE_WAITING) != waiting {
-				continue
-			}
-			if heading == "" {
-				heading = "Needs attention:"
-				if waiting {
-					heading = "Waiting:"
-				}
-				fmt.Fprintf(r.out, "\n%s\n", heading)
-			}
-			fmt.Fprintf(r.out, "  %s  %s\n", L.ASCII(d.Set.Name), L.ASCII(d.Condition.Reason))
-			if d.Condition.Action != "" {
-				fmt.Fprintf(r.out, "    Next: %s\n", L.ASCII(d.Condition.Action))
-			}
-		}
+	if unavailable > 0 && len(args) == 0 {
+		fmt.Fprintf(r.out, "\nTotals cover %d of %d readable catalogs.\n", len(rows)-unavailable, len(rows))
 	}
-	partial := false
+	if locked > 0 && len(args) == 0 {
+		fmt.Fprintf(r.out, "%d catalogs need a passphrase or missing metadata.\n  Open cached metadata:  glesha catalog unlock SET\n  Fetch remote metadata: glesha catalog sync\n", locked)
+	}
+	if err := r.renderAttention(rows, len(args) == 1, color); err != nil {
+		return err
+	}
+	partial := strings.HasSuffix(totalCost(total), "*")
 	for _, d := range rows {
-		partial = partial || !d.EstimateComplete
+		partial = partial || strings.HasSuffix(totalCost(d), "*")
 	}
 	if partial {
 		fmt.Fprintln(r.out, "\n* Partial storage estimate; unavailable values excluded.")
 	}
-	return errors.Join(failures...)
+	return reportedError("status", errors.Join(failures...))
 }
 
 func compactSize(size int64) string {
@@ -211,20 +234,7 @@ func renderColumns(rows [][]string, format string, color bool) string {
 			padded := fmt.Sprintf("%-*s", widths[j], cell)
 			if color && i > 0 && rows[0][j] == "STATE" && cell != "" {
 				code := ""
-				switch backup.SetState(cell) {
-				case backup.STATE_SYNCED:
-					code = "32"
-				case backup.STATE_PAUSED, backup.STATE_LOCAL, backup.STATE_WAITING, backup.STATE_STALE:
-					code = "33"
-				case backup.STATE_CONFLICT, backup.STATE_FAILED:
-					code = "31"
-				case backup.SetState(backup.RETRIEVAL_READY):
-					code = "32"
-				case backup.SetState(backup.RETRIEVAL_QUEUED), backup.SetState(backup.RETRIEVAL_PARTIAL):
-					code = "33"
-				case backup.SetState(backup.RETRIEVAL_EXPIRED):
-					code = "31"
-				}
+				code = stateColor(backup.SetState(cell))
 				if code != "" {
 					padded = "\x1b[" + code + "m" + cell + "\x1b[0m" + strings.Repeat(" ", widths[j]-len(cell))
 				}
@@ -253,7 +263,13 @@ func renderColumns(rows [][]string, format string, color bool) string {
 }
 func statusDetails(d statusData) string {
 	var out strings.Builder
-	rows := [][]string{{"Last backup", statusTime(d.LastBackup)}, {"Last sync", statusTime(d.LastSync)}}
+	catalog := "Unavailable"
+	if d.CatalogAvailable {
+		catalog = "Open (cached)"
+	} else if d.Condition.State == backup.STATE_LOCKED {
+		catalog = "Locked"
+	}
+	rows := [][]string{{"Set ID", d.Set.ID}, {"Catalog", catalog}, {"Last backup", statusTime(d.LastBackup)}, {"Last sync", statusTime(d.LastSync)}}
 	destinations := make([]string, 0, len(d.Set.To))
 	for _, id := range d.Set.To {
 		name := d.Providers[id]
@@ -345,4 +361,84 @@ func renderRetrievals(out io.Writer, sets []statusData, single bool, format stri
 	}
 	_, err := fmt.Fprintf(out, "\nRetrieval Status\nLast checked: %s\n%s", statusTime(checked), renderColumns(rows, format, color))
 	return err
+}
+
+func stateColor(state backup.SetState) string {
+	switch state {
+	case backup.STATE_SYNCED, backup.SetState(backup.RETRIEVAL_READY):
+		return "32"
+	case backup.STATE_PAUSED, backup.STATE_LOCAL, backup.STATE_WAITING, backup.STATE_STALE, backup.STATE_LOCKED, backup.STATE_NEW, backup.SetState(backup.RETRIEVAL_QUEUED), backup.SetState(backup.RETRIEVAL_PARTIAL):
+		return "33"
+	case backup.STATE_CONFLICT, backup.STATE_FAILED, backup.SetState(backup.RETRIEVAL_EXPIRED):
+		return "31"
+	case backup.STATE_RUNNING, backup.STATE_PUBLISHING:
+		return "36"
+	default:
+		return ""
+	}
+}
+
+type attentionKey struct {
+	reason, action string
+	state          backup.SetState
+}
+type attentionGroup struct {
+	key   attentionKey
+	names []string
+}
+
+func (r *runtime) renderAttention(rows []statusData, single, color bool) error {
+	for _, waiting := range []bool{false, true} {
+		var groups []attentionGroup
+		indices := map[attentionKey]int{}
+		for _, row := range rows {
+			condition := row.Condition
+			if condition.State == backup.STATE_LOCKED && !single {
+				continue
+			}
+			if len(row.Retrievals) > 0 && (condition.Operation == "import" || condition.Operation == "restore") && (condition.State == backup.STATE_WAITING || condition.State == backup.STATE_PAUSED) {
+				continue
+			}
+			if condition.Reason == "" || (condition.State == backup.STATE_WAITING) != waiting {
+				continue
+			}
+			key := attentionKey{condition.Reason, condition.Action, condition.State}
+			index, exists := indices[key]
+			if !exists {
+				index = len(groups)
+				indices[key] = index
+				groups = append(groups, attentionGroup{key: key})
+			}
+			groups[index].names = append(groups[index].names, row.Set.Name)
+		}
+		if len(groups) == 0 {
+			continue
+		}
+		heading := "Needs attention:"
+		if waiting {
+			heading = "Waiting:"
+		}
+		if _, err := fmt.Fprintf(r.out, "\n%s\n", heading); err != nil {
+			return err
+		}
+		for _, group := range groups {
+			label := L.Value(group.names[0])
+			if len(group.names) > 1 {
+				label = fmt.Sprintf("%d sets", len(group.names))
+			}
+			text := label + "  " + L.Value(group.key.reason)
+			if code := stateColor(group.key.state); color && code != "" {
+				text = "\x1b[" + code + "m" + text + "\x1b[0m"
+			}
+			if _, err := fmt.Fprintf(r.out, "  %s\n", text); err != nil {
+				return err
+			}
+			if group.key.action != "" {
+				if _, err := fmt.Fprintf(r.out, "    Next: %s\n", L.Value(group.key.action)); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
 }

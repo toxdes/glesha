@@ -17,7 +17,7 @@ import (
 
 func create(r *runtime, args []string) error {
 	if len(args) < 2 {
-		return fmt.Errorf("cli: create requires SET and source paths")
+		return fmt.Errorf("cli: create requires a set name and source paths; see glesha help create")
 	}
 	roots, err := archive.Roots(args[1:])
 	if err != nil {
@@ -60,6 +60,11 @@ func create(r *runtime, args []string) error {
 		}
 		set.IncrementalClass = r.env.IncrementalClass
 	}
+	if set.CatalogTo != "" && set.CatalogTo != "local" {
+		if err = r.discoverState(nil); err != nil {
+			return err
+		}
+	}
 	if err = r.registry.Create(r.ctx, set); err != nil {
 		return fmt.Errorf("cli: set already exists or cannot be registered: %w", err)
 	}
@@ -71,7 +76,11 @@ func create(r *runtime, args []string) error {
 		return err
 	}
 	defer unlock()
+	defer func() { wipe(r.service.CatalogPassword) }()
 	if err = r.service.RecordResult(r.ctx, "create", nil); err != nil {
+		return err
+	}
+	if err = r.publishState(); err != nil {
 		return err
 	}
 	return r.emit("set", set, fmt.Sprintf("Created %q.", set.Name))
@@ -99,6 +108,11 @@ func configure(r *runtime, args []string) error {
 	}
 	defer unlock()
 	s := r.service
+	defer func() { wipe(s.CatalogPassword) }()
+	if err = r.prepareMutation(); err != nil {
+		return err
+	}
+	previous := s.Set
 	if r.env.present["chunked"] {
 		s.Set.Chunked = r.env.Chunked
 	}
@@ -201,6 +215,12 @@ func configure(r *runtime, args []string) error {
 			return err
 		}
 	}
+	if err = s.SaveConfiguration(r.ctx, previous); err != nil {
+		return err
+	}
+	if err = r.publishState(); err != nil {
+		return err
+	}
 	return r.emit("set", s.Set, "Configuration saved.")
 }
 func rootMappings(values mappings) ([]model.Root, error) {
@@ -236,6 +256,10 @@ func run(r *runtime, args []string) error {
 	}
 	defer unlock()
 	s := r.service
+	defer func() { wipe(s.CatalogPassword) }()
+	if err = r.prepareMutation(); err != nil {
+		return err
+	}
 	chunked := s.Set.Chunked
 	if r.env.present["chunked"] {
 		chunked = r.env.Chunked
@@ -297,20 +321,28 @@ func run(r *runtime, args []string) error {
 		return err
 	}
 	if needsArchive {
-		pw, err = password(r.env.PasswordFile, "Archive passphrase", true)
+		pw, err = password(r.ctx, r.env.PasswordFile, "Archive passphrase", true)
 		if err != nil {
 			return err
 		}
 		defer wipe(pw)
 	} else {
-		L.Info("Resuming previous run.")
+		if err := r.activity("Resuming previous run..."); err != nil {
+			return err
+		}
 	}
 	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.present["chunked"], SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
 	if err != nil {
 		return err
 	}
 	if v.ID == "" {
-		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, "No changes.")
+		if err = r.publishState(); err != nil {
+			return err
+		}
+		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, fmt.Sprintf("No source changes for %q. No new snapshot created.", s.Set.Name))
+	}
+	if err = r.publishState(); err != nil {
+		return err
 	}
 	message := fmt.Sprintf("Backup %s completed for %q.", v.ID, s.Set.Name)
 	if _, err := os.Lstat(v.File); err == nil {
@@ -326,6 +358,16 @@ func retry(r *runtime, args []string) error {
 	defer unlock()
 	s := r.service
 	if !s.Pending() {
+		repair, err := s.DirectoryRepairPending(r.ctx)
+		if err != nil {
+			return err
+		}
+		if repair {
+			if err := r.replicateDirectory(); err != nil {
+				return err
+			}
+			return r.result(fmt.Sprintf("Registry copies repaired for %q.", s.Set.Name))
+		}
 		return fmt.Errorf("cli: no pending operation")
 	}
 	if r.env.KeepArchive {
@@ -352,7 +394,13 @@ func retry(r *runtime, args []string) error {
 			return err
 		}
 	}
-	return s.Retry(r.ctx)
+	if err = s.Retry(r.ctx); err != nil {
+		return err
+	}
+	if err := r.publishState(); err != nil {
+		return err
+	}
+	return r.result(fmt.Sprintf("Pending work completed for %q.", s.Set.Name))
 }
 func history(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
@@ -361,15 +409,32 @@ func history(r *runtime, args []string) error {
 	if err := r.openSet(args[0]); err != nil {
 		return err
 	}
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if err := r.readableCatalog(); err != nil {
+		return err
+	}
 	if r.env.Refresh {
 		if err := r.stores(r.service.Set.To); err != nil {
 			return err
 		}
-		if err := r.service.Refresh(r.ctx); err != nil {
+		progress, err := r.startActivity("Refreshing archive availability")
+		if err != nil {
+			return err
+		}
+		err = r.service.Refresh(r.ctx)
+		progress.Stop()
+		if err != nil {
 			return err
 		}
 	}
-	return r.service.History(r.ctx, func(v model.Snapshot, ls []model.Location) error {
+	seen := 0
+	err := r.service.History(r.ctx, func(v model.Snapshot, ls []model.Location) error {
+		if seen == 0 && !r.env.jsonOutput() {
+			if err := r.result(fmt.Sprintf("%-36s  %-20s  %-11s  %10s  %s", "SNAPSHOT", "CREATED", "TYPE", "SIZE", "COPIES")); err != nil {
+				return err
+			}
+		}
+		seen++
 		date := "-"
 		if !v.Imported {
 			date = statusTime(&v.Created)
@@ -383,14 +448,26 @@ func history(r *runtime, args []string) error {
 		return r.emit("snapshot", struct {
 			Snapshot  model.Snapshot   `json:"snapshot"`
 			Locations []model.Location `json:"locations"`
-		}{v, ls}, fmt.Sprintf("%s  %s  %s  %s%s", v.ID, date, mode, L.Bytes(v.Size), r.locationSummary(ls)))
+		}{v, ls}, fmt.Sprintf("%-36s  %-20s  %-11s  %10s  %s", v.ID, date, mode, compactSize(v.Size), r.locationSummary(ls)))
 	})
+	if err != nil {
+		return err
+	}
+	if seen == 0 {
+		return r.result("No snapshots found for " + L.Value(r.service.Set.Name) + ".")
+	}
+	return nil
+
 }
 func browse(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
 	}
 	if err := r.openSet(args[0]); err != nil {
+		return err
+	}
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if err := r.readableCatalog(); err != nil {
 		return err
 	}
 	c, err := r.service.Catalog(r.ctx)
@@ -402,20 +479,60 @@ func browse(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	return r.service.Browse(r.ctx, snapshot.ID, r.env.Filter, r.env.Recursive, func(e model.Entry) error {
+	seen := 0
+	err = r.service.Browse(r.ctx, snapshot.ID, r.env.Filter, r.env.Recursive, func(e model.Entry) error {
+		if seen == 0 && !r.env.jsonOutput() {
+			if err := r.result(fmt.Sprintf("%-10s  %10s  %s", "TYPE", "SIZE", "PATH")); err != nil {
+				return err
+			}
+		}
+		seen++
+		size := compactSize(e.Size)
+		if e.Type == "directory" {
+			size = "-"
+		}
 		return r.emit("entry", struct {
 			Snapshot string      `json:"snapshot"`
 			Entry    model.Entry `json:"entry"`
-		}{snapshot.ID, e}, fmt.Sprintf("%-10s %10s %q", e.Type, L.Bytes(e.Size), e.Path))
+		}{snapshot.ID, e}, fmt.Sprintf("%-10s  %10s  %s", e.Type, size, L.Value(e.Path)))
 	})
+	if err != nil {
+		return err
+	}
+	if seen == 0 {
+		return r.emptyResult("entries matching this path")
+	}
+	return nil
+
 }
 func list(r *runtime, args []string) error {
 	if err := count(args, 0); err != nil {
 		return err
 	}
 	if !r.env.Remote {
-		return r.registry.Each(r.ctx, func(set model.Set) error { return r.emit("set", set, fmt.Sprintf("%q  %s", set.Name, set.ID)) })
+		seen := 0
+		err := r.registry.Each(r.ctx, func(set model.Set) error {
+			if seen == 0 && !r.env.jsonOutput() {
+				if err := r.result(fmt.Sprintf("%-30s  %s", "SET", "ID")); err != nil {
+					return err
+				}
+			}
+			seen++
+			name := set.Name
+			if name == set.ID && set.CatalogTo != "" && set.CatalogTo != "local" {
+				name = "(locked catalog)"
+			}
+			return r.emit("set", set, fmt.Sprintf("%-30s  %s", L.Value(name), set.ID))
+		})
+		if err != nil {
+			return err
+		}
+		if seen == 0 {
+			return r.emptyInventory()
+		}
+		return nil
 	}
+	L.Warn("list --remote is deprecated; use glesha catalog sync, then glesha status")
 	if len(r.env.From) == 0 {
 		return fmt.Errorf("cli: remote discovery requires --from")
 	}
@@ -441,24 +558,28 @@ func list(r *runtime, args []string) error {
 	return nil
 }
 func catalog(r *runtime, args []string) error {
+	if len(args) > 0 && args[0] == "unlock" {
+		return catalogUnlock(r, args[1:])
+	}
 	if len(args) > 0 && args[0] == "sync" {
 		return catalogSync(r, args[1:])
 	}
 	if len(args) > 0 && args[0] == "resolve" {
 		return catalogResolve(r, args[1:])
 	}
-	if r.env.All || r.env.Keep != "" {
-		return fmt.Errorf("cli: --all requires catalog sync; --keep requires catalog resolve")
+	if r.env.All || r.env.Keep != "" || r.env.Authority != "" {
+		return fmt.Errorf("cli: --all requires catalog sync; --keep and --authority require catalog resolve")
 	}
 	if err := count(args, 2); err != nil {
 		return err
 	}
 	operation, name := args[0], args[1]
+	if !knownHelpAction("catalog", operation) {
+		return fmt.Errorf("cli: unknown catalog action %q; see glesha help catalog", operation)
+	}
+
 	if err := r.openSet(name); err != nil {
-		if operation != "pull" {
-			return err
-		}
-		return fmt.Errorf("cli: discover this set with list --remote --from before pulling: %w", err)
+		return err
 	}
 	unlock, err := r.lock()
 	if err != nil {
@@ -466,7 +587,13 @@ func catalog(r *runtime, args []string) error {
 	}
 	defer unlock()
 	if operation == "abandon" {
-		return r.service.Abandon(r.ctx)
+		if err := r.service.Abandon(r.ctx); err != nil {
+			return err
+		}
+		return r.result(fmt.Sprintf("Pending local work discarded for %q. Remote objects were retained.", r.service.Set.Name))
+	}
+	if err = r.readableCatalog(); err != nil {
+		return err
 	}
 	if err = r.syncStores(); err != nil {
 		return err
@@ -486,25 +613,44 @@ func catalog(r *runtime, args []string) error {
 		return fmt.Errorf("cli: unknown catalog operation")
 	}
 	r.service.RecordResult(r.ctx, "sync", err)
-	return err
+	if err != nil {
+		return err
+	}
+	if operation == "pull" {
+		if err := r.service.RefreshSet(r.ctx); err != nil {
+			return err
+		}
+		return r.result(fmt.Sprintf("Catalog updated for %q.", r.service.Set.Name))
+	}
+	if err := r.publishState(); err != nil {
+		return err
+	}
+	return r.result(fmt.Sprintf("Catalog synchronized for %q.", r.service.Set.Name))
 
 }
 
 func (r *runtime) locationSummary(locations []model.Location) string {
-	out := ""
-	for _, l := range locations {
+	var copies []string
+	for _, location := range locations {
 		state := "readable"
-		if l.Cold {
+		if location.Cold {
 			state = "retrieval required"
-			if strings.Contains(l.Restore, `ongoing-request="true"`) {
+			if strings.Contains(location.Restore, `ongoing-request="true"`) {
 				state = "retrieval pending"
 			}
 		}
-		name := l.Provider
-		if remote, err := r.registry.Remote(r.ctx, l.Provider); err == nil {
-			name = remote.Name
+		class := location.ObservedClass
+		if class == "" {
+			class = location.CurrentClass
 		}
-		out += fmt.Sprintf("; %s: %s (%s)", name, l.ObservedClass, state)
+		detail := L.Value(r.remoteLabel(location.Provider)) + ": " + state
+		if class != "" {
+			detail += " (" + class + ")"
+		}
+		copies = append(copies, detail)
 	}
-	return out
+	if len(copies) == 0 {
+		return "-"
+	}
+	return strings.Join(copies, ", ")
 }
