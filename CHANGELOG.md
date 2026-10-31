@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.5.2 - 2026-10-31
+
 ### Added
 
 - JSON results for every command, with structured progress and errors on stderr.
