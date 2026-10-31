@@ -7,7 +7,27 @@ import (
 	"testing"
 
 	"glesha/config"
+	"glesha/database/model"
 )
+
+func TestMissingLocationDoesNotMisreportPresentCredentials(t *testing.T) {
+	t.Setenv("AWS_ACCESS_KEY_ID", "credential-value")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "credential-value")
+	r := portableRuntime(t, "")
+	r.config.AWS = config.Provider{}
+	remote, err := r.registry.BindRemote(r.ctx, model.Remote{Name: "aws", Kind: "aws", Bucket: "unconfigured", Region: "us-east-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rawService(r)
+	err = r.stores([]string{remote.ID})
+	if err == nil || !strings.Contains(err.Error(), "AWS_BUCKET_NAME") || !strings.Contains(err.Error(), "unconfigured") {
+		t.Fatalf("missing location guidance: %v", err)
+	}
+	if strings.Contains(err.Error(), "credentials are missing") || strings.Contains(err.Error(), "credential-value") {
+		t.Fatalf("misreported or exposed credentials: %v", err)
+	}
+}
 
 func TestCommandsRespectRemoteBoundary(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "test")

@@ -91,7 +91,7 @@ func TestStructuredVersionForms(t *testing.T) {
 				t.Fatal(err)
 			}
 			rows := decodeRecords(t, out)
-			if len(rows) != 1 || rows[0]["kind"] != "version" {
+			if len(rows) != 1 || rows[0]["version"] != float64(2) || rows[0]["kind"] != "version" {
 				t.Fatal(out)
 			}
 			data := rows[0]["data"].(map[string]any)

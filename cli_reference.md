@@ -112,7 +112,8 @@ Every command accepts `--format=json` (or `--format json`), before or after the
 command. `--format=plain` is the
 default; `status` also supports `table` and `csv`.
 
-- **stdout:** JSON Lines results, retaining version 2 `{version, kind, data}` envelopes.
+- **stdout:** JSON Lines results in `{version, kind, data}` envelopes. Catalog sync
+  records use version 3; other result records retain version 2.
   Listings emit one record per item; empty listings emit no records.
 - **stderr:** version 1 `{version, kind, data}` diagnostics. `kind` is `progress`,
   `error`, `warning`, `info` or `debug`. No ANSI formatting or inline updates.
@@ -894,7 +895,10 @@ Locked means opening the latest catalog requires its passphrase; it does not mea
 sync failed or that data was downloaded. Shared failures are grouped by cause with catalog counts in human output.
 Failure details and incomplete summaries use red when color is enabled. JSON
 retains individual catalog errors; discovery and registry errors use
-`catalog_sync_error` records. The final terminal error does not repeat details.
+`catalog_sync_error` records. All `catalog_state`, `catalog_sync_summary`, and
+`catalog_sync_error` records use output version 3, replacing the earlier version 2
+`synced`, `skipped`, and `set_error` contract. Other command results remain version 2;
+stderr diagnostics remain version 1. The final terminal error does not repeat details.
 Routine cached checks are quiet. Sync
 still makes metadata API requests to check for remote changes.
 

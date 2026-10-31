@@ -141,10 +141,12 @@ this computer's known archive/chunk cache paths. Raw archive objects lacking a
 catalog still require explicit import/recovery. Existing import limitations and
 per-snapshot passphrase overrides remain supported.
 
-CLI spellings follow the output protocol above. Catalog sync intentionally uses
-version 2 catalog_state records and a catalog_sync_summary instead of the earlier
-synced, skipped and set_error records. Each catalog_state includes its set UUID,
-state and optional error; the envelope version stays unchanged. list --remote
+CLI spellings follow the output protocol above. Catalog sync uses output version 3
+for catalog_state, catalog_sync_summary and catalog_sync_error records, replacing
+the version 2 synced, skipped and set_error contract. Each catalog_state includes
+its set UUID, state and optional error. Other command results remain version 2;
+stderr diagnostics remain version 1. These output versions are separate from the
+storage publication and descriptor versions. list --remote
 is deprecated but retained; list and status read local inventory without prompts.
 Portable mutations synchronize first and publish committed state afterward;
 standalone archive/file commands remain independent of remote state.
@@ -164,7 +166,7 @@ previously implicitly contacted other providers now require those providers to
 be selected explicitly (for example, `move SET --from A --to B`). Without
 either flag, configured and persisted remote choices retain their prior behavior.
 
-Catalog sync retains version 2 JSON catalog_state fields and historical state
+Catalog sync uses version 3 JSON catalog_state fields and historical state
 values. Additive result (updated/up_to_date) and locked fields separate this run's
 outcome from catalog access. A final catalog_sync_summary record reports counts
 and registry-copy repairs. Human output summarizes unchanged runs and reports
@@ -196,7 +198,7 @@ CLI presentation now separates stdout results from stderr activity and prompts.
 Human lists have headers and explicit empty states; unreadable catalog totals
 are marked as partial and unknown snapshot counts use a dash. Informational text
 is neutral; state and diagnostic colors are semantic. Label controls are escaped.
-Existing version 2 JSON records retain fields and types and never contain prose,
+Unchanged version 2 JSON records retain fields and types and never contain prose,
 color or progress. The new catalog unlock command operates on cached metadata
 only and emits an additive catalog_unlocked record; existing sync behavior stays
 unchanged. Existing aliases and exit codes remain supported.

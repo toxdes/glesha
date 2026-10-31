@@ -26,6 +26,11 @@ const (
 	formatCSV   outputFormat = "csv"
 )
 
+const (
+	resultOutputVersion      = 2
+	catalogSyncOutputVersion = 3
+)
+
 func (f outputFormat) String() string { return string(f) }
 func parseOutputFormat(value string) (outputFormat, error) {
 	switch f := outputFormat(value); f {
@@ -67,11 +72,16 @@ func (r *runtime) emit(kind string, data any, text string) error {
 
 func (r *runtime) emitAtLevel(kind string, data any, text string, level L.Level) error {
 	if r.env.jsonOutput() {
+		version := resultOutputVersion
+		switch kind {
+		case "catalog_state", "catalog_sync_summary", "catalog_sync_error":
+			version = catalogSyncOutputVersion
+		}
 		if err := json.NewEncoder(r.out).Encode(struct {
 			Version int    `json:"version"`
 			Kind    string `json:"kind"`
 			Data    any    `json:"data"`
-		}{2, kind, data}); err != nil {
+		}{version, kind, data}); err != nil {
 			return err
 		}
 		r.emitted++

@@ -178,7 +178,7 @@ func TestPortableCommandsRecoverAndPublishState(t *testing.T) {
 	if err := json.NewDecoder(bytes.NewReader(second.out.(*bytes.Buffer).Bytes())).Decode(&envelope); err != nil {
 		t.Fatal("catalog JSON contains human output", err)
 	}
-	if err := json.Unmarshal(envelope.Data, &discovery); err != nil || envelope.Version != 2 || envelope.Kind != "catalog_state" || discovery.State.String() != "SYNCED" {
+	if err := json.Unmarshal(envelope.Data, &discovery); err != nil || envelope.Version != 3 || envelope.Kind != "catalog_state" || discovery.State.String() != "SYNCED" {
 		t.Fatal("unexpected catalog JSON", err)
 	}
 	second.env.Format = "plain"

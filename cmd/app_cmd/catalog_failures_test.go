@@ -16,6 +16,9 @@ import (
 )
 
 func TestCatalogSyncGroupsMissingBucketFailures(t *testing.T) {
+	for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY", "B2_KEY_ID", "B2_APPLICATION_KEY"} {
+		t.Setenv(name, "")
+	}
 	r := portableRuntime(t, "")
 	r.config.AWS = config.Provider{}
 	var ids []string
@@ -53,6 +56,11 @@ func TestCatalogSyncGroupsMissingBucketFailures(t *testing.T) {
 		t.Fatalf("returned error should be concise and preserve causes: %v", err)
 	}
 	output := r.out.(*bytes.Buffer).String()
+	for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "B2_KEY_ID", "B2_APPLICATION_KEY", "AWS_BUCKET_NAME", "B2_BUCKET_NAME", "B2_BUCKET_ENDPOINT", "--env FILE"} {
+		if !strings.Contains(output, name) {
+			t.Fatalf("missing credential/location guidance for %s: %s", name, output)
+		}
+	}
 	for _, bucket := range []string{"missing-aws", "missing-b2"} {
 		if strings.Count(output, bucket) != 1 {
 			t.Fatalf("bucket error repeated: %s", output)
@@ -81,13 +89,17 @@ func TestCatalogSyncGroupsMissingBucketFailures(t *testing.T) {
 	failed, summaries := 0, 0
 	for {
 		var record struct {
-			Kind string
-			Data json.RawMessage
+			Version int
+			Kind    string
+			Data    json.RawMessage
 		}
 		if err := decoder.Decode(&record); errors.Is(err, io.EOF) {
 			break
 		} else if err != nil {
 			t.Fatal(err)
+		}
+		if record.Version != 3 {
+			t.Fatalf("catalog sync reused the old output version: %+v", record)
 		}
 		switch record.Kind {
 		case "catalog_state":
@@ -97,6 +109,9 @@ func TestCatalogSyncGroupsMissingBucketFailures(t *testing.T) {
 			}
 			if result.State != backup.CatalogStateFailed || result.Error == "" {
 				t.Fatalf("lost per-set failure: %+v", result)
+			}
+			if !strings.Contains(result.Error, "credentials are missing") || !strings.Contains(result.Error, "--env FILE") {
+				t.Fatalf("JSON lost credential guidance: %+v", result)
 			}
 			failed++
 		case "catalog_sync_summary":
@@ -140,8 +155,9 @@ func TestCatalogSyncReportsOperationErrorsInJSON(t *testing.T) {
 		t.Fatalf("lost discovery error: %v", err)
 	}
 	var record struct {
-		Kind string
-		Data struct {
+		Version int
+		Kind    string
+		Data    struct {
 			Operation string
 			Error     string
 		}
@@ -149,7 +165,7 @@ func TestCatalogSyncReportsOperationErrorsInJSON(t *testing.T) {
 	if err := json.NewDecoder(r.out.(*bytes.Buffer)).Decode(&record); err != nil {
 		t.Fatal(err)
 	}
-	if record.Kind != "catalog_sync_error" || record.Data.Operation != "Discovery" || record.Data.Error != cause.Error() {
+	if record.Version != 3 || record.Kind != "catalog_sync_error" || record.Data.Operation != "Discovery" || record.Data.Error != cause.Error() {
 		t.Fatalf("missing discovery error details: %+v", record)
 	}
 }

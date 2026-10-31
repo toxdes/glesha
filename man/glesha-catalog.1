@@ -101,7 +101,8 @@ glesha catalog sync SET
 .fi
 .SH OUTPUT
 Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
+Use \-\-format=json for result records, one per line.
+Catalog sync records use output version 3; other catalog results retain version 2.
 JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
 Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO

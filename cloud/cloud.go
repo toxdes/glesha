@@ -85,8 +85,8 @@ func New(ctx context.Context, name string, p config.Provider, workers int, limit
 	} else {
 		return nil, fmt.Errorf("cloud: unknown provider %q", name)
 	}
-	if key == "" || secret == "" {
-		return nil, fmt.Errorf("cloud: %s credentials are missing", name)
+	if err := ValidateCredentials(name); err != nil {
+		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err

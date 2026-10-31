@@ -620,7 +620,17 @@ func (r *runtime) stores(ids []string) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("cli: catalog requires access to %s bucket %q; configure that location before syncing", remote.Kind, remote.Bucket)
+			hint := "configure that location before syncing"
+			switch remote.Kind {
+			case "aws":
+				hint += " in [aws]/[remotes.NAME], or use AWS_BUCKET_NAME and AWS_REGION"
+			case "b2":
+				hint += " in [b2]/[remotes.NAME], or use B2_BUCKET_NAME and B2_BUCKET_ENDPOINT"
+			}
+			if err := cloud.ValidateCredentials(remote.Kind); err != nil {
+				return fmt.Errorf("cli: catalog requires access to %s bucket %q; %w; %s", remote.Kind, remote.Bucket, err, hint)
+			}
+			return fmt.Errorf("cli: catalog requires access to %s bucket %q; %s", remote.Kind, remote.Bucket, hint)
 		}
 		store, err := cloud.New(r.ctx, p.Kind, p, r.budget.TransferWorkers, r.limit)
 		if err != nil {

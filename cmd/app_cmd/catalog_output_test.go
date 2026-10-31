@@ -70,8 +70,9 @@ func TestRepeatedCatalogSyncReportsUpToDate(t *testing.T) {
 			}
 			decoder := json.NewDecoder(reader.out.(*bytes.Buffer))
 			var record struct {
-				Kind string
-				Data json.RawMessage
+				Version int
+				Kind    string
+				Data    json.RawMessage
 			}
 			if err := decoder.Decode(&record); err != nil {
 				t.Fatal(err)
@@ -80,13 +81,13 @@ func TestRepeatedCatalogSyncReportsUpToDate(t *testing.T) {
 			if err := json.Unmarshal(record.Data, &result); err != nil {
 				t.Fatal(err)
 			}
-			if record.Kind != "catalog_state" || result.Result != CatalogSyncUpToDate || result.Locked != encrypted {
+			if record.Version != 3 || record.Kind != "catalog_state" || result.Result != CatalogSyncUpToDate || result.Locked != encrypted {
 				t.Fatalf("incorrect JSON result: %+v", result)
 			}
 			if err := decoder.Decode(&record); err != nil {
 				t.Fatal(err)
 			}
-			if record.Kind != "catalog_sync_summary" {
+			if record.Version != 3 || record.Kind != "catalog_sync_summary" {
 				t.Fatalf("missing JSON summary: %s", record.Kind)
 			}
 			// missing cache files must be repaired even if the revision is unchanged
