@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Release publishing uses pinned Debian/Fedora helpers for APT/RPM tools, with signing keys kept on the host.
+
 ## 0.5.2 - 2026-10-31
 
 ### Fixed

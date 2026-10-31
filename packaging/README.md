@@ -47,6 +47,9 @@ Run these after verifying the build:
 ```
 
 APT/RPM use the shared toxdes `/apt` and `/rpm` repositories, preserving other apps.
+The pinned Debian/Fedora helpers in `release.toml` run repository tools in Docker;
+private signing keys, GPG prompts, SSH and uploads stay on the host.
+AUR metadata uses its pinned Arch helper. No distro packaging tools are needed on the host.
 Keep the same signing key used by the existing repositories (`GPG_KEY_ID`).
 Production APT/RPM publishing requires signing; validation can run unsigned locally.
 
