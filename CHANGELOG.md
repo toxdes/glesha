@@ -5,6 +5,7 @@
 ### Changed
 
 - Release publishing uses pinned Debian/Fedora helpers for APT/RPM tools, with signing keys kept on the host.
+- Release artifacts publish under `releases/` instead of `glesha/releases/`, matching the other toxdes projects. `packaging/migrate_release_prefix.py` copies existing objects to the new prefix while the originals keep serving old links.
 
 ## 0.5.2 - 2026-10-31
 
