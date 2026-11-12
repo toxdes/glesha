@@ -15,7 +15,7 @@ python3 -m unittest discover -s packaging -p 'test_*.py'
 
 ## Direct downloads
 
-Files are published under `https://packages.toxdes.com/glesha/releases/`:
+Files are published under `https://packages.toxdes.com/releases/`:
 
 | Platform | Archive |
 | --- | --- |
@@ -33,6 +33,16 @@ prefix. macOS and Windows bundles retain their `bin/`, `share/`, `LICENSE` and
 `install.txt` layout.
 Build output includes individual `.sha256` files and `SHA256SUMS`.
 The direct publisher uploads the five bundles and their individual checksums.
+
+Artifacts published before 0.5.3 live under the legacy `glesha/releases/` prefix.
+`packaging/migrate_release_prefix.py` copies them to `releases/` without deleting
+the originals, so old download links keep working. Run it once before the next
+release, with `--apply` only after checking the dry run:
+
+```sh
+./packaging/migrate_release_prefix.py --env /path/to/release.env
+./packaging/migrate_release_prefix.py --env /path/to/release.env --apply
+```
 
 ## Publish
 
