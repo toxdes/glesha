@@ -143,9 +143,6 @@ type runtime struct {
 	catalogReplicasUpdated int
 	remoteScope            *remoteScope
 	operationLocked        bool
-	statusCopies           *sql.DB
-	statusArchiveBytes     int64
-	statusArchiveCost      float64
 	ctx                    context.Context
 	env                    *AppCmdEnv
 	config                 config.Config

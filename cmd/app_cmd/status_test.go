@@ -165,7 +165,7 @@ func TestStatusChunkedCountsActualObjectsAndClasses(t *testing.T) {
 		t.Fatal(err)
 	}
 	c.Close()
-	d, err := collectStatus(r, set)
+	d, err := collectStatus(r, set, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

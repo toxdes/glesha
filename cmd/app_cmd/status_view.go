@@ -1,7 +1,6 @@
 package app_cmd
 
 import (
-	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"errors"
@@ -17,7 +16,6 @@ import (
 
 	"glesha/backup"
 	"glesha/database/model"
-	"glesha/file_io"
 	L "glesha/logger"
 )
 
@@ -43,24 +41,12 @@ func status(r *runtime, args []string) error {
 		}
 		defer refreshProgress.Stop()
 	}
-	tracker, err := file_io.Temp(r.root)
+	copies, err := newCopySet(r.ctx, r.root)
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tracker.Name())
-	if err = tracker.Close(); err != nil {
-		return err
-	}
-	r.statusCopies, err = sql.Open("sqlite", tracker.Name())
-	if err != nil {
-		return err
-	}
-	defer r.statusCopies.Close()
-	defer func() { r.statusCopies = nil }()
-	r.statusArchiveBytes, r.statusArchiveCost = 0, 0
-	if _, err = r.statusCopies.ExecContext(r.ctx, "PRAGMA cache_size=-256; CREATE TABLE copies(provider TEXT,key TEXT,version TEXT,PRIMARY KEY(provider,key,version))"); err != nil {
-		return err
-	}
+	defer copies.Close()
+	totals := &statusTotals{copies: copies}
 	rows := []statusData{}
 	var failures []error
 	if len(args) == 0 {
@@ -70,7 +56,7 @@ func status(r *runtime, args []string) error {
 		}
 	}
 	collect := func(set model.Set) error {
-		d, err := collectStatus(r, set)
+		d, err := collectStatus(r, set, totals)
 		if err != nil {
 			failures = append(failures, fmt.Errorf("%s: %w", set.Name, err))
 			d.Set = set
@@ -138,8 +124,8 @@ func status(r *runtime, args []string) error {
 		total.EstimateComplete = total.EstimateComplete && d.EstimateComplete
 	}
 	if len(args) == 0 {
-		total.ArchiveBytes = r.statusArchiveBytes
-		total.ArchiveAnnualUSD = r.statusArchiveCost
+		total.ArchiveBytes = totals.bytes
+		total.ArchiveAnnualUSD = totals.annualUSD
 		totalSize, totalSnapshots := compactSize(total.ArchiveBytes), fmt.Sprint(total.Snapshots)
 		if unavailable == len(rows) {
 			totalSize, totalSnapshots = "-", "-"
