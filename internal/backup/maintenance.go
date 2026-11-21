@@ -189,6 +189,8 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 	return s.finishPending(ctx, p)
 }
 
+// Move copies the set's snapshots and catalog to the remote to and makes it the
+// set's only remote. An interrupted move resumes from its pending journal.
 func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOptions) error {
 	if err := s.rememberAuthority(ctx, ""); err != nil {
 		return err
@@ -205,18 +207,7 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 			return err
 		}
 	}
-	view, err := s.Catalog(ctx)
-	if err != nil {
-		return err
-	}
-	err = view.EachSnapshot(ctx, func(v model.Snapshot) error {
-		if v.Layout == "chunked" {
-			return fmt.Errorf("backup: moving sets with chunked snapshots is not supported")
-		}
-		return nil
-	})
-	view.Close()
-	if err != nil {
+	if err = s.rejectChunkedMove(ctx); err != nil {
 		return err
 	}
 	p, err := s.stageOperation(ctx, "move")
@@ -227,90 +218,16 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 	if err = s.checkCatalogSecret(ctx, p); err != nil {
 		return err
 	}
-	saved, _ := p.GetMeta(ctx, "move_to")
-	if saved != "" {
-		if to != "" && to != saved {
-			return fmt.Errorf("backup: destination conflicts with pending move")
-		}
-		to = saved
-	} else {
-		if to == "" || s.Stores[to] == nil {
-			return fmt.Errorf("backup: destination remote is required")
-		}
-		if err = p.SetMeta(ctx, "move_to", to); err != nil {
-			return err
-		}
+	if to, err = s.moveDestination(ctx, p, to); err != nil {
+		return err
 	}
-	if s.Stores[to] == nil {
-		return fmt.Errorf("backup: destination remote unavailable")
-	}
-	var moveSource model.Set
-	sourceJSON, err := p.GetMeta(ctx, "move_source_set")
+	moveSource, err := s.moveSourceSet(ctx, p)
 	if err != nil {
 		return err
 	}
-	if sourceJSON == "" {
-		moveSource = s.Set
-		b, err := json.Marshal(moveSource)
-		if err != nil {
-			return err
-		}
-		if err = p.SetMeta(ctx, "move_source_set", string(b)); err != nil {
-			return err
-		}
-		c, err := s.Catalog(ctx)
-		if err != nil {
-			return err
-		}
-		revision, readErr := c.GetMeta(ctx, "remote_revision")
-		c.Close()
-		if readErr != nil {
-			return readErr
-		}
-		if err = p.SetMeta(ctx, "move_source_revision", revision); err != nil {
-			return err
-		}
-	} else if err = json.Unmarshal([]byte(sourceJSON), &moveSource); err != nil || moveSource.ID != s.Set.ID {
-		return fmt.Errorf("backup: invalid move source journal")
-	}
-	policy, err := p.GetMeta(ctx, "move_retrieval")
-	if err != nil {
+	if retrieval, err = s.moveRetrieval(ctx, p, retrieval); err != nil {
 		return err
 	}
-	if policy != "" {
-		var saved struct {
-			Tier    string
-			Days    int32
-			Request bool
-		}
-		if err = json.Unmarshal([]byte(policy), &saved); err != nil {
-			return err
-		}
-		if retrieval.UseSavedDays || retrieval.Days == 0 {
-			retrieval.Days = saved.Days
-		}
-		if retrieval.Tier != "" && retrieval.Tier != saved.Tier || retrieval.Days != 0 && retrieval.Days != saved.Days {
-			return fmt.Errorf("backup: retrieval options conflict with pending move")
-		}
-		retrieval.Tier, retrieval.Days = saved.Tier, saved.Days
-		retrieval.Request = retrieval.Request || saved.Request
-	} else {
-		if retrieval.Tier == "" {
-			retrieval.Tier = "bulk"
-		}
-		if retrieval.Days == 0 {
-			retrieval.Days = s.Config.Cold.Days
-		}
-		b, _ := json.Marshal(struct {
-			Tier    string
-			Days    int32
-			Request bool
-		}{retrieval.Tier, retrieval.Days, retrieval.Request})
-		if err = p.SetMeta(ctx, "move_retrieval", string(b)); err != nil {
-			return err
-		}
-	}
-
 	next := s.Set
 	next.To = []string{to}
 	next.CatalogTo = to
@@ -320,69 +237,9 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 	if err = s.prepareMoveCatalog(ctx, p, next); err != nil {
 		return err
 	}
-
-	err = p.EachSnapshot(ctx, func(v model.Snapshot) error {
-		if v.Status != model.STATUS_COMPLETED {
-			return fmt.Errorf("backup: unfinished snapshot cannot be moved")
-		}
-		locations, err := p.Locations(ctx, v.ID)
-		if err != nil {
-			return err
-		}
-		for _, l := range locations {
-			if l.Provider == to && l.Status == model.STATUS_COMPLETED {
-				h, err := s.Stores[to].Head(ctx, l.Key, l.Version)
-				if err == nil && h.Size == v.Size && h.Hash == v.Hash {
-					return nil
-				}
-			}
-		}
-		file := v.File
-		hash, size, err := archive.Hash(ctx, file)
-		if err != nil || hash != v.Hash || size != v.Size {
-			// preparation pins retrieval approvals; existing sources remain untouched
-			_, _, err = s.PrepareRestore(ctx, v.ID, filepath.Join(s.Directory, "move-"+v.ID), s.Set.To, retrieval)
-			if err != nil {
-				return err
-			}
-			file = filepath.Join(s.Directory, "move-payload-"+v.ID+".gpg")
-			if _, err = os.Stat(file); os.IsNotExist(err) {
-				readable := false
-				for _, remote := range s.Set.To {
-					for _, l := range locations {
-						if l.Provider != remote {
-							continue
-						}
-						_, err = Download(ctx, s.Stores, []string{remote}, l.Key, l.Version, file)
-						if err == nil {
-							readable = true
-							break
-						}
-					}
-					if readable {
-						break
-					}
-				}
-				if !readable {
-					return fmt.Errorf("backup: no readable source for %s", v.ID)
-				}
-			}
-			hash, size, err = archive.Hash(ctx, file)
-			if err != nil || hash != v.Hash || size != v.Size {
-				return fmt.Errorf("backup: source checksum mismatch during move")
-			}
-		}
-		h, err := cloud.Create(ctx, s.Stores[to], s.payloadKey(v), file, "STANDARD")
-		if err != nil {
-			return err
-		}
-		location := uploadedLocation(v.ID, to, h)
-		if err = p.PutLocation(ctx, location); err != nil {
-			return err
-		}
-		return nil
-	})
-	if err != nil {
+	if err = p.EachSnapshot(ctx, func(v model.Snapshot) error {
+		return s.copySnapshotTo(ctx, p, v, to, retrieval)
+	}); err != nil {
 		return err
 	}
 	b, _ := json.Marshal(next)
@@ -408,6 +265,179 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 		return err
 	}
 	return s.finishPending(ctx, p)
+}
+
+func (s *Service) rejectChunkedMove(ctx context.Context) error {
+	view, err := s.Catalog(ctx)
+	if err != nil {
+		return err
+	}
+	defer view.Close()
+	return view.EachSnapshot(ctx, func(v model.Snapshot) error {
+		if v.Layout == "chunked" {
+			return fmt.Errorf("backup: moving sets with chunked snapshots is not supported")
+		}
+		return nil
+	})
+}
+
+// moveDestination returns the pending move's destination, or saves to as it.
+func (s *Service) moveDestination(ctx context.Context, p repository.Cataloger, to string) (string, error) {
+	saved, _ := p.GetMeta(ctx, "move_to")
+	if saved != "" {
+		if to != "" && to != saved {
+			return "", fmt.Errorf("backup: destination conflicts with pending move")
+		}
+		to = saved
+	} else {
+		if to == "" || s.Stores[to] == nil {
+			return "", fmt.Errorf("backup: destination remote is required")
+		}
+		if err := p.SetMeta(ctx, "move_to", to); err != nil {
+			return "", err
+		}
+	}
+	if s.Stores[to] == nil {
+		return "", fmt.Errorf("backup: destination remote unavailable")
+	}
+	return to, nil
+}
+
+// moveSourceSet returns the set as it was when the move started, saving it and
+// its remote revision on the first attempt.
+func (s *Service) moveSourceSet(ctx context.Context, p repository.Cataloger) (model.Set, error) {
+	var source model.Set
+	saved, err := p.GetMeta(ctx, "move_source_set")
+	if err != nil {
+		return source, err
+	}
+	if saved != "" {
+		if err = json.Unmarshal([]byte(saved), &source); err != nil || source.ID != s.Set.ID {
+			return source, fmt.Errorf("backup: invalid move source journal")
+		}
+		return source, nil
+	}
+	source = s.Set
+	b, err := json.Marshal(source)
+	if err != nil {
+		return source, err
+	}
+	if err = p.SetMeta(ctx, "move_source_set", string(b)); err != nil {
+		return source, err
+	}
+	c, err := s.Catalog(ctx)
+	if err != nil {
+		return source, err
+	}
+	revision, err := c.GetMeta(ctx, "remote_revision")
+	c.Close()
+	if err != nil {
+		return source, err
+	}
+	return source, p.SetMeta(ctx, "move_source_revision", revision)
+}
+
+// movePolicy is the retrieval policy saved with a pending move.
+type movePolicy struct {
+	Tier    string
+	Days    int32
+	Request bool
+}
+
+// moveRetrieval reconciles retrieval with the pending move's saved policy, or
+// fills in defaults and saves them.
+func (s *Service) moveRetrieval(ctx context.Context, p repository.Cataloger, retrieval RetrievalOptions) (RetrievalOptions, error) {
+	policy, err := p.GetMeta(ctx, "move_retrieval")
+	if err != nil {
+		return retrieval, err
+	}
+	if policy != "" {
+		var saved movePolicy
+		if err = json.Unmarshal([]byte(policy), &saved); err != nil {
+			return retrieval, err
+		}
+		if retrieval.UseSavedDays || retrieval.Days == 0 {
+			retrieval.Days = saved.Days
+		}
+		if retrieval.Tier != "" && retrieval.Tier != saved.Tier || retrieval.Days != 0 && retrieval.Days != saved.Days {
+			return retrieval, fmt.Errorf("backup: retrieval options conflict with pending move")
+		}
+		retrieval.Tier, retrieval.Days = saved.Tier, saved.Days
+		retrieval.Request = retrieval.Request || saved.Request
+		return retrieval, nil
+	}
+	if retrieval.Tier == "" {
+		retrieval.Tier = "bulk"
+	}
+	if retrieval.Days == 0 {
+		retrieval.Days = s.Config.Cold.Days
+	}
+	b, _ := json.Marshal(movePolicy{retrieval.Tier, retrieval.Days, retrieval.Request})
+	return retrieval, p.SetMeta(ctx, "move_retrieval", string(b))
+}
+
+// copySnapshotTo uploads v's archive to the remote to, unless a matching copy is already there.
+func (s *Service) copySnapshotTo(ctx context.Context, p repository.Cataloger, v model.Snapshot, to string, retrieval RetrievalOptions) error {
+	if v.Status != model.STATUS_COMPLETED {
+		return fmt.Errorf("backup: unfinished snapshot cannot be moved")
+	}
+	locations, err := p.Locations(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	for _, l := range locations {
+		if l.Provider == to && l.Status == model.STATUS_COMPLETED {
+			h, err := s.Stores[to].Head(ctx, l.Key, l.Version)
+			if err == nil && h.Size == v.Size && h.Hash == v.Hash {
+				return nil
+			}
+		}
+	}
+	file, err := s.moveSourceFile(ctx, v, locations, retrieval)
+	if err != nil {
+		return err
+	}
+	h, err := cloud.Create(ctx, s.Stores[to], s.payloadKey(v), file, "STANDARD")
+	if err != nil {
+		return err
+	}
+	return p.PutLocation(ctx, uploadedLocation(v.ID, to, h))
+}
+
+// moveSourceFile returns a local, verified copy of v's archive, retrieving and
+// downloading it from the set's current remotes when needed.
+func (s *Service) moveSourceFile(ctx context.Context, v model.Snapshot, locations []model.Location, retrieval RetrievalOptions) (string, error) {
+	if hash, size, err := archive.Hash(ctx, v.File); err == nil && hash == v.Hash && size == v.Size {
+		return v.File, nil
+	}
+	// preparation pins retrieval approvals; existing sources remain untouched
+	if _, _, err := s.PrepareRestore(ctx, v.ID, filepath.Join(s.Directory, "move-"+v.ID), s.Set.To, retrieval); err != nil {
+		return "", err
+	}
+	file := filepath.Join(s.Directory, "move-payload-"+v.ID+".gpg")
+	if _, err := os.Stat(file); os.IsNotExist(err) && !s.downloadMoveSource(ctx, locations, file) {
+		return "", fmt.Errorf("backup: no readable source for %s", v.ID)
+	}
+	hash, size, err := archive.Hash(ctx, file)
+	if err != nil || hash != v.Hash || size != v.Size {
+		return "", fmt.Errorf("backup: source checksum mismatch during move")
+	}
+	return file, nil
+}
+
+// downloadMoveSource downloads the first readable copy, in remote order, to file.
+func (s *Service) downloadMoveSource(ctx context.Context, locations []model.Location, file string) bool {
+	for _, remote := range s.Set.To {
+		for _, l := range locations {
+			if l.Provider != remote {
+				continue
+			}
+			if _, err := Download(ctx, s.Stores, []string{remote}, l.Key, l.Version, file); err == nil {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (s *Service) prepareMoveCatalog(ctx context.Context, p repository.Cataloger, next model.Set) error {
