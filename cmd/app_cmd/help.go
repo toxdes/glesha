@@ -199,6 +199,7 @@ var commandHelps = map[string]commandHelp{
 		summary:  "test access to remote buckets",
 		description: []string{
 			"For each remote, write a small object under glesha/check/, read its metadata and content back, and delete it. Each step is reported as OK, FAILED, or SKIPPED. An object that could not be deleted is named in the report.",
+			"A bucket with a default Object Lock retention is not written to, and its check fails.",
 		},
 		examples: []string{"glesha check --to aws,b2"},
 	},

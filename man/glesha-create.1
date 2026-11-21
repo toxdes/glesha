@@ -25,7 +25,7 @@ REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-
 .SS Archive options
 .TP
 .B \-\-storage\-class CLASS
-AWS storage class of full snapshots.
+AWS storage class of snapshots.
 .TP
 .B \-\-compression FORMAT
 Compression: xz, gzip, or bzip2 (default: xz).
@@ -37,10 +37,10 @@ Compression level, 1 to 9 (default: 6).
 Name prefix: glesha or encb (default: glesha).
 .TP
 .B \-\-incremental\-storage\-class CLASS
-AWS storage class of incremental snapshots.
+AWS storage class of incremental snapshots (default: \-\-storage\-class).
 .TP
 .B \-\-chunked
-Upload in chunks using bounded local space. Chunked snapshots cannot be kept with \-\-output or \-\-keep\-archive, cannot use memory archive mode, and cannot be moved with glesha move.
+Upload in chunks using bounded local space. Chunked snapshots cannot be kept with \-\-output or \-\-keep\-archive, cannot use memory archive mode, cannot be moved with glesha move, and cannot be changed with glesha storage\-class.
 .TP
 .B \-\-spool\-max SIZE
 Local space for chunks (default: 128MiB, min: 2MiB). Requires \-\-chunked.

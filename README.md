@@ -3,7 +3,7 @@
 Encrypted archives and backups to AWS S3, Backblaze B2 and compatible S3 endpoints.
 One standalone executable.
 
-[Website](https://glesha.toxdes.com) · [Docs](https://glesha.toxdes.com/docs.html) · [CLI reference](cli_reference.md) · [Changelog](CHANGELOG.md)
+[Website](https://glesha.toxdes.com) · [Docs](docs/getting-started.md) · [CLI reference](docs/cli-reference.md) · [Changelog](CHANGELOG.md)
 
 - Full and incremental snapshots, with a browsable file catalog.
 - XZ compression by default; gzip and bzip2 also supported.
@@ -19,13 +19,13 @@ Linux amd64 and arm64:
 curl -fsSL https://glesha.toxdes.com/install | sh
 ```
 
-See [installation options](https://glesha.toxdes.com/docs.html#installation) for binary downloads and manual installation.
+See [installation options](docs/getting-started.md#installation) for binary downloads and manual installation.
 
 Direct bundles also cover macOS Intel/Apple Silicon and Windows x64. Each includes `install.txt`.
 
 ## Back up and restore
 
-Configure [provider credentials](https://glesha.toxdes.com/configuration.html) in your environment or pass `--env FILE`.
+Configure [provider credentials](docs/configuration.md#credentials) in your environment or pass `--env FILE`.
 
 ```sh
 glesha create docs ~/Documents --to b2
@@ -52,7 +52,7 @@ glesha archive ~/Documents
 ```
 
 Use `glesha help COMMAND` or `man glesha` for options and examples.
-See the [guides](https://glesha.toxdes.com/guides.html), [sample configuration](config-sample.toml) and [compatibility notes](compatibility.md) for more.
+See the [how-to guides](docs/guides.md), [sample configuration](config-sample.toml) and [compatibility notes](compatibility.md) for more.
 
 ## Recover on another computer
 
