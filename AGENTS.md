@@ -26,7 +26,7 @@
 - Import ordering: stdlib → external → internal groups, with blank lines separating each group
 - If a function might involve async work, accept `ctx context.Context` as its first parameter for future-proofing
 - Use `defer` for cleanup (closing db, files, etc.)
-- Command flags use `AppCmdEnv` in `cmd/app_cmd/app.go`, passed through the command runtime.
+- Parsed flags live in `AppCmdEnv` (`cmd/app_cmd/app.go`), one field per flag, named after the flag; read presence with `given`, never `present` directly.
 - Interface names: `*er` / `*or` suffix (e.g., `Archiver`, `Configurator`, `StorageFactory`)
 - Enum constants: use custom types with `String()` / `Parse()` methods, not raw strings or ints
 - Snapshot and transfer status constants use the `STATUS_*` prefix.

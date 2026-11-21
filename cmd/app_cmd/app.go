@@ -60,19 +60,78 @@ func (m *mappings) Set(value string) error {
 	return nil
 }
 
+// AppCmdEnv holds the parsed command-line options. Each field is named after its
+// flag; a command only sets the fields of the options it accepts.
 type AppCmdEnv struct {
-	CancelRestore                                                                                                                                                                                                         bool
-	StateDirectory                                                                                                                                                                                                        string
-	Chunked                                                                                                                                                                                                               bool
-	SpoolMax                                                                                                                                                                                                              string
-	Progress, Format, Keep, Authority                                                                                                                                                                                     string
-	All, DryRun                                                                                                                                                                                                           bool
-	Config, Env, LogLevel, Color, Output, Into, File, Archive, Key, CatalogTo, Compression, Prefix, Mode, Class, IncrementalClass, Snapshot, Filter, Memory, PasswordFile, CatalogPasswordFile, Date, Baseline, Retrieval string
-	To, From                                                                                                                                                                                                              destinations
-	Roots, Passwords                                                                                                                                                                                                      mappings
-	Level, HashWorkers, TransferWorkers, Days                                                                                                                                                                             int
-	Incremental, Full, Recursive, Refresh, Remote, Force, AssumeYes, RequestRetrieval, Deep, Help, Version, KeepArchive                                                                                                   bool
-	present                                                                                                                                                                                                               map[string]bool
+	// global
+	Config   string
+	StateDir string
+	Env      string
+	Format   string
+	Progress string
+	Color    string
+	LogLevel string
+	Help     bool
+	Version  bool
+
+	// remotes
+	To        destinations
+	From      destinations
+	CatalogTo string
+
+	// archive
+	Compression             string
+	CompressionLevel        int
+	Prefix                  string
+	ArchiveMode             string
+	StorageClass            string // also --class
+	IncrementalStorageClass string
+	Chunked                 bool
+	SpoolMax                string
+	KeepArchive             bool
+
+	// passphrases
+	PassphraseFile         string
+	CatalogPassphraseFile  string
+	ArchivePassphraseFiles mappings
+
+	// retrieval
+	Retrieval        string
+	Days             int
+	RequestRetrieval bool
+
+	// performance
+	MemoryMax       string
+	HashWorkers     int
+	TransferWorkers int // also --jobs and -j
+
+	// command-specific
+	Output      string
+	Into        string
+	File        string
+	Key         string
+	Archive     string
+	Snapshot    string
+	Path        string
+	Date        string
+	Baseline    string
+	Keep        string
+	Authority   string
+	Root        mappings
+	Incremental bool
+	Full        bool
+	Recursive   bool
+	Refresh     bool
+	Remote      bool
+	Force       bool
+	AssumeYes   bool
+	DeepVerify  bool
+	All         bool
+	DryRun      bool
+	Cancel      bool
+
+	// present records the flags given, by spelling; read it with given
+	present map[string]bool
 }
 
 type runtime struct {
@@ -202,7 +261,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	L.SetStructuredDiagnostics(e.jsonOutput())
 	defer L.SetStructuredDiagnostics(false)
 	early := &runtime{ctx: ctx, env: e, out: os.Stdout, command: command}
-	if e.given("state-dir") && e.StateDirectory == "" {
+	if e.given("state-dir") && e.StateDir == "" {
 		return fmt.Errorf("cli: --state-dir requires a directory")
 	}
 	if err = e.expandPaths(); err != nil {
@@ -224,8 +283,8 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if err != nil {
 		return err
 	}
-	if e.StateDirectory != "" {
-		c.Catalog.Directory = e.StateDirectory
+	if e.StateDir != "" {
+		c.Catalog.Directory = e.StateDir
 	}
 	if spec.setup == configSetup {
 		early.config = c
@@ -304,7 +363,7 @@ func parseFlags(command string, args []string) (*AppCmdEnv, []string, error) {
 
 // expandPaths resolves '~' in path options; '-' keeps meaning stdin.
 func (e *AppCmdEnv) expandPaths() error {
-	for _, p := range []*string{&e.Output, &e.Into, &e.File, &e.Archive, &e.PasswordFile, &e.CatalogPasswordFile} {
+	for _, p := range []*string{&e.Output, &e.Into, &e.File, &e.Archive, &e.PassphraseFile, &e.CatalogPassphraseFile} {
 		if *p != "" && *p != "-" {
 			expanded, err := file_io.Expand(*p)
 			if err != nil {
@@ -368,16 +427,16 @@ func (e *AppCmdEnv) applyTo(c *config.Config) error {
 	if e.Prefix != "" {
 		c.Archive.Prefix = e.Prefix
 	}
-	if e.Level != 0 {
-		c.Archive.Level = e.Level
+	if e.CompressionLevel != 0 {
+		c.Archive.Level = e.CompressionLevel
 	}
-	if e.Mode != "" {
-		c.Archive.Mode = e.Mode
+	if e.ArchiveMode != "" {
+		c.Archive.Mode = e.ArchiveMode
 	}
-	if e.Memory != "" {
-		c.Memory.Max = e.Memory
+	if e.MemoryMax != "" {
+		c.Memory.Max = e.MemoryMax
 	}
-	if e.given("compression-level") && e.Level < 1 || e.given("hash-workers") && e.HashWorkers < 1 || e.given("transfer-workers") && e.TransferWorkers < 1 {
+	if e.given("compression-level") && e.CompressionLevel < 1 || e.given("hash-workers") && e.HashWorkers < 1 || e.given("transfer-workers") && e.TransferWorkers < 1 {
 		return fmt.Errorf("cli: numeric overrides must be positive")
 	}
 	if e.HashWorkers > 0 {
@@ -452,7 +511,7 @@ func newProgressRenderer(e *AppCmdEnv) *L.ProgressRenderer {
 
 // recordResult saves the outcome of a set operation, if the set is not busy again.
 func (r *runtime) recordResult(err error) {
-	if !r.operationLocked || r.service == nil || r.service.Set.ID == "" || r.env.All || r.env.CancelRestore {
+	if !r.operationLocked || r.service == nil || r.service.Set.ID == "" || r.env.All || r.env.Cancel {
 		return
 	}
 	lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
@@ -555,7 +614,7 @@ func (r *runtime) catalogSecretFor(remote string, confirm bool) error {
 	if remote == "local" {
 		return nil
 	}
-	provided := r.env.CatalogPasswordFile != "" || os.Getenv("GLESHA_CATALOG_PASSPHRASE") != ""
+	provided := r.env.CatalogPassphraseFile != "" || os.Getenv("GLESHA_CATALOG_PASSPHRASE") != ""
 	if !r.service.Config.Catalog.Encrypted && !provided {
 		return nil
 	}
@@ -572,12 +631,12 @@ func (r *runtime) catalogSecretFor(remote string, confirm bool) error {
 		confirm = check == ""
 	}
 	secret := []byte(os.Getenv("GLESHA_CATALOG_PASSPHRASE"))
-	if len(secret) == 0 && r.env.CatalogPasswordFile == "" && !term.IsTerminal(int(os.Stdin.Fd())) {
+	if len(secret) == 0 && r.env.CatalogPassphraseFile == "" && !term.IsTerminal(int(os.Stdin.Fd())) {
 		return fmt.Errorf("cli: catalog passphrase needs a terminal; provide --catalog-passphrase-file FILE")
 	}
-	if r.env.CatalogPasswordFile != "" || len(secret) == 0 {
+	if r.env.CatalogPassphraseFile != "" || len(secret) == 0 {
 		var err error
-		secret, err = password(r.ctx, r.env.CatalogPasswordFile, "Catalog passphrase", confirm)
+		secret, err = password(r.ctx, r.env.CatalogPassphraseFile, "Catalog passphrase", confirm)
 		if err != nil {
 			return err
 		}

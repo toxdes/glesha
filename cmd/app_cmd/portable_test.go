@@ -157,7 +157,7 @@ func TestPortableCommandsRecoverAndPublishState(t *testing.T) {
 	if err := os.WriteFile(password, []byte("archive secret"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	first.env = &AppCmdEnv{PasswordFile: password, Output: filepath.Join(t.TempDir(), "full.gpg")}
+	first.env = &AppCmdEnv{PassphraseFile: password, Output: filepath.Join(t.TempDir(), "full.gpg")}
 	if err := run(first, []string{"music"}); err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +216,7 @@ func TestPortableCommandsRecoverAndPublishState(t *testing.T) {
 	if err = os.WriteFile(legacyPassword, []byte("encb fixture password"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	first.env = &AppCmdEnv{File: fixture, Key: "legacy.gpg", From: destinations{"aws"}, PasswordFile: legacyPassword}
+	first.env = &AppCmdEnv{File: fixture, Key: "legacy.gpg", From: destinations{"aws"}, PassphraseFile: legacyPassword}
 	if err = importArchive(first, []string{"legacy"}); err != nil {
 		t.Fatal(err)
 	}

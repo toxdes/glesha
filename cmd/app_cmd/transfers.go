@@ -41,7 +41,7 @@ func importArchive(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
 	}
-	if r.env.Deep && len(r.env.From) == 0 {
+	if r.env.DeepVerify && len(r.env.From) == 0 {
 		return fmt.Errorf("cli: --deep-verify requires --from")
 	}
 	if r.env.File == "" && r.env.Key == "" {
@@ -135,7 +135,7 @@ func importArchive(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	roots, err := rootMappings(r.env.Roots)
+	roots, err := rootMappings(r.env.Root)
 	if err != nil {
 		return err
 	}
@@ -163,7 +163,7 @@ func importArchive(r *runtime, args []string) error {
 				last = fmt.Errorf("cli: associated object size differs")
 				continue
 			}
-			if r.env.Deep {
+			if r.env.DeepVerify {
 				temp, err := file_io.Temp(r.service.Directory)
 				if err != nil {
 					return err
@@ -192,7 +192,7 @@ func importArchive(r *runtime, args []string) error {
 			return last
 		}
 	}
-	pw, err := password(r.ctx, r.env.PasswordFile, "Archive passphrase", false)
+	pw, err := password(r.ctx, r.env.PassphraseFile, "Archive passphrase", false)
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,7 @@ func importArchive(r *runtime, args []string) error {
 	location := model.Location{}
 	if remote != "" {
 		location = backup.Location("", remote, object)
-		if r.env.File != "" && !r.env.Deep {
+		if r.env.File != "" && !r.env.DeepVerify {
 			location.Verification = "metadata"
 		}
 	}
@@ -229,7 +229,7 @@ func importArchive(r *runtime, args []string) error {
 	return r.emit("snapshot", v, fmt.Sprintf("Imported %s into %q.", v.ID, r.service.Set.Name))
 }
 func restore(r *runtime, args []string) error {
-	if r.env.CancelRestore {
+	if r.env.Cancel {
 		if r.env.given("snapshot") || r.env.RequestRetrieval {
 			return fmt.Errorf("cli: --cancel selects restore tasks by --into, not snapshot or retrieval flags")
 		}
@@ -311,8 +311,8 @@ func restore(r *runtime, args []string) error {
 	var stdin []byte
 	defer func() { wipe(stdin) }()
 	err = r.service.Restore(r.ctx, backup.RestoreOptions{ID: id, Output: into, From: from, Password: func(v model.Snapshot) ([]byte, error) {
-		file := r.env.PasswordFile
-		if specific, ok := r.env.Passwords[v.ID]; ok {
+		file := r.env.PassphraseFile
+		if specific, ok := r.env.ArchivePassphraseFiles[v.ID]; ok {
 			file = specific
 		}
 		if file == "-" {
@@ -358,7 +358,7 @@ func upload(r *runtime, args []string) error {
 	if key == "" {
 		key = filepath.Base(args[0])
 	}
-	class := r.env.Class
+	class := r.env.StorageClass
 	if class == "" {
 		class = "STANDARD"
 	}
@@ -526,7 +526,7 @@ func errorText(err error) string {
 }
 
 func storageClass(r *runtime, args []string) error {
-	if r.env.Class == "" {
+	if r.env.StorageClass == "" {
 		return fmt.Errorf("cli: --class is required")
 	}
 	unlock, err := requireSet(r, args)
@@ -538,7 +538,7 @@ func storageClass(r *runtime, args []string) error {
 	if err = r.prepareMutation(); err != nil {
 		return err
 	}
-	if err = backup.ValidateClass(r.env.Class); err != nil {
+	if err = backup.ValidateClass(r.env.StorageClass); err != nil {
 		return err
 	}
 	ids, err := r.service.ClassRemotes(r.ctx, r.env.Snapshot)
@@ -555,13 +555,13 @@ func storageClass(r *runtime, args []string) error {
 		return err
 	}
 	defer wipe(r.service.CatalogPassword)
-	if err = r.service.StorageClass(r.ctx, r.env.Snapshot, r.env.Class); err != nil {
+	if err = r.service.StorageClass(r.ctx, r.env.Snapshot, r.env.StorageClass); err != nil {
 		return err
 	}
 	if err := r.publishState(); err != nil {
 		return err
 	}
-	return r.result(fmt.Sprintf("Storage class updated to %s for %q.", r.env.Class, r.service.Set.Name))
+	return r.result(fmt.Sprintf("Storage class updated to %s for %q.", r.env.StorageClass, r.service.Set.Name))
 }
 func move(r *runtime, args []string) error {
 	if len(r.env.To) != 1 {

@@ -49,7 +49,7 @@ func localArchive(r *runtime, args []string) error {
 	if err = archive.Inventory(r.ctx, c, id, roots, exclude, r.budget.HashWorkers); err != nil {
 		return err
 	}
-	pw, err := password(r.ctx, r.env.PasswordFile, "Archive passphrase", true)
+	pw, err := password(r.ctx, r.env.PassphraseFile, "Archive passphrase", true)
 	if err != nil {
 		return err
 	}
@@ -64,7 +64,7 @@ func decrypt(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
 	}
-	pw, err := password(r.ctx, r.env.PasswordFile, "Archive passphrase", false)
+	pw, err := password(r.ctx, r.env.PassphraseFile, "Archive passphrase", false)
 	if err != nil {
 		return err
 	}
@@ -106,7 +106,7 @@ func extract(r *runtime, args []string) error {
 	}
 	var pw []byte
 	if !archive.IsCompressed(signature[:]) {
-		pw, err = password(r.ctx, r.env.PasswordFile, "Archive passphrase", false)
+		pw, err = password(r.ctx, r.env.PassphraseFile, "Archive passphrase", false)
 		if err != nil {
 			return err
 		}

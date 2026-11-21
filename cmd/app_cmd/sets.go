@@ -48,17 +48,17 @@ func create(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	if r.env.Class != "" {
-		if err = backup.ValidateClass(r.env.Class); err != nil {
+	if r.env.StorageClass != "" {
+		if err = backup.ValidateClass(r.env.StorageClass); err != nil {
 			return err
 		}
-		set.Class = r.env.Class
+		set.Class = r.env.StorageClass
 	}
-	if r.env.IncrementalClass != "" {
-		if err = backup.ValidateClass(r.env.IncrementalClass); err != nil {
+	if r.env.IncrementalStorageClass != "" {
+		if err = backup.ValidateClass(r.env.IncrementalStorageClass); err != nil {
 			return err
 		}
-		set.IncrementalClass = r.env.IncrementalClass
+		set.IncrementalClass = r.env.IncrementalStorageClass
 	}
 	if set.CatalogTo != "" && set.CatalogTo != "local" {
 		if err = r.discoverState(nil); err != nil {
@@ -132,7 +132,7 @@ func configure(r *runtime, args []string) error {
 	if s.Pending() {
 		return fmt.Errorf("%w: finish pending work before configuring", backup.ErrPending)
 	}
-	roots, err := rootMappings(r.env.Roots)
+	roots, err := rootMappings(r.env.Root)
 	if err != nil {
 		return err
 	}
@@ -170,23 +170,23 @@ func configure(r *runtime, args []string) error {
 	if r.env.Compression != "" {
 		s.Set.Compression = r.env.Compression
 	}
-	if r.env.Level > 0 {
-		s.Set.Level = r.env.Level
+	if r.env.CompressionLevel > 0 {
+		s.Set.Level = r.env.CompressionLevel
 	}
 	if r.env.Prefix != "" {
 		s.Set.Prefix = r.env.Prefix
 	}
-	if r.env.Class != "" {
-		if err = backup.ValidateClass(r.env.Class); err != nil {
+	if r.env.StorageClass != "" {
+		if err = backup.ValidateClass(r.env.StorageClass); err != nil {
 			return err
 		}
-		s.Set.Class = r.env.Class
+		s.Set.Class = r.env.StorageClass
 	}
-	if r.env.IncrementalClass != "" {
-		if err = backup.ValidateClass(r.env.IncrementalClass); err != nil {
+	if r.env.IncrementalStorageClass != "" {
+		if err = backup.ValidateClass(r.env.IncrementalStorageClass); err != nil {
 			return err
 		}
-		s.Set.IncrementalClass = r.env.IncrementalClass
+		s.Set.IncrementalClass = r.env.IncrementalStorageClass
 	}
 	if r.env.Baseline != "" {
 		c, err := s.Catalog(r.ctx)
@@ -264,7 +264,7 @@ func run(r *runtime, args []string) error {
 	if r.env.given("chunked") {
 		chunked = r.env.Chunked
 	}
-	if chunked && (r.env.KeepArchive || r.env.Output != "" || r.env.Mode == "memory") {
+	if chunked && (r.env.KeepArchive || r.env.Output != "" || r.env.ArchiveMode == "memory") {
 		return fmt.Errorf("cli: --chunked cannot use --keep-archive, --output or memory archive mode")
 	}
 	var spool int64
@@ -321,7 +321,7 @@ func run(r *runtime, args []string) error {
 		return err
 	}
 	if needsArchive {
-		pw, err = password(r.ctx, r.env.PasswordFile, "Archive passphrase", true)
+		pw, err = password(r.ctx, r.env.PassphraseFile, "Archive passphrase", true)
 		if err != nil {
 			return err
 		}
@@ -331,7 +331,7 @@ func run(r *runtime, args []string) error {
 			return err
 		}
 	}
-	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.given("chunked"), SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
+	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.given("chunked"), SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.CompressionLevel, Class: r.env.StorageClass, Mode: r.env.ArchiveMode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
 	if err != nil {
 		return err
 	}
@@ -480,7 +480,7 @@ func browse(r *runtime, args []string) error {
 		return err
 	}
 	seen := 0
-	err = r.service.Browse(r.ctx, snapshot.ID, r.env.Filter, r.env.Recursive, func(e model.Entry) error {
+	err = r.service.Browse(r.ctx, snapshot.ID, r.env.Path, r.env.Recursive, func(e model.Entry) error {
 		if seen == 0 && !r.env.jsonOutput() {
 			if err := r.result(fmt.Sprintf("%-10s  %10s  %s", "TYPE", "SIZE", "PATH")); err != nil {
 				return err

@@ -117,7 +117,7 @@ func TestImportCommandPublishesWithoutReuploadingPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &runtime{ctx: ctx, registry: registry, config: cfg, root: root, budget: budget, env: &AppCmdEnv{File: fixture, Key: "legacy.gpg", From: destinations{"aws"}, PasswordFile: password}, out: &output}
+	r := &runtime{ctx: ctx, registry: registry, config: cfg, root: root, budget: budget, env: &AppCmdEnv{File: fixture, Key: "legacy.gpg", From: destinations{"aws"}, PassphraseFile: password}, out: &output}
 	if err = importArchive(r, []string{"old-docs"}); err != nil {
 		t.Fatal(err)
 	}
