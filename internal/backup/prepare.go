@@ -48,42 +48,18 @@ func (s *Service) saveJob(file string, v any) error {
 	}
 	return fsutil.WriteAtomic(context.Background(), file, b)
 }
+
+// PrepareRestore makes every archive the restore of snapshot id needs readable:
+// local copies are used as they are, and cold copies get retrieval requests.
+// It returns ErrPending while retrievals are in progress.
 func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []string, o RetrievalOptions) (string, string, error) {
-	useSavedDays := o.UseSavedDays || o.Days == 0
 	output, err := filepath.Abs(output)
 	if err != nil {
 		return "", "", err
 	}
 	jobFile := s.restoreJobPath(output)
-	if o.Tier == "" {
-		o.Tier = "bulk"
-	}
-	if o.Days == 0 {
-		o.Days = s.Config.Cold.Days
-	}
-	if o.Days == 0 {
-		o.Days = config.DefaultRetrievalDays
-	}
-	job := restoreJob{Output: output, From: from, Tier: o.Tier, Days: o.Days}
-	b, err := os.ReadFile(jobFile)
-	if err == nil {
-		if err = json.Unmarshal(b, &job); err != nil {
-			return "", "", err
-		}
-		if useSavedDays && job.Days > 0 {
-			o.Days = job.Days
-		}
-		if job.Tier != "" && (job.Tier != o.Tier || job.Days != o.Days) {
-			return "", "", fmt.Errorf("backup: retrieval options conflict with pending restore")
-		}
-		job.Tier, job.Days = o.Tier, o.Days
-		if id != "" && id != "latest" && id != job.Snapshot {
-			return "", "", fmt.Errorf("backup: snapshot conflicts with pending restore")
-		}
-		if len(from) > 0 && strings.Join(from, ",") != strings.Join(job.From, ",") {
-			return "", "", fmt.Errorf("backup: source order conflicts with pending restore")
-		}
-	} else if !os.IsNotExist(err) {
+	job, o, err := s.loadRestoreJob(jobFile, id, output, from, o)
+	if err != nil {
 		return "", "", err
 	}
 	c, err := s.Catalog(ctx)
@@ -103,97 +79,12 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 	if len(job.From) == 0 {
 		job.From = s.Set.To
 	}
-
 	chain, err := s.ancestry(ctx, c, v)
 	if err != nil {
 		return "", "", err
 	}
 	defer chain.Close()
-	pending := []retrievalItem{}
-	requested := map[retrievalIdentity]retrievalItem{}
-	for _, group := range [][]retrievalItem{job.Retrievals, job.Requests} {
-		for _, item := range group {
-			l := item.Location
-			if item.Requested || strings.Contains(l.Restore, `ongoing-request="true"`) {
-				requested[retrievalIdentity{l.Provider, l.Key, l.Version}] = item
-			}
-		}
-	}
-	pendingIndex := map[retrievalIdentity]bool{}
-	var total int64
-	inspect := func(snapshot model.Snapshot, locations []model.Location) error {
-		if _, ok := s.localArchive(ctx, snapshot); ok {
-			return nil
-		}
-		var cold *retrievalItem
-		var last error
-		for _, remote := range job.From {
-			for _, l := range locations {
-				if l.Provider != remote || l.Status != model.STATUS_COMPLETED {
-					continue
-				}
-				store := s.Stores[remote]
-				if store == nil {
-					continue
-				}
-				h, err := store.Head(ctx, l.Key, l.Version)
-				if err != nil {
-					last = err
-					continue
-				}
-				if h.Size != snapshot.Size || h.Hash != "" && h.Hash != snapshot.Hash {
-					last = fmt.Errorf("backup: registered object identity changed")
-					continue
-				}
-				l.Version, l.CurrentClass, l.Restore, l.Cold = h.Version, h.Class, h.Restore, h.Cold
-				checked := now()
-				l.ObservedAt = &checked
-				if old, ok := requested[retrievalIdentity{l.Provider, l.Key, l.Version}]; ok {
-					rememberRetrieval(&job, retrievalItem{Location: l, Tier: old.Tier, Requested: true})
-				}
-				if !h.Cold {
-					return nil
-				}
-				if !s.Capabilities(remote).ColdRetrieval {
-					last = fmt.Errorf("backup: remote cannot retrieve cold objects")
-					continue
-				}
-				tier := o.Tier
-				if tier == "" {
-					tier = "bulk"
-				}
-				if tier == "expedited" && h.DeepArchive() {
-					last = fmt.Errorf("backup: expedited retrieval is unavailable for Deep Archive")
-					continue
-				}
-				if cold == nil {
-					cold = &retrievalItem{Location: l, Tier: tier}
-				}
-			}
-		}
-		if cold == nil {
-			if last != nil {
-				return last
-			}
-			return fmt.Errorf("backup: no registered readable copy of %s", snapshot.ID)
-		}
-		identity := retrievalIdentity{cold.Location.Provider, cold.Location.Key, cold.Location.Version}
-		if _, ok := requested[identity]; ok {
-			cold.Requested = cold.Location.Restore != ""
-		}
-		if strings.Contains(cold.Location.Restore, `ongoing-request="true"`) {
-			cold.Requested = true
-		}
-		if pendingIndex[identity] {
-			return nil
-		}
-		pendingIndex[identity] = true
-		pending = append(pending, *cold)
-		if !cold.Requested {
-			total += snapshot.Size
-		}
-		return nil
-	}
+	plan := newRetrievalPlan(&job, o.Tier)
 	err = chain.EachReverse(ctx, func(snapshot model.Snapshot) error {
 		if snapshot.Layout == "chunked" {
 			if err := validateChunks(snapshot); err != nil {
@@ -202,7 +93,7 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 			for _, chunk := range snapshot.Chunks {
 				payload := snapshot
 				payload.Hash, payload.Size, payload.File = chunk.Hash, chunk.Size, ""
-				if err := inspect(payload, chunk.Locations); err != nil {
+				if err := s.inspect(ctx, plan, payload, chunk.Locations); err != nil {
 					return err
 				}
 			}
@@ -212,56 +103,205 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 		if err != nil {
 			return err
 		}
-		return inspect(snapshot, locations)
+		return s.inspect(ctx, plan, snapshot, locations)
 	})
 	if err != nil {
 		return "", "", err
 	}
-	job.Requests = pending
+	job.Requests = plan.pending
 	if err = s.saveJob(jobFile, job); err != nil {
 		return "", "", err
 	}
-	if len(pending) == 0 {
+	if len(plan.pending) == 0 {
 		return v.ID, jobFile, nil
 	}
+	if err = s.requestRetrievals(ctx, &job, jobFile, o, plan.bytes); err != nil {
+		return "", "", err
+	}
+	return v.ID, jobFile, fmt.Errorf("%w: retrieval in progress; repeat the restore command when objects are readable", ErrPending)
+}
+
+// loadRestoreJob returns the pending restore job for output, checked against the
+// new request, or a new job; o comes back with defaults filled in.
+func (s *Service) loadRestoreJob(jobFile, id, output string, from []string, o RetrievalOptions) (restoreJob, RetrievalOptions, error) {
+	useSavedDays := o.UseSavedDays || o.Days == 0
+	if o.Tier == "" {
+		o.Tier = "bulk"
+	}
+	if o.Days == 0 {
+		o.Days = s.Config.Cold.Days
+	}
+	if o.Days == 0 {
+		o.Days = config.DefaultRetrievalDays
+	}
+	job := restoreJob{Output: output, From: from, Tier: o.Tier, Days: o.Days}
+	b, err := os.ReadFile(jobFile)
+	if os.IsNotExist(err) {
+		return job, o, nil
+	}
+	if err != nil {
+		return job, o, err
+	}
+	if err = json.Unmarshal(b, &job); err != nil {
+		return job, o, err
+	}
+	if useSavedDays && job.Days > 0 {
+		o.Days = job.Days
+	}
+	if job.Tier != "" && (job.Tier != o.Tier || job.Days != o.Days) {
+		return job, o, fmt.Errorf("backup: retrieval options conflict with pending restore")
+	}
+	job.Tier, job.Days = o.Tier, o.Days
+	if id != "" && id != "latest" && id != job.Snapshot {
+		return job, o, fmt.Errorf("backup: snapshot conflicts with pending restore")
+	}
+	if len(from) > 0 && strings.Join(from, ",") != strings.Join(job.From, ",") {
+		return job, o, fmt.Errorf("backup: source order conflicts with pending restore")
+	}
+	return job, o, nil
+}
+
+// retrievalPlan collects the cold copies a restore needs, one per archive.
+type retrievalPlan struct {
+	job  *restoreJob
+	tier string
+	// requested holds copies with a retrieval already asked for
+	requested map[retrievalIdentity]retrievalItem
+	seen      map[retrievalIdentity]bool
+	pending   []retrievalItem
+	// bytes counts the archives that still need a retrieval request
+	bytes int64
+}
+
+func newRetrievalPlan(job *restoreJob, tier string) *retrievalPlan {
+	plan := &retrievalPlan{job: job, tier: tier, requested: map[retrievalIdentity]retrievalItem{}, seen: map[retrievalIdentity]bool{}, pending: []retrievalItem{}}
+	for _, group := range [][]retrievalItem{job.Retrievals, job.Requests} {
+		for _, item := range group {
+			l := item.Location
+			if item.Requested || strings.Contains(l.Restore, `ongoing-request="true"`) {
+				plan.requested[retrievalIdentity{l.Provider, l.Key, l.Version}] = item
+			}
+		}
+	}
+	return plan
+}
+
+// inspect finds a readable copy of snapshot's archive, or adds the first cold one to plan.
+func (s *Service) inspect(ctx context.Context, plan *retrievalPlan, snapshot model.Snapshot, locations []model.Location) error {
+	if _, ok := s.localArchive(ctx, snapshot); ok {
+		return nil
+	}
+	var cold *retrievalItem
+	var last error
+	for _, remote := range plan.job.From {
+		for _, l := range locations {
+			if l.Provider != remote || l.Status != model.STATUS_COMPLETED {
+				continue
+			}
+			store := s.Stores[remote]
+			if store == nil {
+				continue
+			}
+			h, err := store.Head(ctx, l.Key, l.Version)
+			if err != nil {
+				last = err
+				continue
+			}
+			if h.Size != snapshot.Size || h.Hash != "" && h.Hash != snapshot.Hash {
+				last = fmt.Errorf("backup: registered object identity changed")
+				continue
+			}
+			l.Version, l.CurrentClass, l.Restore, l.Cold = h.Version, h.Class, h.Restore, h.Cold
+			checked := now()
+			l.ObservedAt = &checked
+			if old, ok := plan.requested[retrievalIdentity{l.Provider, l.Key, l.Version}]; ok {
+				rememberRetrieval(plan.job, retrievalItem{Location: l, Tier: old.Tier, Requested: true})
+			}
+			if !h.Cold {
+				return nil
+			}
+			if !s.Capabilities(remote).ColdRetrieval {
+				last = fmt.Errorf("backup: remote cannot retrieve cold objects")
+				continue
+			}
+			tier := plan.tier
+			if tier == "" {
+				tier = "bulk"
+			}
+			if tier == "expedited" && h.DeepArchive() {
+				last = fmt.Errorf("backup: expedited retrieval is unavailable for Deep Archive")
+				continue
+			}
+			if cold == nil {
+				cold = &retrievalItem{Location: l, Tier: tier}
+			}
+		}
+	}
+	if cold == nil {
+		if last != nil {
+			return last
+		}
+		return fmt.Errorf("backup: no registered readable copy of %s", snapshot.ID)
+	}
+	identity := retrievalIdentity{cold.Location.Provider, cold.Location.Key, cold.Location.Version}
+	if _, ok := plan.requested[identity]; ok {
+		cold.Requested = cold.Location.Restore != ""
+	}
+	if strings.Contains(cold.Location.Restore, `ongoing-request="true"`) {
+		cold.Requested = true
+	}
+	if plan.seen[identity] {
+		return nil
+	}
+	plan.seen[identity] = true
+	plan.pending = append(plan.pending, *cold)
+	if !cold.Requested {
+		plan.bytes += snapshot.Size
+	}
+	return nil
+}
+
+// requestRetrievals asks for every pending retrieval not yet requested, after
+// confirmation, saving the job after each request.
+func (s *Service) requestRetrievals(ctx context.Context, job *restoreJob, jobFile string, o RetrievalOptions, bytes int64) error {
 	count := 0
-	for _, p := range pending {
+	for _, p := range job.Requests {
 		if !p.Requested {
 			count++
 		}
 	}
-	if count > 0 {
-		if !o.Request {
-			if o.Confirm == nil {
-				return "", "", ErrConfirmationRequired
-			}
-			message := fmt.Sprintf("Retrieve %d objects (%s), tier %s? Retrieval, storage and download charges apply.", count, logger.Bytes(total), pending[0].Tier)
-			if err = o.Confirm(ctx, message); err != nil {
-				return "", "", err
-			}
+	if count == 0 {
+		return nil
+	}
+	if !o.Request {
+		if o.Confirm == nil {
+			return ErrConfirmationRequired
 		}
-		for i := range job.Requests {
-			p := &job.Requests[i]
-			if p.Requested {
-				continue
-			}
-			store := s.Stores[p.Location.Provider]
-			restorer, ok := store.(cloud.VersionRestorer)
-			if !ok {
-				return "", "", fmt.Errorf("backup: remote cannot restore pinned versions")
-			}
-			tier := strings.ToUpper(p.Tier[:1]) + p.Tier[1:]
-			if err = restorer.RestoreVersion(ctx, p.Location.Key, p.Location.Version, o.Days, tier); err != nil {
-				return "", "", err
-			}
-			p.Requested = true
-			rememberRetrieval(&job, *p)
-			if err = s.saveJob(jobFile, job); err != nil {
-				return "", "", err
-			}
+		message := fmt.Sprintf("Retrieve %d objects (%s), tier %s? Retrieval, storage and download charges apply.", count, logger.Bytes(bytes), job.Requests[0].Tier)
+		if err := o.Confirm(ctx, message); err != nil {
+			return err
 		}
 	}
-	return v.ID, jobFile, fmt.Errorf("%w: retrieval in progress; repeat the restore command when objects are readable", ErrPending)
+	for i := range job.Requests {
+		p := &job.Requests[i]
+		if p.Requested {
+			continue
+		}
+		restorer, ok := s.Stores[p.Location.Provider].(cloud.VersionRestorer)
+		if !ok {
+			return fmt.Errorf("backup: remote cannot restore pinned versions")
+		}
+		tier := strings.ToUpper(p.Tier[:1]) + p.Tier[1:]
+		if err := restorer.RestoreVersion(ctx, p.Location.Key, p.Location.Version, o.Days, tier); err != nil {
+			return err
+		}
+		p.Requested = true
+		rememberRetrieval(job, *p)
+		if err := s.saveJob(jobFile, *job); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type importJob struct {
