@@ -163,6 +163,8 @@ const (
 	retiredAuthority
 )
 
+// publish uploads the local catalog changes as the next revision on the catalog
+// remote. A publication interrupted part way resumes from the saved pending revision.
 func (s *Service) publish(ctx context.Context, c repository.Cataloger, mode authorityMode) error {
 	ctx = cloud.WithTransferLabel(ctx, "catalog metadata")
 	if _, err := catalogStateVersion(ctx, c); err != nil {
@@ -178,15 +180,7 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger, mode auth
 	if store == nil {
 		return c.SetMeta(ctx, "dirty", "")
 	}
-	label := "Publishing catalog"
-	if remote, err := s.Registry.Remote(ctx, s.Set.CatalogTo); err == nil {
-		name := remote.Name
-		if name == remote.ID || name == "" {
-			name = remote.Kind + "/" + remote.Bucket
-		}
-		label += " to " + L.Value(name)
-	}
-	progress := L.StartProgress(ctx, label, -1)
+	progress := L.StartProgress(ctx, s.publishLabel(ctx), -1)
 	defer progress.Finish()
 	ctx = L.WithUploadProgress(L.WithProgress(ctx, nil), progress)
 	current, err := c.GetMeta(ctx, "remote_revision")
@@ -205,50 +199,9 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger, mode auth
 			return fmt.Errorf("%w: catalog authority retired; run catalog sync before publication", ErrConflict)
 		}
 	}
-	pending, err := c.GetMeta(ctx, "publication")
+	v, err := s.pendingRevision(ctx, c, existing, current)
 	if err != nil {
 		return err
-	}
-	var v revision
-	if pending != "" {
-		if err = json.Unmarshal([]byte(pending), &v); err != nil {
-			return err
-		}
-	} else {
-		number := int64(1)
-		if len(existing) > 0 {
-			head := existing[len(existing)-1]
-			if head.ID != current {
-				return fmt.Errorf("%w: pull or reconcile before publication", ErrConflict)
-			}
-			number = head.Number + 1
-		} else if current != "" {
-			return fmt.Errorf("%w: remote history disappeared", ErrConflict)
-		}
-		force, err := c.GetMeta(ctx, "force_checkpoint")
-		if err != nil {
-			return err
-		}
-		v = revision{Version: model.StateVersionPortable, Set: s.Set.ID, ID: uuid.NewString(), Parent: current, Number: number, Checkpoint: number == 1 || number%32 == 0 || force == "true"}
-		redirect, err := c.GetMeta(ctx, authorityRelocationKey)
-		if err != nil {
-			return err
-		}
-		if redirect != "" {
-			var move authorityRelocation
-			if err = json.Unmarshal([]byte(redirect), &move); err != nil {
-				return err
-			}
-			v.Redirect, v.AuthorityHistory = &move.Locator, move.History
-		}
-		v.Key = s.prefix() + "batches/" + v.ID + ".db.gz"
-		if s.Config.Catalog.Encrypted {
-			v.Key += ".gpg"
-		}
-		b, _ := json.Marshal(v)
-		if err = c.SetMeta(ctx, "publication", string(b)); err != nil {
-			return err
-		}
 	}
 	if s.Config.Catalog.Encrypted != strings.HasSuffix(v.Key, ".gpg") {
 		return fmt.Errorf("backup: catalog encryption setting conflicts with pending publication")
@@ -265,28 +218,112 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger, mode auth
 		return fmt.Errorf("backup: pending publication: %w", err)
 	}
 	file := filepath.Join(s.Directory, "publication-"+v.ID)
+	if err = s.writeBatch(ctx, c, &v, file); err != nil {
+		return err
+	}
+	if _, err = cloud.Create(ctx, store, v.Key, file, "STANDARD"); err != nil {
+		return fmt.Errorf("%w: metadata batch upload: %w", ErrPending, err)
+	}
+	descriptorFile, err := s.writeDescriptor(ctx, c, &v, file)
+	if err != nil {
+		return err
+	}
+	// descriptors are revision-specific so discovery never needs a destructive overwrite
+	if _, err = cloud.Create(ctx, store, s.prefix()+"descriptors/"+fmt.Sprintf("%020d-%s", v.Number, v.ID)+s.metadataSuffix(), descriptorFile, "STANDARD"); err != nil {
+		return err
+	}
+	if err = s.commitRevision(ctx, store, v, file); err != nil {
+		return err
+	}
+	if _, err = s.revisions(ctx, store); err != nil {
+		return err
+	}
+	return s.markPublished(ctx, c, v)
+}
+
+func (s *Service) publishLabel(ctx context.Context) string {
+	label := "Publishing catalog"
+	if remote, err := s.Registry.Remote(ctx, s.Set.CatalogTo); err == nil {
+		name := remote.Name
+		if name == remote.ID || name == "" {
+			name = remote.Kind + "/" + remote.Bucket
+		}
+		label += " to " + L.Value(name)
+	}
+	return label
+}
+
+// pendingRevision returns the saved pending publication, or starts the revision
+// after the current remote head and saves it as pending.
+func (s *Service) pendingRevision(ctx context.Context, c repository.Cataloger, existing []revision, current string) (revision, error) {
+	var v revision
+	pending, err := c.GetMeta(ctx, "publication")
+	if err != nil {
+		return v, err
+	}
+	if pending != "" {
+		return v, json.Unmarshal([]byte(pending), &v)
+	}
+	number := int64(1)
+	if len(existing) > 0 {
+		head := existing[len(existing)-1]
+		if head.ID != current {
+			return v, fmt.Errorf("%w: pull or reconcile before publication", ErrConflict)
+		}
+		number = head.Number + 1
+	} else if current != "" {
+		return v, fmt.Errorf("%w: remote history disappeared", ErrConflict)
+	}
+	force, err := c.GetMeta(ctx, "force_checkpoint")
+	if err != nil {
+		return v, err
+	}
+	v = revision{Version: model.StateVersionPortable, Set: s.Set.ID, ID: uuid.NewString(), Parent: current, Number: number, Checkpoint: number == 1 || number%32 == 0 || force == "true"}
+	redirect, err := c.GetMeta(ctx, authorityRelocationKey)
+	if err != nil {
+		return v, err
+	}
+	if redirect != "" {
+		var move authorityRelocation
+		if err = json.Unmarshal([]byte(redirect), &move); err != nil {
+			return v, err
+		}
+		v.Redirect, v.AuthorityHistory = &move.Locator, move.History
+	}
+	v.Key = s.prefix() + "batches/" + v.ID + ".db.gz"
+	if s.Config.Catalog.Encrypted {
+		v.Key += ".gpg"
+	}
+	b, _ := json.Marshal(v)
+	return v, c.SetMeta(ctx, "publication", string(b))
+}
+
+// writeBatch exports the catalog changes of v to file, once, and checks that the
+// file still matches the recorded hash.
+func (s *Service) writeBatch(ctx context.Context, c repository.Cataloger, v *revision, file string) error {
 	if v.Hash == "" {
-		if err = c.SetMeta(ctx, model.StateAuthorityKey, s.Set.CatalogTo); err != nil {
+		if err := c.SetMeta(ctx, model.StateAuthorityKey, s.Set.CatalogTo); err != nil {
 			return err
 		}
-		if err = c.SetMeta(ctx, stateProtocolMeta, v.Version.String()); err != nil {
+		if err := c.SetMeta(ctx, stateProtocolMeta, v.Version.String()); err != nil {
 			return err
 		}
 		plain := file + ".db"
 		defer os.Remove(plain)
-		if _, err = os.Stat(plain); err == nil {
+		if _, err := os.Stat(plain); err == nil {
 			os.Remove(plain)
 		}
-		if err = c.Export(ctx, plain, v.Checkpoint); err != nil {
+		if err := c.Export(ctx, plain, v.Checkpoint); err != nil {
 			return err
 		}
-		if err = s.encodeMetadata(ctx, plain, file); err != nil {
+		if err := s.encodeMetadata(ctx, plain, file); err != nil {
 			return err
 		}
-		v.Hash, _, err = archive.Hash(L.WithProgressLabel(ctx, "Checking catalog metadata"), file)
+		hash, _, err := archive.Hash(L.WithProgressLabel(ctx, "Checking catalog metadata"), file)
 		if err != nil {
 			return err
 		}
+		v.Hash = hash
 		b, _ := json.Marshal(v)
 		if err = c.SetMeta(ctx, "publication", string(b)); err != nil {
 			return err
@@ -296,94 +333,107 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger, mode auth
 	if err != nil || hash != v.Hash {
 		return fmt.Errorf("backup: publication file changed or disappeared")
 	}
-	if _, err = cloud.Create(ctx, store, v.Key, file, "STANDARD"); err != nil {
-		return fmt.Errorf("%w: metadata batch upload: %w", ErrPending, err)
-	}
-	descriptor := Descriptor{Version: v.Version, Set: portableSet(s.Set)}
-	remoteIDs := map[string]bool{}
+	return nil
+}
+
+// descriptorRemotes lists every remote the set's catalog refers to, sorted by ID.
+func (s *Service) descriptorRemotes(ctx context.Context, c repository.Cataloger) ([]model.Remote, error) {
+	ids := map[string]bool{}
 	for _, id := range s.Set.To {
-		remoteIDs[id] = true
+		ids[id] = true
 	}
 	if s.Set.CatalogTo != "local" {
-		remoteIDs[s.Set.CatalogTo] = true
+		ids[s.Set.CatalogTo] = true
 	}
-	if err = c.EachSnapshot(ctx, func(snapshot model.Snapshot) error {
+	if err := c.EachSnapshot(ctx, func(snapshot model.Snapshot) error {
 		locations, err := c.Locations(ctx, snapshot.ID)
 		if err != nil {
 			return err
 		}
 		for _, location := range locations {
-			remoteIDs[location.Provider] = true
+			ids[location.Provider] = true
 		}
 		return nil
 	}); err != nil {
-		return err
+		return nil, err
 	}
-	ordered := make([]string, 0, len(remoteIDs))
-	for id := range remoteIDs {
+	ordered := make([]string, 0, len(ids))
+	for id := range ids {
 		if id != "" {
 			ordered = append(ordered, id)
 		}
 	}
 	sort.Strings(ordered)
+	var remotes []model.Remote
 	for _, id := range ordered {
 		remote, err := s.Registry.Remote(ctx, id)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		descriptor.Remotes = append(descriptor.Remotes, remote)
+		remotes = append(remotes, remote)
 	}
+	return remotes, nil
+}
+
+// writeDescriptor writes the set descriptor for v next to file, once, and records its hash.
+func (s *Service) writeDescriptor(ctx context.Context, c repository.Cataloger, v *revision, file string) (string, error) {
+	remotes, err := s.descriptorRemotes(ctx, c)
+	if err != nil {
+		return "", err
+	}
+	descriptor := Descriptor{Version: v.Version, Set: portableSet(s.Set), Remotes: remotes}
 	descriptorFile := file + ".descriptor"
 	b, _ := json.Marshal(descriptor)
 	if _, statErr := os.Stat(descriptorFile); os.IsNotExist(statErr) {
 		if err = s.writeMetadataBytes(ctx, b, descriptorFile); err != nil {
-			return err
+			return "", err
 		}
 	} else if statErr != nil {
-		return statErr
+		return "", statErr
 	}
 	descriptorHash, _, err := archive.Hash(L.WithProgressLabel(ctx, "Checking catalog descriptor"), descriptorFile)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if v.DescriptorHash != "" && v.DescriptorHash != descriptorHash {
-		return fmt.Errorf("backup: pending descriptor checksum mismatch")
+		return "", fmt.Errorf("backup: pending descriptor checksum mismatch")
 	}
 	if v.DescriptorHash == "" {
 		v.DescriptorHash = descriptorHash
 		b, _ := json.Marshal(v)
 		if err = c.SetMeta(ctx, "publication", string(b)); err != nil {
-			return err
+			return "", err
 		}
 	}
-	// descriptors are revision-specific so discovery never needs a destructive overwrite
-	if _, err = cloud.Create(ctx, store, s.prefix()+"descriptors/"+fmt.Sprintf("%020d-%s", v.Number, v.ID)+s.metadataSuffix(), descriptorFile, "STANDARD"); err != nil {
-		return err
-	}
+	return descriptorFile, nil
+}
+
+// commitRevision uploads the revision head and, where writes are conditional,
+// the commit object that makes it the published revision.
+func (s *Service) commitRevision(ctx context.Context, store cloud.Store, v revision, file string) error {
 	manifestFile := file + ".head"
 	defer os.Remove(manifestFile)
-	b, _ = json.Marshal(v)
-	if err = os.WriteFile(manifestFile, b, 0600); err != nil {
+	b, _ := json.Marshal(v)
+	if err := os.WriteFile(manifestFile, b, 0600); err != nil {
 		return err
 	}
-	if _, err = cloud.Create(ctx, store, s.prefix()+"heads/"+fmt.Sprintf("%020d-%s.json", v.Number, v.ID), manifestFile, "STANDARD"); err != nil {
+	if _, err := cloud.Create(ctx, store, s.prefix()+"heads/"+fmt.Sprintf("%020d-%s.json", v.Number, v.ID), manifestFile, "STANDARD"); err != nil {
 		return err
 	}
-	if s.Capabilities(s.Set.CatalogTo).ConditionalWrites {
-		// this conditional commit is the publication point; earlier objects are proposals
-		key := s.prefix() + "commits/" + fmt.Sprintf("%020d.json", v.Number)
-		if _, err = cloud.Create(ctx, store, key, manifestFile, "STANDARD"); err != nil {
-			if errors.Is(err, cloud.ErrObjectExists) || cloud.Conflict(err) {
-				return fmt.Errorf("%w: another writer committed this revision", ErrConflict)
-			}
-			return fmt.Errorf("%w: catalog commit failed: %w", ErrPending, err)
+	if !s.Capabilities(s.Set.CatalogTo).ConditionalWrites {
+		return nil
+	}
+	// this conditional commit is the publication point; earlier objects are proposals
+	key := s.prefix() + "commits/" + fmt.Sprintf("%020d.json", v.Number)
+	if _, err := cloud.Create(ctx, store, key, manifestFile, "STANDARD"); err != nil {
+		if errors.Is(err, cloud.ErrObjectExists) || cloud.Conflict(err) {
+			return fmt.Errorf("%w: another writer committed this revision", ErrConflict)
 		}
+		return fmt.Errorf("%w: catalog commit failed: %w", ErrPending, err)
 	}
-	if _, err = s.revisions(ctx, store); err != nil {
-		return err
-	}
-	return s.markPublished(ctx, c, v)
+	return nil
 }
+
 func (s *Service) metadataSuffix() string {
 	if s.Config.Catalog.Encrypted {
 		return ".json.gz.gpg"
