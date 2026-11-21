@@ -1,72 +1,42 @@
 .TH "GLESHA-DOWNLOAD" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-download \- download a file using the selected providers in order
+glesha\-download \- download an object from remote buckets
 .SH SYNOPSIS
-.B glesha download KEY \-\-from REMOTE... [options]
+\fBglesha download\fR KEY \-\-from REMOTE... [options]
 .SH DESCRIPTION
-Download a file using the selected providers in order.
-.PP
-Tries sources in the specified order. The output file must not exist.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+Download the object KEY from the first remote in \-\-from that has it. The output file must not exist.
 .SH OPTIONS
-
 .TP
 .B \-\-output FILE
-New output file.
-.SS Buckets
+Write to FILE (default: the last component of KEY).
+.SS Remote options
 .TP
 .B \-\-from REMOTE...
-Archive source remotes, in fallback order.
+Remotes to download from, tried in order.
 .TP
 .B \-\-to REMOTE...
-Additional buckets this command may access.
-.SS Performance
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Performance options
 .TP
 .B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
 .TP
 .B \-j, \-\-jobs, \-\-transfer\-workers N
-Maximum parallel transfers; memory may lower this limit.
+Run up to N transfers at once (default: 4). The memory limit may lower the effective number.
 .TP
 .B \-\-hash\-workers N
-Maximum parallel file hashing workers.
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+Hash up to N files at once (default: 4).
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
-glesha download backups/documents.gpg \-\-from b2 \-\-output documents.gpg
+glesha download backups/documents.gpg \-\-from b2
+glesha download backups/documents.gpg \-\-from b2,aws \-\-output documents.gpg
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-upload (1)

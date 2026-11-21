@@ -165,10 +165,10 @@ func status(r *runtime, args []string) error {
 		return err
 	}
 	if unavailable > 0 && len(args) == 0 {
-		fmt.Fprintf(r.out, "\nTotals cover %d of %d readable catalogs.\n", len(rows)-unavailable, len(rows))
+		fmt.Fprintf(r.out, "\nTotals include %d of %d sets; the others have no readable catalog.\n", len(rows)-unavailable, len(rows))
 	}
 	if locked > 0 && len(args) == 0 {
-		fmt.Fprintf(r.out, "%d catalogs need a passphrase or missing metadata.\n  Open cached metadata:  glesha catalog unlock SET\n  Fetch remote metadata: glesha catalog sync\n", locked)
+		fmt.Fprintf(r.out, "%d sets have a locked catalog.\n  Open a cached catalog: glesha catalog unlock SET\n  Fetch remote metadata: glesha catalog sync\n", locked)
 	}
 	if err := r.renderAttention(rows, len(args) == 1, color); err != nil {
 		return err
@@ -178,7 +178,7 @@ func status(r *runtime, args []string) error {
 		partial = partial || strings.HasSuffix(totalCost(d), "*")
 	}
 	if partial {
-		fmt.Fprintln(r.out, "\n* Partial storage estimate; unavailable values excluded.")
+		fmt.Fprintln(r.out, "\n* Partial estimate; unknown values are excluded.")
 	}
 	return reportedError("status", errors.Join(failures...))
 }
@@ -359,7 +359,7 @@ func renderRetrievals(out io.Writer, sets []statusData, single bool, format stri
 			rows = append(rows, row)
 		}
 	}
-	_, err := fmt.Fprintf(out, "\nRetrieval Status\nLast checked: %s\n%s", statusTime(checked), renderColumns(rows, format, color))
+	_, err := fmt.Fprintf(out, "\nRetrievals\nLast checked: %s\n%s", statusTime(checked), renderColumns(rows, format, color))
 	return err
 }
 

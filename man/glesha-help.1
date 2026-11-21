@@ -1,48 +1,19 @@
 .TH "GLESHA-HELP" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-help \- show command help and examples
+glesha\-help \- show help for a command
 .SH SYNOPSIS
-.B glesha help [COMMAND [ACTION]] [options]
+\fBglesha help\fR [COMMAND [ACTION]] [options]
 .SH DESCRIPTION
-Show command help and examples.
+Show the options and examples of COMMAND, or of one catalog or state ACTION. Without arguments, list all commands. 'glesha COMMAND \-\-help' is equivalent.
 .SH OPTIONS
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha help run
 glesha help catalog unlock
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
 .BR glesha (1)

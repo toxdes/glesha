@@ -1,104 +1,83 @@
 .TH "GLESHA-IMPORT" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-import \- register an existing full archive
+glesha\-import \- add an existing full archive to a set
 .SH SYNOPSIS
-.B glesha import SET (\-\-file FILE | \-\-from REMOTE \-\-key KEY) [options]
+\fBglesha import\fR SET \-\-file FILE [options]
+.br
+\fBglesha import\fR SET \-\-file FILE \-\-from REMOTE [\-\-key KEY] [options]
+.br
+\fBglesha import\fR SET \-\-from REMOTE \-\-key KEY [options]
 .SH DESCRIPTION
-Register an existing full archive.
+Add an existing full archive as a snapshot of SET. SET is created if it does not exist.
 .PP
-Registers an existing full archive. Associating an uploaded archive does not upload it again. Use configure \-\-root to bind local sources afterward.
+With \-\-file only, the local archive is imported. With \-\-file and \-\-from, the archive is also associated with its uploaded copy at KEY, which is checked by size, or by content with \-\-deep\-verify; nothing is uploaded. With \-\-from and \-\-key only, the object is downloaded and imported.
 .PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+Imported roots are not bound to local directories. Use \-\-root, or 'glesha configure SET \-\-root', before running backups.
 .SH OPTIONS
 .TP
 .B \-\-file FILE
-Local archive.
+Local archive to import.
 .TP
 .B \-\-key KEY
-Exact remote object key.
+Object key (default with \-\-file: the file name).
 .TP
 .B \-\-root NAME=PATH
-Archive root NAME=source PATH.
+Bind root NAME to directory PATH; repeatable. May be repeated.
 .TP
-.B \-\-baseline ID|new
-Explicit snapshot baseline.
+.B \-\-baseline new
+Use as the next incremental's baseline.
 .TP
-.B \-\-date RFC3339
-Known backup date in RFC3339.
+.B \-\-date DATE
+Original backup time, in RFC 3339 format. For example, 2024\-05\-01T12:00:00Z.
 .TP
 .B \-\-deep\-verify
-Download associated remote bytes and verify them.
-.SS Buckets
+Compare content with the uploaded copy, not size.
+.SS Remote options
 .TP
 .B \-\-from REMOTE...
-Archive source remotes, in fallback order.
+Remotes holding the archive, tried in order.
 .TP
 .B \-\-to REMOTE...
-Additional buckets this command may access.
-.SS Passphrases
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Passphrase options
 .TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
+.B \-\-passphrase\-file FILE
+Read the archive passphrase from FILE ('\-': stdin). A trailing newline is ignored. Without this option, the passphrase is read from a hidden prompt.
 .TP
-.B \-\-passphrase\-file FILE|\-
-Archive passphrase file; '\-' reads stdin.
-.SS Cloud retrieval
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.SS Retrieval options
 .TP
 .B \-\-request\-retrieval
-Allow retrieval charges for cold cloud objects.
+Allow charged cold retrieval without asking.
 .TP
 .B \-\-retrieval TIER
-Bulk, standard or expedited (default: bulk).
+Tier: bulk, standard, or expedited (default: bulk). The default comes from the [cold] tier setting.
 .TP
 .B \-\-days N
-Readable\-copy availability days (default 3; pending requests keep saved duration).
-.SS Performance
+Keep retrieved copies for N days (default: 3). The default comes from the [cold] days setting. A pending request keeps its original duration.
+.SS Performance options
 .TP
 .B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
 .TP
 .B \-j, \-\-jobs, \-\-transfer\-workers N
-Maximum parallel transfers; memory may lower this limit.
+Run up to N transfers at once (default: 4). The memory limit may lower the effective number.
 .TP
 .B \-\-hash\-workers N
-Maximum parallel file hashing workers.
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+Hash up to N files at once (default: 4).
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha import old\-docs \-\-file old\-backup.tar.gz.gpg
-glesha import old\-docs \-\-from b2 \-\-key backups/old\-backup.gpg
+glesha import old\-docs \-\-from b2 \-\-key backups/old\-backup.tar.gz.gpg
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-archive (1),
+.BR glesha\-configure (1)

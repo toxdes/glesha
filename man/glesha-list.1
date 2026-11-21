@@ -1,66 +1,38 @@
 .TH "GLESHA-LIST" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-list \- list locally known backup sets and IDs
+glesha\-list \- list known backup sets
 .SH SYNOPSIS
-.B glesha list [options]
+\fBglesha list\fR [options]
 .SH DESCRIPTION
-List locally known backup sets and IDs.
+Print the name and ID of every set in local state. A set whose catalog has not been opened yet is shown as '(locked catalog)'; refer to it by its ID.
 .PP
-Reads local inventory. Run catalog sync to discover sets on another computer; status shows their condition and storage details.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+To find sets created on another computer, run 'glesha catalog sync' first.
 .SH OPTIONS
-.SS Buckets
-.TP
-.B \-\-from REMOTE...
-Source or catalog buckets this command may access.
-.TP
-.B \-\-to REMOTE...
-Additional buckets this command may access.
-.SS Passphrases
-.TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
-.SS Compatibility
 .TP
 .B \-\-remote
-Deprecated. Use catalog sync, then list.
-.SS Global options
+Search \-\-from remotes (deprecated: use catalog sync).
+.SS Remote options
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-from REMOTE...
+Remotes to search with \-\-remote.
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.B \-\-to REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Passphrase options
 .TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha list
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-catalog (1),
+.BR glesha\-status (1)

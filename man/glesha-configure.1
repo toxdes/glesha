@@ -1,95 +1,69 @@
 .TH "GLESHA-CONFIGURE" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-configure \- change saved settings or map imported roots
+glesha\-configure \- change the settings of a backup set
 .SH SYNOPSIS
-.B glesha configure SET [options]
+\fBglesha configure\fR SET [options]
 .SH DESCRIPTION
-Change saved settings or map imported roots.
+Change the saved settings of SET. Only the given options change; new values apply to later runs. Existing snapshots are not rewritten.
 .PP
-Use \-\-root NAME=PATH to bind sources on this computer. Other changes update the set's saved settings.
+Use \-\-root NAME=PATH to bind an unbound root, such as one from an imported or discovered set, to a directory on this computer. A bound root cannot be rebound.
 .PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+The destinations of an incremental set and a catalog that was already published can only be changed with 'glesha move'. Finish pending work before configuring.
 .SH OPTIONS
 .TP
 .B \-\-root NAME=PATH
-Archive root NAME=source PATH.
+Bind root NAME to directory PATH; repeatable. May be repeated.
 .TP
-.B \-\-baseline ID|new
-Explicit snapshot baseline.
-.SS Buckets
+.B \-\-baseline ID
+Use snapshot ID as the next incremental's baseline.
+.SS Remote options
 .TP
 .B \-\-to REMOTE...
-Destination remotes; comma\-separated or repeated.
+Upload future snapshots to REMOTE.
 .TP
 .B \-\-from REMOTE...
-Source or catalog buckets this command may access.
+Limit bucket access to REMOTE.
 .TP
 .B \-\-catalog\-to REMOTE|local
-Catalog location: a remote name or local.
-.TP
-.B \-\-prefix PREFIX
-Prefix for new archive names: glesha or encb.
-.SS Archive settings
-.TP
-.B \-\-chunked
-Upload independent chunks using bounded temporary storage.
-.TP
-.B \-\-spool\-max SIZE
-Maximum temporary chunk payload storage (default 128MiB).
-.TP
-.B \-\-compression FORMAT
-Archive compression: xz, gzip, or bzip2.
-.TP
-.B \-\-compression\-level LEVEL
-Compression level 1..9.
-.SS Passphrases
-.TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
-.SS Cloud retrieval
+Where to keep the catalog.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Archive options
 .TP
 .B \-\-storage\-class CLASS
-AWS storage class.
+AWS storage class of full snapshots.
+.TP
+.B \-\-compression FORMAT
+Compression: xz, gzip, or bzip2.
+.TP
+.B \-\-compression\-level N
+Compression level, 1 to 9.
+.TP
+.B \-\-prefix PREFIX
+Name prefix: glesha or encb.
 .TP
 .B \-\-incremental\-storage\-class CLASS
-AWS incremental storage class.
-.SS Global options
+AWS storage class of incremental snapshots.
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-chunked
+Upload in chunks; \-\-chunked=false turns it off.
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.B \-\-spool\-max SIZE
+Local space for chunks (default: 128MiB, min: 2MiB). Requires \-\-chunked.
+.SS Passphrase options
 .TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha configure docs \-\-compression gzip
 glesha configure docs \-\-root Documents=~/Documents
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-create (1),
+.BR glesha\-move (1)

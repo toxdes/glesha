@@ -1,73 +1,45 @@
 .TH "GLESHA-STORAGE-CLASS" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-storage-class \- change an AWS archive's storage class
+glesha\-storage\-class \- change the AWS storage class of a snapshot
 .SH SYNOPSIS
-.B glesha storage\-class SET \-\-class CLASS [options]
+\fBglesha storage\-class\fR SET \-\-class CLASS [options]
 .SH DESCRIPTION
-Change an AWS archive's storage class.
+Change the storage class of the AWS objects of one snapshot of SET, by default the latest. Objects in a cold class may need to be retrieved first.
 .PP
-Changes the AWS storage class of one snapshot, latest by default. Cold source objects may need retrieval first.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+CLASS is one of STANDARD, STANDARD_IA, ONEZONE_IA, INTELLIGENT_TIERING, GLACIER_IR, GLACIER, DEEP_ARCHIVE, or REDUCED_REDUNDANCY.
 .SH OPTIONS
-
 .TP
 .B \-\-class CLASS
-AWS storage class.
+New AWS storage class.
 .TP
-.B \-\-snapshot ID|latest
-Snapshot ID or latest (default: latest).
-.SS Buckets
-.TP
-.B \-\-to REMOTE...
-Additional buckets this command may access.
-.TP
-.B \-\-from REMOTE...
-Source or catalog buckets this command may access.
-.SS Passphrases
-.TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
-.SS Cloud retrieval
+.B \-\-snapshot ID
+Snapshot ID, or 'latest' (default: latest).
 .TP
 .B \-\-storage\-class CLASS
-AWS storage class.
-.SS Global options
+Same as \-\-class.
+.SS Remote options
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-to REMOTE...
+Limit bucket access to REMOTE.
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.B \-\-from REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Passphrase options
 .TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
-glesha storage\-class docs \-\-snapshot SNAPSHOT \-\-class DEEP_ARCHIVE
+glesha storage\-class docs \-\-class DEEP_ARCHIVE
+glesha storage\-class docs \-\-snapshot ID \-\-class STANDARD
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-move (1),
+.BR glesha\-restore (1)

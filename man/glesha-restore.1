@@ -1,101 +1,76 @@
 .TH "GLESHA-RESTORE" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-restore \- restore files or cancel unfinished local restore tasks
+glesha\-restore \- restore a snapshot into a directory
 .SH SYNOPSIS
-.B glesha restore SET (\-\-into DIR | \-\-cancel) [options]
+\fBglesha restore\fR SET \-\-into DIR [options]
+.br
+\fBglesha restore\fR SET \-\-cancel [\-\-into DIR] [options]
 .SH DESCRIPTION
-Restore files or cancel unfinished local restore tasks.
+Restore a snapshot of SET, by default the latest, into DIR. DIR may exist; existing files are never replaced. An incremental snapshot is restored together with the snapshots it depends on.
 .PP
-Restores into a new or existing directory without replacing files. \-\-into . is supported. Cold archives may require retrieval consent.
+Archives are read from local copies when possible, otherwise from the remotes in \-\-from order. Objects in cold storage must be retrieved first, which may be charged; this is confirmed interactively or with \-\-request\-retrieval.
 .PP
-Use \-\-cancel to clear unfinished local restore tasks, optionally selecting \-\-into DIR. Restored files and staging data are preserved. Cloud retrieval requests already submitted continue.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+With \-\-cancel, unfinished restore tasks of SET are dropped, optionally only those for DIR. Restored files and downloaded data are kept, and retrievals already requested continue.
 .SH OPTIONS
-
 .TP
 .B \-\-into DIR
-Restore destination; with \-\-cancel, select a task destination.
+Restore into DIR; with \-\-cancel, limit to DIR.
 .TP
-.B \-\-snapshot ID|latest
-Snapshot ID or latest (default: latest).
+.B \-\-snapshot ID
+Snapshot ID, or 'latest' (default: latest).
 .TP
 .B \-\-cancel
-Cancel local restore tasks; preserve restored and staged files.
-.SS Buckets
+Cancel unfinished restore tasks.
+.SS Remote options
 .TP
 .B \-\-from REMOTE...
-Archive source remotes, in fallback order.
+Read from REMOTE, in order (default: set's remotes).
 .TP
 .B \-\-to REMOTE...
-Additional buckets this command may access.
-.SS Passphrases
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Passphrase options
 .TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
-.TP
-.B \-\-passphrase\-file FILE|\-
-Archive passphrase file; '\-' reads stdin.
+.B \-\-passphrase\-file FILE
+Read the archive passphrase from FILE ('\-': stdin). A trailing newline is ignored. Without this option, the passphrase is read from a hidden prompt.
 .TP
 .B \-\-archive\-passphrase\-file ID=FILE
-Archive passphrase override: SNAPSHOT=FILE.
-.SS Cloud retrieval
+Read the passphrase of snapshot ID from FILE. Use it when the snapshots of an incremental chain have different passphrases. May be repeated.
+.TP
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.SS Retrieval options
 .TP
 .B \-\-request\-retrieval
-Allow retrieval charges for cold cloud objects.
+Allow charged cold retrieval without asking.
 .TP
 .B \-\-retrieval TIER
-Bulk, standard or expedited (default: bulk).
+Tier: bulk, standard, or expedited (default: bulk). The default comes from the [cold] tier setting.
 .TP
 .B \-\-days N
-Readable\-copy availability days (default 3; pending requests keep saved duration).
-.SS Performance
+Keep retrieved copies for N days (default: 3). The default comes from the [cold] days setting. A pending request keeps its original duration.
+.SS Performance options
 .TP
 .B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
 .TP
 .B \-j, \-\-jobs, \-\-transfer\-workers N
-Maximum parallel transfers; memory may lower this limit.
+Run up to N transfers at once (default: 4). The memory limit may lower the effective number.
 .TP
 .B \-\-hash\-workers N
-Maximum parallel file hashing workers.
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+Hash up to N files at once (default: 4).
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha restore docs \-\-into ~/recovered
+glesha restore docs \-\-snapshot ID \-\-into .
 glesha restore docs \-\-cancel
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-browse (1),
+.BR glesha\-history (1)

@@ -252,7 +252,7 @@ func restore(r *runtime, args []string) error {
 			if result.Tasks == 1 {
 				noun = "restore task"
 			}
-			text = fmt.Sprintf("Cancelled %d %s. Restored files and staging data were preserved.", result.Tasks, noun)
+			text = fmt.Sprintf("Cancelled %d %s. Restored and downloaded files were kept.", result.Tasks, noun)
 		}
 		return r.emit("restore_cancelled", result, text)
 	}
@@ -601,5 +601,5 @@ func move(r *runtime, args []string) error {
 	if err := r.publishState(); err != nil {
 		return err
 	}
-	return r.result(fmt.Sprintf("Moved %q to %s. Source copies were retained.", r.service.Set.Name, r.env.To[0]))
+	return r.result(fmt.Sprintf("Moved %q to %s. Copies on the old remotes were kept.", r.service.Set.Name, r.env.To[0]))
 }

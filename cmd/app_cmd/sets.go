@@ -339,14 +339,14 @@ func run(r *runtime, args []string) error {
 		if err = r.publishState(); err != nil {
 			return err
 		}
-		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, fmt.Sprintf("No source changes for %q. No new snapshot created.", s.Set.Name))
+		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, fmt.Sprintf("No changes in %q; no snapshot created.", s.Set.Name))
 	}
 	if err = r.publishState(); err != nil {
 		return err
 	}
-	message := fmt.Sprintf("Backup %s completed for %q.", v.ID, s.Set.Name)
+	message := fmt.Sprintf("Created snapshot %s of %q.", v.ID, s.Set.Name)
 	if _, err := os.Lstat(v.File); err == nil {
-		message += fmt.Sprintf(" Archive: %q", v.File)
+		message += fmt.Sprintf(" Archive kept at %q.", v.File)
 	}
 	return r.emit("snapshot", v, message)
 }
@@ -454,7 +454,7 @@ func history(r *runtime, args []string) error {
 		return err
 	}
 	if seen == 0 {
-		return r.result("No snapshots found for " + L.Value(r.service.Set.Name) + ".")
+		return r.result(fmt.Sprintf("No snapshots found for %q.", r.service.Set.Name))
 	}
 	return nil
 
@@ -500,7 +500,7 @@ func browse(r *runtime, args []string) error {
 		return err
 	}
 	if seen == 0 {
-		return r.emptyResult("entries matching this path")
+		return r.emptyResult("entries")
 	}
 	return nil
 
@@ -590,7 +590,7 @@ func catalog(r *runtime, args []string) error {
 		if err := r.service.Abandon(r.ctx); err != nil {
 			return err
 		}
-		return r.result(fmt.Sprintf("Pending local work discarded for %q. Remote objects were retained.", r.service.Set.Name))
+		return r.result(fmt.Sprintf("Discarded the pending work of %q. Remote objects were kept.", r.service.Set.Name))
 	}
 	if err = r.readableCatalog(); err != nil {
 		return err

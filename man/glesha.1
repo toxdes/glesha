@@ -1,161 +1,203 @@
 .TH "GLESHA" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha \- encrypted archives and cloud backups
+glesha \- encrypted archives and incremental cloud backups
 .SH SYNOPSIS
-.B glesha [global options] COMMAND [arguments] [options]
+\fBglesha\fR [global options] \fICOMMAND\fR [\fIARGS\fR] [options]
 .SH DESCRIPTION
-Create encrypted archives, keep snapshot histories in cloud buckets, and restore files without overwriting existing files.
+\fBglesha\fR creates encrypted, compressed tar archives and keeps histories of them in Amazon S3 and Backblaze B2 buckets. Compression, encryption, and transfers are done internally; no external programs are needed. Full archives are OpenPGP messages that \fBgpg\fR(1) and \fBtar\fR(1) can also read.
+.PP
+A \fIset\fR is a named group of source directories, called \fIroots\fR. Each \fBglesha run\fR adds a \fIsnapshot\fR: a full archive, or an incremental one that holds the changes since the \fIbaseline\fR. A \fIremote\fR is a configured bucket. The \fIcatalog\fR of a set records its snapshots and files; it is kept in local state and, unless the set is local\-only, encrypted on a remote so that other computers can find it.
+.PP
+Sets and snapshots have UUIDs. A set can be named by its name or its UUID.
 .SH COMMANDS
-.SS Back up and recover
+.SS Backup sets
 .TP
-.B create SET PATH...
-Register sources and a backup destination
+.BR glesha\-create (1)
+Register a new backup set.
 .TP
-.B run SET
-Create and upload a backup
+.BR glesha\-configure (1)
+Change the settings of a set.
 .TP
-.B restore SET \-\-into DIR
-Restore files without overwriting existing files
+.BR glesha\-run (1)
+Create a snapshot and upload it.
 .TP
-.B import SET
-Register an existing archive
-.SS Inspect
+.BR glesha\-retry (1)
+Resume the pending operation of a set.
 .TP
-.B list
-List locally known sets and IDs
+.BR glesha\-restore (1)
+Restore a snapshot into a directory.
 .TP
-.B status [SET]
-Show backup state, sizes, and estimated cost
+.BR glesha\-import (1)
+Add an existing full archive to a set.
 .TP
-.B history SET
-List snapshots
+.BR glesha\-move (1)
+Copy the history of a set to another remote.
 .TP
-.B browse SET
-List files in a snapshot
+.BR glesha\-storage\-class (1)
+Change the AWS storage class of a snapshot.
 .TP
-.B catalog sync [SET]
-Discover sets or synchronize one catalog
+.BR glesha\-cleanup (1)
+Delete local archive copies that are stored remotely.
+.SS Inspection
 .TP
-.B catalog unlock SET
-Open a downloaded encrypted catalog locally
-.SS Manage
+.BR glesha\-list (1)
+List known backup sets.
 .TP
-.B configure SET
-Change saved settings or bind local sources
+.BR glesha\-status (1)
+Show the state, size, and cost of backup sets.
 .TP
-.B retry SET
-Resume pending work
+.BR glesha\-history (1)
+List the snapshots of a set.
 .TP
-.B cleanup SET|\-\-all
-Remove eligible local archive copies
+.BR glesha\-browse (1)
+List the files in a snapshot.
+.SS Catalogs
 .TP
-.B move SET \-\-from A \-\-to B
-Copy history and switch destinations
-.TP
-.B storage\-class SET
-Change an AWS archive's storage class
-.TP
-.B check \-\-to REMOTE...
-Test bucket access
-.TP
-.B state migrate
-Move legacy local state to the current location
+.BR glesha\-catalog (1)
+Discover, open, and synchronize catalogs: \fBsync\fR, \fBunlock\fR, \fBresolve\fR, \fBpull\fR, \fBpush\fR, \fBreconcile\fR, and \fBabandon\fR.
 .SS Standalone files
 .TP
-.B archive PATH...
-Create an encrypted archive
+.BR glesha\-archive (1)
+Create a standalone encrypted archive.
 .TP
-.B decrypt FILE
-Decrypt to compressed tar
+.BR glesha\-decrypt (1)
+Decrypt an archive to a compressed tar file.
 .TP
-.B extract FILE \-\-into DIR
-Extract into a new directory
+.BR glesha\-extract (1)
+Unpack an archive into a new directory.
 .TP
-.B upload FILE \-\-to REMOTE...
-Upload a file
+.BR glesha\-upload (1)
+Upload a file to remote buckets.
 .TP
-.B download KEY \-\-from REMOTE
-Download a file
-.SS Help and version
+.BR glesha\-download (1)
+Download an object from remote buckets.
 .TP
-.B help [COMMAND [ACTION]]
-Show options and examples
+.BR glesha\-check (1)
+Test access to remote buckets.
+.SS Other
 .TP
-.B version
-Show version and build revision
-.SH OPTIONS
+.BR glesha\-state (1)
+Move local state from the legacy location.
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.BR glesha\-help (1)
+Show help for a command.
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.BR glesha\-version (1)
+Show version information.
+.SH GLOBAL OPTIONS
+These options are accepted by every command, before or after the command name. Command options must follow the command name.
 .TP
 .B \-\-config FILE
-TOML settings file.
+Read settings from FILE instead of USER_CONFIG/glesha/config.toml. A missing default file is not an error.
 .TP
 .B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
+Keep local state in DIR. Overrides the [catalog] directory setting.
 .TP
 .B \-\-env FILE
-Load credentials; existing process variables take priority.
+Load credentials from FILE. Each line is NAME=VALUE; blank lines, # comments, and an export prefix are allowed. Variables already set in the environment take precedence.
 .TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
+.B \-\-format FORMAT
+Output format: plain or json (default: plain). \fBglesha status\fR also accepts table and csv. See OUTPUT.
+.TP
+.B \-\-progress MODE
+Progress on stderr: auto, plain, or off (default: auto). auto draws a progress bar on a terminal and prints one line per step otherwise; plain always prints lines.
+.TP
+.B \-\-color WHEN
+Color: auto, yes, or no (default: auto). always and never are accepted as aliases.
 .TP
 .B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
+Log level: debug, info, warn, error, or silent (default: info). warn and above also hide progress.
 .TP
 .B \-h, \-\-help
-Show this command's help.
+Show help for the command.
 .TP
 .B \-v, \-\-version
-Show version and build revision.
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for result records, one per line.
-Catalog sync records use output version 3; other results retain version 2.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
-Informational text is plain. Errors are red, warnings yellow, and ready states green when color is enabled.
-Color defaults to terminal detection. Human formatting may change independently of JSON records.
+Show version information.
+.SH CONFIGURATION
+Settings are read from a TOML file. Remotes are defined in the [aws] and [b2] tables, and in [remotes.NAME] tables with a kind of aws or b2; the table name is the remote name used with \-\-to and \-\-from. Other tables set defaults for [archive], [memory], [workers], [backup], [catalog], and [cold].
+.PP
+Command options take precedence over the configuration file, which takes precedence over built\-in defaults. Defaults shown in command help are the built\-in ones.
 .SH BUCKET ACCESS
-Without \-\-from or \-\-to, configured and saved provider choices apply. An explicit selection limits all bucket access to their union, including catalogs and registry copies.
-Include every required bucket explicitly. Selecting buckets does not make an operation read-only.
-.SH LOCAL STATE
-Use \-\-state\-dir DIR to override catalog.directory for one invocation. This selects local state, not cloud buckets.
-Empty legacy registries do not block existing default state. Nonempty locations are never merged automatically; use state migrate or choose a location explicitly.
+Without \-\-from or \-\-to, a command may access every remote it needs: the set's remotes, its catalog remote, and the configured remotes that hold registry copies. If either option is given, only the remotes they name are accessed, and a command that needs another remote fails. Naming remotes does not make a command read\-only.
 .SH PASSPHRASES
-Catalog and archive passphrases are separate. catalog sync downloads encrypted metadata; catalog unlock SET reads a cached catalog locally.
-Restore requires the archive passphrase as well. File flags can supply passphrases; a dash reads stdin. Hidden prompts support Ctrl+C.
+The catalog passphrase and archive passphrases are separate. Catalog metadata can be downloaded without a passphrase; reading or changing a catalog needs it. Restoring needs the archive passphrase of every snapshot involved.
+.PP
+Passphrases are read from a hidden prompt, or from a file given with \-\-passphrase\-file or \-\-catalog\-passphrase\-file, where \- means stdin. The catalog passphrase can also be set in GLESHA_CATALOG_PASSPHRASE. Passphrases are never stored. Without a terminal, a missing passphrase is an error.
+.SH OUTPUT
+Results go to stdout. Progress, prompts, warnings, and errors go to stderr. A '\-' in human output marks an unknown value. Human output is ASCII and may change between versions.
+.PP
+With \-\-format json, stdout carries one JSON record per line, each of the form {"version", "kind", "data"}. Catalog sync records have version 3; other results have version 2. Listings print one record per item and none when empty. stderr carries version 1 records whose kind is progress, error, warning, info, or debug. Neither stream contains color codes. Error records include a code, a message, and the exit status.
+.PP
+JSON output does not approve anything. Prompts still appear on stderr and fail without a terminal; use passphrase files, \-\-assume\-yes, and \-\-request\-retrieval for unattended use.
+.SH ENVIRONMENT
+.TP
+.B AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+AWS credentials. AWS_ACCESS_KEY and AWS_SECRET_KEY are also accepted.
+.TP
+.B AWS_BUCKET_NAME, AWS_REGION, AWS_STORAGE_CLASS
+Used for the aws remote when not set in the configuration file.
+.TP
+.B B2_KEY_ID, B2_APPLICATION_KEY
+Backblaze B2 credentials.
+.TP
+.B B2_BUCKET_NAME, B2_BUCKET_ENDPOINT
+Used for the b2 remote when not set in the configuration file.
+.TP
+.B GLESHA_CATALOG_PASSPHRASE
+Catalog passphrase.
+.TP
+.B TERM
+If dumb, progress is printed as lines.
+.SH FILES
+.TP
+.I USER_CONFIG/glesha/config.toml
+Default configuration file. USER_CONFIG is ~/.config on Linux, ~/Library/Application Support on macOS, and %AppData% on Windows.
+.TP
+.I DATA/glesha/state
+Default local state. DATA is $XDG_DATA_HOME or ~/.local/share on Linux, ~/Library/Application Support on macOS, and %LocalAppData% on Windows.
+.TP
+.I USER_CONFIG/glesha/state\-v2
+Legacy local state; see \fBglesha\-state\fR(1).
 .SH EXIT STATUS
 .TP
 .B 0
 Success.
 .TP
 .B 1
-An operation or configuration failed.
+The operation failed.
 .TP
 .B 2
-Invalid command usage or an unknown set.
+Invalid usage, or an unknown set.
 .TP
 .B 3
 Pending work must be finished first.
 .TP
 .B 4
-Catalog histories conflict.
+The local and remote catalogs conflict.
 .TP
 .B 130
-Operation cancelled.
+Interrupted.
 .SH EXAMPLES
+Back up a directory to Backblaze B2 and restore it elsewhere:
+.PP
 .nf
 glesha create docs ~/Documents \-\-to b2
-glesha run docs
+glesha run docs \-\-env ~/.config/glesha/cloud.env
+glesha run docs \-\-incremental
+glesha history docs
+glesha restore docs \-\-into ~/recovered
+.fi
+.PP
+Find and open the same set on another computer:
+.PP
+.nf
 glesha catalog sync \-\-from b2
-glesha catalog unlock SET
-glesha help restore
+glesha list
+glesha catalog unlock ID
+glesha configure docs \-\-root Documents=~/Documents
 .fi
 .SH SEE ALSO
-.BR glesha-catalog (1),
-.BR glesha-status (1),
-.BR glesha-restore (1)
+.BR gpg (1),
+.BR tar (1)

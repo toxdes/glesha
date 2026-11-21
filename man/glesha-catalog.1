@@ -1,109 +1,71 @@
 .TH "GLESHA-CATALOG" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-catalog \- discover, open, or synchronize backup catalogs
+glesha\-catalog \- discover, open, and synchronize catalogs
 .SH SYNOPSIS
-.B glesha catalog ACTION [SET] [options]
+\fBglesha catalog\fR ACTION [SET] [options]
 .SH DESCRIPTION
-Discover, open, or synchronize backup catalogs.
+A catalog records the snapshots and files of a set. It is kept in local state and, unless the set is local\-only, encrypted on a remote. These actions manage catalogs; they never restore files.
 .PP
-sync fetches or synchronizes metadata. unlock opens a cached catalog using its catalog passphrase. resolve handles conflicting metadata. These actions do not restore archive contents.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+The options each action accepts are listed with it.
 .SH ACTIONS
 .TP
 .B sync [SET]
-Discover catalogs, or synchronize one set.
-.IP
-Without SET, download catalog metadata without passphrase prompts. With SET, open the catalog, merge changes, and publish metadata. Sync can write to the selected buckets.
+Without SET, search the remotes for sets and download their catalog metadata. No passphrase is needed. \-\-all is the same as giving no SET. With SET, merge remote changes into the local catalog and publish local changes. This writes to the catalog remote. Options: \-\-all, \-\-from, \-\-to, \-\-catalog\-passphrase\-file.
 .TP
 .B unlock SET
-Open a downloaded catalog locally.
-.IP
-Requires the catalog passphrase. Uses cached metadata and makes no cloud requests. Archive files stay encrypted.
+Decrypt the downloaded catalog of SET so that history, browse, and restore can read it. Makes no cloud requests. Requires the catalog passphrase; archives stay encrypted. Options: \-\-catalog\-passphrase\-file.
 .TP
 .B resolve SET
-Review or resolve conflicting catalog metadata.
-.IP
-Omit \-\-keep to review differences. Choose \-\-keep local|remote to resolve references, or \-\-authority REMOTE to select a catalog location. Original histories are preserved.
+Without options, show the metadata that differs between the local and remote catalogs of SET. With \-\-keep, settle the differences using local or remote values. With \-\-authority, make the catalog on REMOTE the authoritative one. Both histories are preserved. Options: \-\-keep, \-\-authority, \-\-assume\-yes, \-\-from, \-\-to, \-\-catalog\-passphrase\-file.
 .TP
 .B pull SET
-Pull remote metadata into the local catalog.
+Replace the local catalog of SET with the remote catalog. The previous local catalog is kept. Options: \-\-from, \-\-to, \-\-catalog\-passphrase\-file.
 .TP
 .B push SET
-Publish pending catalog changes.
+Publish the pending local catalog changes of SET to its catalog remote. Options: \-\-from, \-\-to, \-\-catalog\-passphrase\-file.
 .TP
 .B reconcile SET
-Merge compatible catalog histories.
+Merge the local and remote histories of SET when they do not conflict. Options: \-\-from, \-\-to, \-\-catalog\-passphrase\-file.
 .TP
 .B abandon SET
-Discard a pending operation's local work.
-.IP
-Keeps the current catalog and remote objects. Pending chunk spool files may be removed.
+Discard the local work of the pending operation of SET. The catalog and remote objects are kept; spooled chunks may be deleted.
 .SH OPTIONS
-
 .TP
 .B \-\-all
-Alias for bare sync; discover only the allowed buckets.
+Same as sync without SET.
 .TP
 .B \-\-keep local|remote
-Resolve conflicts using local or remote values.
+Settle conflicts using local or remote values.
 .TP
 .B \-\-authority REMOTE
-Select the catalog authority during explicit resolution.
-.SS Buckets
-.TP
-.B \-\-from REMOTE...
-Buckets to discover or access; comma\-separated or repeated.
-.TP
-.B \-\-to REMOTE...
-Additional buckets this command may access.
-.SS Passphrases
-.TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
-.SS Confirmations
+Make the catalog on REMOTE authoritative.
 .TP
 .B \-\-assume\-yes
-Skip confirmation prompts for this command.
-.SS Global options
+Answer yes to all confirmations.
+.SS Remote options
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-from REMOTE...
+Search or access only REMOTE.
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.B \-\-to REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Passphrase options
 .TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha catalog sync \-\-from b2
-glesha catalog unlock SET
-glesha catalog sync SET
+glesha catalog unlock ID
+glesha catalog sync docs
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for result records, one per line.
-Catalog sync records use output version 3; other catalog results retain version 2.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-history (1),
+.BR glesha\-list (1)
