@@ -169,50 +169,11 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	if s.Pending() {
 		return s.resumeRun(ctx, o)
 	}
-	chunked := s.Set.Chunked
-	if o.ChunkedSet || o.Chunked {
-		chunked = o.Chunked
-	}
-	spool := o.SpoolMax
-	if spool == 0 {
-		spool = s.Set.SpoolMax
-	}
-	if spool == 0 {
-		spool = DefaultSpoolMax
-	}
-	if chunked && (o.KeepArchive || o.Output != "" || o.Mode == "memory") {
-		return model.Snapshot{}, fmt.Errorf("backup: chunked mode cannot use --keep-archive, --output or memory archive mode")
-	}
-	if !chunked && o.SpoolMax > 0 {
-		return model.Snapshot{}, fmt.Errorf("backup: --spool-max requires --chunked")
-	}
-	if chunked && spool < MinimumSpoolMax {
-		return model.Snapshot{}, fmt.Errorf("backup: chunked spool requires at least 2MiB")
-	}
-	if o.Full && o.Incremental {
-		return model.Snapshot{}, fmt.Errorf("backup: --full and --incremental are mutually exclusive")
-	}
-	to := o.To
-	if len(to) == 0 {
-		to = s.Set.To
-	}
-	if len(to) == 0 {
-		return model.Snapshot{}, fmt.Errorf("backup: --to is required at creation or run time")
-	}
-	if s.Set.Authority != "" && (len(to) != 1 || to[0] != s.Set.Authority) {
-		return model.Snapshot{}, fmt.Errorf("backup: incremental set is bound to one remote; use move to switch")
-	}
-	if o.Incremental && len(to) != 1 {
-		return model.Snapshot{}, fmt.Errorf("backup: incrementals require exactly one authoritative remote")
-	}
-	if err := s.ValidateRoots(); err != nil {
+	plan, err := s.validateRun(o)
+	if err != nil {
 		return model.Snapshot{}, err
 	}
-	for _, r := range to {
-		if s.Stores[r] == nil {
-			return model.Snapshot{}, fmt.Errorf("backup: selected remote is unavailable")
-		}
-	}
+	to := plan.to
 	if len(s.Set.To) == 0 {
 		s.Set.To = slices.Clone(to)
 		if err := s.Registry.Save(ctx, s.Set); err != nil {
@@ -236,21 +197,176 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	if err = s.checkCatalogSecret(ctx, c); err != nil {
 		return model.Snapshot{}, err
 	}
-	v := model.Snapshot{Manifest: model.Manifest{Version: 1, Set: s.Set.ID, ID: uuid.NewString(), Full: !o.Incremental, Roots: s.Set.Roots, Compression: s.Set.Compression, InitialClass: s.Set.Class}, Created: now(), Status: model.STATUS_RUNNING, Destinations: strings.Join(to, ",")}
+	v, err := s.newSnapshot(ctx, c, o, plan)
+	if err != nil {
+		return v, err
+	}
+	if err = c.Vacuum(ctx, s.pending()); err != nil {
+		return v, err
+	}
+	p, err := repository.NewCatalogRepository(ctx, s.pending())
+	if err != nil {
+		return v, err
+	}
+	defer p.Close()
+	keep := false
+	defer func() {
+		if !keep {
+			p.Close()
+			os.Remove(s.pending())
+		}
+	}()
+	chunked, level, mode := plan.chunked, plan.level, plan.mode
+	request := runRequest{Chunked: chunked, SpoolMax: plan.spool, To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: mode, Level: level, Prefix: o.Prefix}
+	b, _ := json.Marshal(request)
+	for k, value := range map[string]string{"operation": "run", "request": string(b), "pending_snapshot": v.ID, "archive_wrapper": archive.Stem(v.File)} {
+		if err = p.SetMeta(ctx, k, value); err != nil {
+			return v, err
+		}
+	}
+	if err = p.PutSnapshot(ctx, v); err != nil {
+		return v, err
+	}
+	exclusions := []string{v.File, filepath.Dir(s.Directory)}
+	if err = archive.Inventory(ctx, p, v.ID, s.Set.Roots, exclusions, s.Budget.HashWorkers); err != nil {
+		return v, err
+	}
+	changes, err := detectChanges(ctx, p, &v)
+	if err != nil {
+		return v, err
+	}
+	if changes.removed > 0 {
+		message := fmt.Sprintf("%d removed or type-changed paths:\n%s\nRecord changes?", changes.removed, strings.Join(changes.sample, "\n"))
+		if o.Confirm == nil {
+			return v, ErrConfirmationRequired
+		}
+		if err = o.Confirm(ctx, message); err != nil {
+			return v, err
+		}
+	}
+	if !changes.changed {
+		if err = archive.ValidateSources(ctx, p, v.ID); err != nil {
+			return v, err
+		}
+		if err = archive.ValidateTree(ctx, p, v.ID, s.Set.Roots, exclusions); err != nil {
+			return v, err
+		}
+		return model.Snapshot{}, nil
+	}
+	if err = p.PutSnapshot(ctx, v); err != nil {
+		return v, err
+	}
 	if chunked {
+		keep = true
+		if err = s.createChunks(ctx, p, &v, request, o.Password); err != nil {
+			return v, err
+		}
+	} else {
+		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: level, Mode: mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
+			v.Hash, v.Size, v.ReadyFile = hash, size, file
+			err := p.PutSnapshot(ctx, v)
+			if err == nil {
+				keep = true
+			}
+			return err
+		}})
+		if err != nil {
+			return v, err
+		}
+	}
+	if !chunked {
+		v.ReadyFile = ""
+	}
+	if err = p.PutSnapshot(ctx, v); err != nil {
+		return v, err
+	}
+	keep = true
+	if o.Incremental {
+		s.Set.Authority = to[0]
+		s.Set.To = []string{to[0]}
+		if err = s.Registry.Save(ctx, s.Set); err != nil {
+			return v, err
+		}
+	}
+	return v, s.finishRun(ctx, p, &v)
+}
+
+// runPlan is a validated run request, resolved against the set's saved settings.
+type runPlan struct {
+	to      []string
+	chunked bool
+	spool   int64
+	level   int
+	mode    string
+}
+
+// validateRun checks o against the set and resolves its defaults without side effects.
+func (s *Service) validateRun(o RunOptions) (runPlan, error) {
+	chunked := s.Set.Chunked
+	if o.ChunkedSet || o.Chunked {
+		chunked = o.Chunked
+	}
+	spool := o.SpoolMax
+	if spool == 0 {
+		spool = s.Set.SpoolMax
+	}
+	if spool == 0 {
+		spool = DefaultSpoolMax
+	}
+	if chunked && (o.KeepArchive || o.Output != "" || o.Mode == "memory") {
+		return runPlan{}, fmt.Errorf("backup: chunked mode cannot use --keep-archive, --output or memory archive mode")
+	}
+	if !chunked && o.SpoolMax > 0 {
+		return runPlan{}, fmt.Errorf("backup: --spool-max requires --chunked")
+	}
+	if chunked && spool < MinimumSpoolMax {
+		return runPlan{}, fmt.Errorf("backup: chunked spool requires at least 2MiB")
+	}
+	if o.Full && o.Incremental {
+		return runPlan{}, fmt.Errorf("backup: --full and --incremental are mutually exclusive")
+	}
+	to := o.To
+	if len(to) == 0 {
+		to = s.Set.To
+	}
+	if len(to) == 0 {
+		return runPlan{}, fmt.Errorf("backup: --to is required at creation or run time")
+	}
+	if s.Set.Authority != "" && (len(to) != 1 || to[0] != s.Set.Authority) {
+		return runPlan{}, fmt.Errorf("backup: incremental set is bound to one remote; use move to switch")
+	}
+	if o.Incremental && len(to) != 1 {
+		return runPlan{}, fmt.Errorf("backup: incrementals require exactly one authoritative remote")
+	}
+	if err := s.ValidateRoots(); err != nil {
+		return runPlan{}, err
+	}
+	for _, r := range to {
+		if s.Stores[r] == nil {
+			return runPlan{}, fmt.Errorf("backup: selected remote is unavailable")
+		}
+	}
+	plan := runPlan{to: to, chunked: chunked, spool: spool, level: s.Set.Level, mode: s.Config.Archive.Mode}
+	if o.Level > 0 {
+		plan.level = o.Level
+	}
+	if o.Mode != "" {
+		plan.mode = o.Mode
+	}
+	return plan, nil
+}
+
+// newSnapshot describes the snapshot a run creates: baseline, storage class and archive path.
+func (s *Service) newSnapshot(ctx context.Context, c repository.Cataloger, o RunOptions, plan runPlan) (model.Snapshot, error) {
+	to := plan.to
+	var err error
+	v := model.Snapshot{Manifest: model.Manifest{Version: 1, Set: s.Set.ID, ID: uuid.NewString(), Full: !o.Incremental, Roots: s.Set.Roots, Compression: s.Set.Compression, InitialClass: s.Set.Class}, Created: now(), Status: model.STATUS_RUNNING, Destinations: strings.Join(to, ",")}
+	if plan.chunked {
 		v.Layout = "chunked"
 		v.Version = 2
 	}
 	if o.Compression != "" {
 		v.Compression = o.Compression
-	}
-	level := s.Set.Level
-	if o.Level > 0 {
-		level = o.Level
-	}
-	mode := s.Config.Archive.Mode
-	if o.Mode != "" {
-		mode = o.Mode
 	}
 	if o.Incremental {
 		parent, err := c.Latest(ctx)
@@ -315,120 +431,47 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	if _, err = os.Lstat(v.File); !os.IsNotExist(err) {
 		return v, fmt.Errorf("backup: archive output exists")
 	}
-	if err = c.Vacuum(ctx, s.pending()); err != nil {
-		return v, err
-	}
-	p, err := repository.NewCatalogRepository(ctx, s.pending())
-	if err != nil {
-		return v, err
-	}
-	defer p.Close()
-	keep := false
-	defer func() {
-		if !keep {
-			p.Close()
-			os.Remove(s.pending())
-		}
-	}()
-	request := runRequest{Chunked: chunked, SpoolMax: spool, To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: mode, Level: level, Prefix: o.Prefix}
-	b, _ := json.Marshal(request)
-	for k, value := range map[string]string{"operation": "run", "request": string(b), "pending_snapshot": v.ID, "archive_wrapper": archive.Stem(v.File)} {
-		if err = p.SetMeta(ctx, k, value); err != nil {
-			return v, err
-		}
-	}
-	if err = p.PutSnapshot(ctx, v); err != nil {
-		return v, err
-	}
-	exclusions := []string{v.File, filepath.Dir(s.Directory)}
-	if err = archive.Inventory(ctx, p, v.ID, s.Set.Roots, exclusions, s.Budget.HashWorkers); err != nil {
-		return v, err
-	}
-	changed := v.Full
-	removed := 0
-	sample := []string{}
-	if err = p.EachEntry(ctx, v.ID, func(e model.Entry) error {
+	return v, nil
+}
+
+// runChanges is how a new snapshot differs from its baseline.
+type runChanges struct {
+	changed bool
+	// removed counts paths deleted or changed in type; sample names up to ten of them
+	removed int
+	sample  []string
+}
+
+// detectChanges compares the inventory of v with its parent and records deletions on v.
+func detectChanges(ctx context.Context, p repository.Cataloger, v *model.Snapshot) (runChanges, error) {
+	changes := runChanges{changed: v.Full, sample: []string{}}
+	if err := p.EachEntry(ctx, v.ID, func(e model.Entry) error {
 		yes, err := archive.Changed(ctx, p, v.ID, v.Parent, e)
-		changed = changed || yes
+		changes.changed = changes.changed || yes
 		return err
 	}); err != nil {
-		return v, err
+		return changes, err
 	}
-	if v.Parent != "" {
-		err = p.EachEntry(ctx, v.Parent, func(e model.Entry) error {
-			current, err := p.Entry(ctx, v.ID, e.Path)
-			missing := errors.Is(err, sql.ErrNoRows)
-			if missing || err == nil && current.Type != e.Type {
-				removed++
-				if len(sample) < 10 {
-					sample = append(sample, fmt.Sprintf("%q", e.Path))
-				}
-				changed = true
-				if missing {
-					v.DeletionsMember = archive.DeletionsName
-				}
-				return nil
+	if v.Parent == "" {
+		return changes, nil
+	}
+	err := p.EachEntry(ctx, v.Parent, func(e model.Entry) error {
+		current, err := p.Entry(ctx, v.ID, e.Path)
+		missing := errors.Is(err, sql.ErrNoRows)
+		if missing || err == nil && current.Type != e.Type {
+			changes.removed++
+			if len(changes.sample) < 10 {
+				changes.sample = append(changes.sample, fmt.Sprintf("%q", e.Path))
 			}
-			return err
-		})
-		if err != nil {
-			return v, err
-		}
-	}
-	if removed > 0 {
-		message := fmt.Sprintf("%d removed or type-changed paths:\n%s\nRecord changes?", removed, strings.Join(sample, "\n"))
-		if o.Confirm == nil {
-			return v, ErrConfirmationRequired
-		}
-		if err = o.Confirm(ctx, message); err != nil {
-			return v, err
-		}
-	}
-	if !changed {
-		if err = archive.ValidateSources(ctx, p, v.ID); err != nil {
-			return v, err
-		}
-		if err = archive.ValidateTree(ctx, p, v.ID, s.Set.Roots, exclusions); err != nil {
-			return v, err
-		}
-		return model.Snapshot{}, nil
-	}
-	if err = p.PutSnapshot(ctx, v); err != nil {
-		return v, err
-	}
-	if chunked {
-		keep = true
-		if err = s.createChunks(ctx, p, &v, request, o.Password); err != nil {
-			return v, err
-		}
-	} else {
-		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: level, Mode: mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
-			v.Hash, v.Size, v.ReadyFile = hash, size, file
-			err := p.PutSnapshot(ctx, v)
-			if err == nil {
-				keep = true
+			changes.changed = true
+			if missing {
+				v.DeletionsMember = archive.DeletionsName
 			}
-			return err
-		}})
-		if err != nil {
-			return v, err
+			return nil
 		}
-	}
-	if !chunked {
-		v.ReadyFile = ""
-	}
-	if err = p.PutSnapshot(ctx, v); err != nil {
-		return v, err
-	}
-	keep = true
-	if o.Incremental {
-		s.Set.Authority = to[0]
-		s.Set.To = []string{to[0]}
-		if err = s.Registry.Save(ctx, s.Set); err != nil {
-			return v, err
-		}
-	}
-	return v, s.finishRun(ctx, p, &v)
+		return err
+	})
+	return changes, err
 }
 func (s *Service) coverage(ctx context.Context, c repository.Cataloger, v model.Snapshot, remote string) error {
 	return c.EachSnapshot(ctx, func(snapshot model.Snapshot) error {
