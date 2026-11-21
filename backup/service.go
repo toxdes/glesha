@@ -29,18 +29,17 @@ var ErrConflict = errors.New("backup: catalog conflict")
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
 type Service struct {
-	Config                config.Config
-	Budget                memory.Budget
-	Registry              repository.Registryor
-	Set                   model.Set
-	Directory             string
-	Stores                map[string]cloud.Store
-	CatalogPassword       []byte
-	DiscoveryPrefix       string
-	localAuthority        string
-	allowRetiredAuthority bool
-	redirectHops          int
-	metadataDownloads     int
+	Config            config.Config
+	Budget            memory.Budget
+	Registry          repository.Registryor
+	Set               model.Set
+	Directory         string
+	Stores            map[string]cloud.Store
+	CatalogPassword   []byte
+	DiscoveryPrefix   string
+	localAuthority    string
+	redirectHops      int
+	metadataDownloads int
 }
 
 func (s *Service) Catalog(ctx context.Context) (repository.Cataloger, error) {

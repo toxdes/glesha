@@ -424,7 +424,7 @@ func (s *Service) finishChunked(ctx context.Context, c repository.Cataloger, v *
 		return err
 	}
 	v.Status = model.STATUS_COMPLETED
-	if err = s.publish(ctx, c); err != nil {
+	if err = s.publish(ctx, c, currentAuthority); err != nil {
 		return err
 	}
 	if err = s.finishPending(ctx, c); err != nil {

@@ -152,7 +152,18 @@ func (s *Service) revisions(ctx context.Context, store cloud.Store) ([]revision,
 	}
 	return out, nil
 }
-func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
+
+// authorityMode says whether a catalog transfer honours a retired authority's redirect.
+type authorityMode int
+
+const (
+	// currentAuthority refuses to publish to, and follows redirects from, a retired authority.
+	currentAuthority authorityMode = iota
+	// retiredAuthority reads and writes a retired authority in place; only move uses it.
+	retiredAuthority
+)
+
+func (s *Service) publish(ctx context.Context, c repository.Cataloger, mode authorityMode) error {
 	ctx = cloud.WithTransferLabel(ctx, "catalog metadata")
 	if _, err := catalogStateVersion(ctx, c); err != nil {
 		return fmt.Errorf("backup: publish catalog: %w", err)
@@ -186,7 +197,7 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 	if err != nil {
 		return err
 	}
-	if !s.allowRetiredAuthority {
+	if mode == currentAuthority {
 		if err = s.checkPublishingAuthority(ctx, store); err != nil {
 			return err
 		}
@@ -452,7 +463,11 @@ func (s *Service) metadataReader(ctx context.Context, r io.Reader, key string) (
 	}
 	return gzip.NewReader(file_io.ContextReader{Ctx: ctx, Reader: r})
 }
-func (s *Service) Pull(ctx context.Context) error {
+
+// Pull downloads catalog revisions newer than the local catalog, following authority redirects.
+func (s *Service) Pull(ctx context.Context) error { return s.pull(ctx, currentAuthority) }
+
+func (s *Service) pull(ctx context.Context, mode authorityMode) error {
 	if s.Set.CatalogTo == "local" || s.Set.CatalogTo == "" {
 		return nil
 	}
@@ -482,7 +497,7 @@ func (s *Service) Pull(ctx context.Context) error {
 	if len(rs) == 0 {
 		return nil
 	}
-	if rs[len(rs)-1].Redirect != nil && !s.allowRetiredAuthority {
+	if rs[len(rs)-1].Redirect != nil && mode == currentAuthority {
 		if err = s.followAuthority(ctx, rs[len(rs)-1]); err != nil {
 			return err
 		}
@@ -664,7 +679,7 @@ func (s *Service) Push(ctx context.Context) error {
 		if kind != "push" {
 			return fmt.Errorf("%w: another operation exists", ErrPending)
 		}
-		if err = s.publish(ctx, p); err != nil {
+		if err = s.publish(ctx, p, currentAuthority); err != nil {
 			return err
 		}
 		return s.finishPending(ctx, p)
@@ -685,7 +700,7 @@ func (s *Service) Push(ctx context.Context) error {
 	if err = p.SetMeta(ctx, "operation", "push"); err != nil {
 		return err
 	}
-	if err = s.publish(ctx, p); err != nil {
+	if err = s.publish(ctx, p, currentAuthority); err != nil {
 		return err
 	}
 	return s.finishPending(ctx, p)

@@ -183,7 +183,7 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 	if !found {
 		return fmt.Errorf("backup: snapshot has no registered AWS copy")
 	}
-	if err = s.publish(ctx, p); err != nil {
+	if err = s.publish(ctx, p, currentAuthority); err != nil {
 		return err
 	}
 	return s.finishPending(ctx, p)
@@ -391,9 +391,7 @@ func (s *Service) Move(ctx context.Context, to string, retrieval RetrievalOption
 	}
 	previous := s.Set
 	s.Set = next
-	s.allowRetiredAuthority = true
-	err = s.publish(ctx, p)
-	s.allowRetiredAuthority = false
+	err = s.publish(ctx, p, retiredAuthority)
 	if err != nil {
 		s.Set = previous
 		return err
@@ -422,13 +420,12 @@ func (s *Service) prepareMoveCatalog(ctx context.Context, p repository.Cataloger
 	}
 	peer := *s
 	peer.Set = next
-	peer.allowRetiredAuthority = true
 	peer.Directory = filepath.Join(s.Directory, ".glesha-move-view-"+newID())
 	if err = os.Mkdir(peer.Directory, 0700); err != nil {
 		return err
 	}
 	defer os.RemoveAll(peer.Directory)
-	if err = peer.Pull(ctx); err != nil {
+	if err = peer.pull(ctx, retiredAuthority); err != nil {
 		return err
 	}
 	target, err := peer.Catalog(ctx)
