@@ -162,7 +162,7 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 				if tier == "" {
 					tier = "bulk"
 				}
-				if tier == "expedited" && (h.Class == "DEEP_ARCHIVE" || strings.Contains(h.ArchiveStatus, "DEEP")) {
+				if tier == "expedited" && h.DeepArchive() {
 					last = fmt.Errorf("backup: expedited retrieval is unavailable for Deep Archive")
 					continue
 				}
@@ -383,7 +383,7 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		if !s.Capabilities(job.Remote).ColdRetrieval {
 			return "", "", h, fmt.Errorf("backup: remote does not support cold retrieval")
 		}
-		if job.Tier == "expedited" && (h.Class == "DEEP_ARCHIVE" || strings.Contains(h.ArchiveStatus, "DEEP")) {
+		if job.Tier == "expedited" && h.DeepArchive() {
 			return "", "", h, fmt.Errorf("backup: expedited unavailable for Deep Archive")
 		}
 		if !job.Requested && !strings.Contains(h.Restore, `ongoing-request="true"`) {

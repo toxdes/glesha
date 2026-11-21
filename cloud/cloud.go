@@ -125,6 +125,11 @@ func norm(class types.StorageClass) string {
 	}
 	return string(class)
 }
+
+// DeepArchive reports whether o is in a Deep Archive tier, which has no expedited retrieval.
+func (o Object) DeepArchive() bool {
+	return o.Class == "DEEP_ARCHIVE" || strings.Contains(o.ArchiveStatus, "DEEP")
+}
 func cold(class, restore string, archived bool) bool {
 	return (class == "GLACIER" || class == "DEEP_ARCHIVE" || archived) && !strings.Contains(restore, `ongoing-request="false"`)
 }
@@ -469,7 +474,7 @@ func (s *s3Store) RestoreVersion(ctx context.Context, key, version string, days 
 	if head.Class != "GLACIER" && head.Class != "DEEP_ARCHIVE" && !(head.Class == "INTELLIGENT_TIERING" && head.ArchiveStatus != "") {
 		return fmt.Errorf("cloud: object is not in a cold archive tier")
 	}
-	if tier == "Expedited" && (head.Class == "DEEP_ARCHIVE" || strings.Contains(head.ArchiveStatus, "DEEP")) {
+	if tier == "Expedited" && head.DeepArchive() {
 		return fmt.Errorf("cloud: expedited retrieval is unavailable for Deep Archive")
 	}
 	restoreDays := &days
