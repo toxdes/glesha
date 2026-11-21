@@ -8,6 +8,7 @@
 - Release artifacts publish under `releases/` instead of `glesha/releases/`, matching the other toxdes projects. `packaging/migrate_release_prefix.py` copies existing objects to the new prefix while the originals keep serving old links.
 - Rewrote command help and manual pages in a compact Unix style. Help, `--help`, and `man/glesha-*.1` now come from one source, and descriptions were corrected to match behavior.
 - Reworded several plain-text results, such as `run`, `archive`, `state migrate`, and the `status` footers, for consistency. JSON output is unchanged.
+- Rewrote the user documentation. It now lives in `docs/`, and `docs/cli-reference.md` replaces `cli_reference.md`.
 
 ## 0.5.2 - 2026-10-31
 

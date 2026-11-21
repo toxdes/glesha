@@ -55,7 +55,7 @@ Keep retrieved copies for N days (default: 3). The default comes from the [cold]
 .SS Performance options
 .TP
 .B \-\-memory\-max SIZE
-Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
+Memory limit (default: half of available memory, or 128MiB). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. On Linux, the default is half of the available memory. On other systems, or if the available memory cannot be read, the default is 128MiB.
 .TP
 .B \-j, \-\-jobs, \-\-transfer\-workers N
 Run up to N transfers at once (default: 4). The memory limit may lower the effective number.

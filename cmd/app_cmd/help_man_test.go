@@ -15,7 +15,7 @@ import (
 var manFlagDetails = map[string]map[string]string{
 	"": {
 		"archive-mode":            "With memory, the encrypted archive is held in memory and the command fails if it does not fit. With stream, it is written to a temporary file. With auto, it starts in memory and moves to a file when needed.",
-		"memory-max":              "SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.",
+		"memory-max":              "SIZE takes a unit such as MiB or GiB and must be at least 48MiB. On Linux, the default is half of the available memory. On other systems, or if the available memory cannot be read, the default is 128MiB.",
 		"transfer-workers":        "The memory limit may lower the effective number.",
 		"retrieval":               "The default comes from the [cold] tier setting.",
 		"days":                    "The default comes from the [cold] days setting. A pending request keeps its original duration.",
@@ -27,7 +27,7 @@ var manFlagDetails = map[string]map[string]string{
 		"date":                    "For example, 2024-05-01T12:00:00Z.",
 	},
 	"create": {
-		"chunked": "Chunked snapshots cannot be kept with --output or --keep-archive, cannot use memory archive mode, and cannot be moved with glesha move.",
+		"chunked": "Chunked snapshots cannot be kept with --output or --keep-archive, cannot use memory archive mode, cannot be moved with glesha move, and cannot be changed with glesha storage-class.",
 	},
 	"run": {
 		"incremental":   "Requires exactly one remote.",

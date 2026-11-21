@@ -33,7 +33,7 @@ REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-
 .SS Archive options
 .TP
 .B \-\-storage\-class CLASS
-AWS storage class of full snapshots.
+AWS storage class of snapshots.
 .TP
 .B \-\-compression FORMAT
 Compression: xz, gzip, or bzip2.
@@ -45,7 +45,7 @@ Compression level, 1 to 9.
 Name prefix: glesha or encb.
 .TP
 .B \-\-incremental\-storage\-class CLASS
-AWS storage class of incremental snapshots.
+AWS storage class of incremental snapshots (default: \-\-storage\-class).
 .TP
 .B \-\-chunked
 Upload in chunks; \-\-chunked=false turns it off.
