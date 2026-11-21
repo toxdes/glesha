@@ -75,8 +75,6 @@ type AppCmdEnv struct {
 	present                                                                                                                                                                                                               map[string]bool
 }
 
-var appCmdEnv *AppCmdEnv
-
 type runtime struct {
 	emitted                int
 	command                string
@@ -292,7 +290,7 @@ func reorder(f *flag.FlagSet, args []string) ([]string, error) {
 	}
 	return append(append(options, "--"), positionals...), nil
 }
-func ResolveCommand(args []string) (string, []string, error) {
+func resolveCommand(args []string) (string, []string, error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if _, ok := handlers[a]; ok || a == "help" || a == "version" {
@@ -316,12 +314,11 @@ func ResolveCommand(args []string) (string, []string, error) {
 	return "", args, nil
 }
 func Execute(ctx context.Context, args []string, version, sha string) error {
-	command, rest, err := ResolveCommand(args)
+	command, rest, err := resolveCommand(args)
 	if err != nil {
 		return err
 	}
 	e := &AppCmdEnv{present: map[string]bool{}}
-	appCmdEnv = e
 	f := flagSet(command, e)
 	rest, err = reorder(f, rest)
 	if err != nil {

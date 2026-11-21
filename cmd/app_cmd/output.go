@@ -116,7 +116,7 @@ func (r *runtime) help(args []string) error {
 
 // inspect flags without loading configuration or mistaking a flag value for an option
 func requestedJSON(args []string) bool {
-	command, _, _ := ResolveCommand(args)
+	command, _, _ := resolveCommand(args)
 	flags := flagSet(command, &AppCmdEnv{})
 	format := ""
 	for i := 0; i < len(args); i++ {
