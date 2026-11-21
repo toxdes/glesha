@@ -465,9 +465,9 @@ func (s *Service) metadataReader(ctx context.Context, r io.Reader, key string) (
 }
 
 // Pull downloads catalog revisions newer than the local catalog, following authority redirects.
-func (s *Service) Pull(ctx context.Context) error { return s.pull(ctx, currentAuthority) }
+func (s *Service) Pull(ctx context.Context) error { return s.pull(ctx, currentAuthority, 0) }
 
-func (s *Service) pull(ctx context.Context, mode authorityMode) error {
+func (s *Service) pull(ctx context.Context, mode authorityMode, hops int) error {
 	if s.Set.CatalogTo == "local" || s.Set.CatalogTo == "" {
 		return nil
 	}
@@ -498,13 +498,13 @@ func (s *Service) pull(ctx context.Context, mode authorityMode) error {
 		return nil
 	}
 	if rs[len(rs)-1].Redirect != nil && mode == currentAuthority {
-		if err = s.followAuthority(ctx, rs[len(rs)-1]); err != nil {
+		if err = s.followAuthority(ctx, rs[len(rs)-1], hops); err != nil {
 			return err
 		}
 		if s.Stores[s.Set.CatalogTo] == nil {
 			return ErrAuthorityMoved
 		}
-		return s.Pull(ctx)
+		return s.pull(ctx, currentAuthority, hops+1)
 	}
 	current, err := c.GetMeta(ctx, "remote_revision")
 	if err != nil {

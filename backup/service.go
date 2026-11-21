@@ -38,7 +38,6 @@ type Service struct {
 	CatalogPassword   []byte
 	DiscoveryPrefix   string
 	localAuthority    string
-	redirectHops      int
 	metadataDownloads int
 }
 

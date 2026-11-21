@@ -60,14 +60,15 @@ func (s *Service) refreshAuthority(ctx context.Context, store cloud.Store) error
 	})
 }
 
-func (s *Service) followAuthority(ctx context.Context, rev revision) error {
+// followAuthority switches to the authority rev redirects to; hops counts the
+// redirects already followed in this lookup.
+func (s *Service) followAuthority(ctx context.Context, rev revision, hops int) error {
 	if rev.Redirect == nil {
 		return nil
 	}
-	if s.redirectHops >= maximumAuthorityRedirects {
+	if hops >= maximumAuthorityRedirects {
 		return fmt.Errorf("%w: too many catalog redirects; refresh discovery", ErrConflict)
 	}
-	s.redirectHops++
 	for _, value := range rev.AuthorityHistory {
 		if value.Set != s.Set.ID {
 			return fmt.Errorf("backup: authority history belongs to another set")

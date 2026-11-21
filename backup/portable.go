@@ -305,14 +305,14 @@ func (s *Service) CacheCatalogWithResult(ctx context.Context) (CatalogCacheResul
 		return CatalogCacheResult{}, err
 	}
 	downloads := s.metadataDownloads
-	if err = s.cacheCatalog(ctx); err != nil {
+	if err = s.cacheCatalog(ctx, 0); err != nil {
 		return CatalogCacheResult{}, err
 	}
 	after, err := os.ReadFile(path)
 	return CatalogCacheResult{Updated: downloads != s.metadataDownloads || !bytes.Equal(before, after)}, err
 }
 
-func (s *Service) cacheCatalog(ctx context.Context) error {
+func (s *Service) cacheCatalog(ctx context.Context, hops int) error {
 	if err := s.useLocator(ctx); err != nil {
 		return err
 	}
@@ -338,16 +338,16 @@ func (s *Service) cacheCatalog(ctx context.Context) error {
 		if s.Stores[s.Set.CatalogTo] == nil {
 			return ErrAuthorityMoved
 		}
-		return s.cacheCatalog(ctx)
+		return s.cacheCatalog(ctx, hops+1)
 	}
 	if revisions[len(revisions)-1].Redirect != nil {
-		if err = s.followAuthority(ctx, revisions[len(revisions)-1]); err != nil {
+		if err = s.followAuthority(ctx, revisions[len(revisions)-1], hops); err != nil {
 			return err
 		}
 		if s.Stores[s.Set.CatalogTo] == nil {
 			return ErrAuthorityMoved
 		}
-		return s.cacheCatalog(ctx)
+		return s.cacheCatalog(ctx, hops+1)
 	}
 	start := 0
 	for i, rev := range revisions {

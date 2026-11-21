@@ -425,7 +425,7 @@ func (s *Service) prepareMoveCatalog(ctx context.Context, p repository.Cataloger
 		return err
 	}
 	defer os.RemoveAll(peer.Directory)
-	if err = peer.pull(ctx, retiredAuthority); err != nil {
+	if err = peer.pull(ctx, retiredAuthority, 0); err != nil {
 		return err
 	}
 	target, err := peer.Catalog(ctx)
