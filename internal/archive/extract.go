@@ -322,200 +322,235 @@ func ExtractTarInto(ctx context.Context, o ExtractOptions, r io.Reader, stage st
 }
 
 func extractWith(ctx context.Context, o ExtractOptions, stage string, manifest *model.Manifest, scan func(func(*tar.Header, io.Reader) error) (string, error)) (string, error) {
-	root, e := os.OpenRoot(stage)
-	if e != nil {
-		return "", e
+	root, err := os.OpenRoot(stage)
+	if err != nil {
+		return "", err
 	}
 	defer root.Close()
-	tmp, e := fsutil.Temp(filepath.Dir(stage))
-	if e != nil {
-		return "", e
+	tmp, err := fsutil.Temp(filepath.Dir(stage))
+	if err != nil {
+		return "", err
 	}
 	tmp.Close()
 	defer os.Remove(tmp.Name())
-	cat, e := repository.NewCatalogRepository(ctx, tmp.Name())
-	if e != nil {
-		return "", e
+	scratch, err := repository.NewCatalogRepository(ctx, tmp.Name())
+	if err != nil {
+		return "", err
 	}
-	defer cat.Close()
-	wrapper := ""
-	format, e := scan(func(h *tar.Header, r io.Reader) error {
-		n, e := SafeName(h.Name)
-		if e != nil {
-			return e
-		}
-		if o.StripWrapper {
-			first, rest, found := strings.Cut(n, "/")
-			if wrapper == "" {
-				wrapper = first
-			}
-			if first != wrapper {
-				return fmt.Errorf("archive: inconsistent archive wrapper")
-			}
-			if !found {
-				return nil
-			}
-			n = rest
-			if n == "" {
-				return nil
-			}
-		}
-		if n == DeletionsName || !o.StripWrapper && strings.Count(n, "/") == 1 && path.Base(n) == DeletionsName {
-			_, e := io.Copy(io.Discard, r)
-			return e
-		}
-		if n == ManifestName || !o.StripWrapper && strings.Count(n, "/") == 1 && path.Base(n) == ManifestName {
-			if h.Size > 4<<20 {
-				return fmt.Errorf("archive: manifest exceeds limit")
-			}
-			if e = json.NewDecoder(io.LimitReader(r, 4<<20)).Decode(manifest); e != nil {
-				return e
-			}
-			if manifest.Version != 1 && manifest.Version != 2 {
-				return fmt.Errorf("archive: unsupported manifest version")
-			}
-			if manifest.Layout != "" && manifest.Layout != "single" && manifest.Layout != "chunked" {
-				return fmt.Errorf("archive: unsupported manifest layout")
-			}
-			return nil
-		}
-		if e = safeParents(root, n); e != nil {
-			return e
-		}
-		if e = root.MkdirAll(path.Dir(n), 0700); e != nil {
-			return e
-		}
-		if o.Overlay {
-			info, se := root.Lstat(n)
-			if se == nil && !(h.Typeflag == tar.TypeDir && info.IsDir()) {
-				if e = root.RemoveAll(n); e != nil {
-					return e
-				}
-			} else if se != nil && !os.IsNotExist(se) {
-				return se
-			}
-		}
-		parent := path.Dir(n)
-		if parent == "." {
-			parent = ""
-		}
-		v := model.Entry{Path: n, Name: path.Base(n), Parent: parent, Mode: h.Mode, Size: h.Size, ModTime: h.ModTime.UnixNano(), UID: h.Uid, GID: h.Gid, PAX: h.PAXRecords, Archive: o.Snapshot, Member: h.Name}
-		switch h.Typeflag {
-		case tar.TypeDir:
-			v.Type = "directory"
-			v.Size = 0
-			if e = root.MkdirAll(n, 0700); e != nil {
-				return e
-			}
-		case tar.TypeReg, tar.TypeRegA:
-			v.Type = "file"
-			f, e := root.OpenFile(n, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-			if e != nil {
-				return e
-			}
-			hash := sha256.New()
-			_, e = io.Copy(io.MultiWriter(f, hash), r)
-			ce := f.Close()
-			if e != nil {
-				return e
-			}
-			if ce != nil {
-				return ce
-			}
-			v.Hash = hex.EncodeToString(hash.Sum(nil))
-			if e = fsutil.SetOwner(root, n, h.Uid, h.Gid, false); e != nil {
-				return e
-			}
-			if e = root.Chmod(n, fsutil.Permissions(h.Mode)); e != nil {
-				return e
-			}
-			if e = root.Chtimes(n, h.ModTime, h.ModTime); e != nil {
-				return e
-			}
-		case tar.TypeSymlink:
-			v.Type = "symlink"
-			v.Size = 0
-			v.Link = h.Linkname
-			if e = safeSymlink(n, h.Linkname); e != nil {
-				return e
-			}
-			if e = root.Symlink(h.Linkname, n); e != nil {
-				return e
-			}
-			if e = fsutil.SetOwner(root, n, h.Uid, h.Gid, true); e != nil {
-				return e
-			}
-			if e = fsutil.SetLinkTimes(filepath.Join(stage, filepath.FromSlash(n)), h.ModTime); e != nil {
-				return e
-			}
-		case tar.TypeLink:
-			v.Type = "hardlink"
-			v.Link = h.Linkname
-			if o.StripWrapper {
-				prefix := wrapper + "/"
-				if !strings.HasPrefix(v.Link, prefix) {
-					return fmt.Errorf("archive: hardlink outside wrapper")
-				}
-				v.Link = strings.TrimPrefix(v.Link, prefix)
-			}
-			if _, e = SafeName(v.Link); e != nil {
-				return e
-			}
-		default:
-			return fmt.Errorf("archive: unsupported tar entry type %d", h.Typeflag)
-		}
-		return cat.PutEntry(ctx, "scan", v)
-	})
-	if e != nil {
-		return "", e
+	defer scratch.Close()
+	x := &extractor{o: o, root: root, stage: stage, manifest: manifest, scratch: scratch}
+	format, err := scan(func(h *tar.Header, r io.Reader) error { return x.entry(ctx, h, r) })
+	if err != nil {
+		return "", err
 	}
-	e = cat.EachEntry(ctx, "scan", func(v model.Entry) error {
-		if v.Type == "hardlink" {
-			if e := safeParents(root, v.Link); e != nil {
-				return e
-			}
-			info, e := root.Lstat(v.Link)
-			if e != nil {
-				return e
-			}
-			if !info.Mode().IsRegular() {
-				return fmt.Errorf("archive: hardlink target is not regular")
-			}
-			if e = root.Link(v.Link, v.Path); e != nil {
-				return e
-			}
-			hash, size, e := Hash(ctx, filepath.Join(stage, filepath.FromSlash(v.Path)))
-			if e != nil {
-				return e
-			}
-			v.Hash, v.Size = hash, size
-		}
-		if o.Catalog != nil {
-			if e := o.Catalog.PutEntry(ctx, o.Snapshot, v); e != nil {
-				return e
-			}
-		}
-		return nil
-	})
-	if e != nil {
-		return "", e
+	if err = x.linkHardlinks(ctx); err != nil {
+		return "", err
 	}
 	// apply directory metadata after creating descendants
 	if o.DeferDirectoryMetadata {
 		return format, nil
 	}
-	e = cat.EachDirectory(ctx, "scan", func(v model.Entry) error {
+	return format, x.applyDirectoryMetadata(ctx)
+}
+
+// extractor unpacks one tar stream into stage. Hard links are created in a
+// second pass, once their targets exist.
+type extractor struct {
+	o        ExtractOptions
+	root     *os.Root
+	stage    string
+	manifest *model.Manifest
+	// scratch records every extracted entry for the later passes
+	scratch repository.Cataloger
+	// wrapper is the top-level directory stripped with StripWrapper
+	wrapper string
+}
+
+// entry extracts one tar member.
+func (x *extractor) entry(ctx context.Context, h *tar.Header, r io.Reader) error {
+	n, skip, err := x.memberName(h)
+	if err != nil || skip {
+		return err
+	}
+	if x.isSpecial(n, DeletionsName) {
+		_, err := io.Copy(io.Discard, r)
+		return err
+	}
+	if x.isSpecial(n, ManifestName) {
+		return x.readManifest(h, r)
+	}
+	if err = safeParents(x.root, n); err != nil {
+		return err
+	}
+	if err = x.root.MkdirAll(path.Dir(n), 0700); err != nil {
+		return err
+	}
+	if x.o.Overlay {
+		info, statErr := x.root.Lstat(n)
+		if statErr == nil && !(h.Typeflag == tar.TypeDir && info.IsDir()) {
+			if err = x.root.RemoveAll(n); err != nil {
+				return err
+			}
+		} else if statErr != nil && !os.IsNotExist(statErr) {
+			return statErr
+		}
+	}
+	v, err := x.write(n, h, r)
+	if err != nil {
+		return err
+	}
+	return x.scratch.PutEntry(ctx, "scan", v)
+}
+
+// memberName returns the path of h inside the archive, without the wrapper
+// directory when StripWrapper is set; skip reports members that are the wrapper itself.
+func (x *extractor) memberName(h *tar.Header) (n string, skip bool, err error) {
+	n, err = SafeName(h.Name)
+	if err != nil || !x.o.StripWrapper {
+		return n, false, err
+	}
+	first, rest, found := strings.Cut(n, "/")
+	if x.wrapper == "" {
+		x.wrapper = first
+	}
+	if first != x.wrapper {
+		return "", false, fmt.Errorf("archive: inconsistent archive wrapper")
+	}
+	return rest, !found || rest == "", nil
+}
+
+// isSpecial reports whether n is the glesha member called name, at the archive
+// root or, without StripWrapper, directly inside the wrapper.
+func (x *extractor) isSpecial(n, name string) bool {
+	return n == name || !x.o.StripWrapper && strings.Count(n, "/") == 1 && path.Base(n) == name
+}
+
+func (x *extractor) readManifest(h *tar.Header, r io.Reader) error {
+	if h.Size > 4<<20 {
+		return fmt.Errorf("archive: manifest exceeds limit")
+	}
+	if err := json.NewDecoder(io.LimitReader(r, 4<<20)).Decode(x.manifest); err != nil {
+		return err
+	}
+	if x.manifest.Version != 1 && x.manifest.Version != 2 {
+		return fmt.Errorf("archive: unsupported manifest version")
+	}
+	if x.manifest.Layout != "" && x.manifest.Layout != "single" && x.manifest.Layout != "chunked" {
+		return fmt.Errorf("archive: unsupported manifest layout")
+	}
+	return nil
+}
+
+// write creates member n from h and r, except hard links, and describes it.
+func (x *extractor) write(n string, h *tar.Header, r io.Reader) (model.Entry, error) {
+	root := x.root
+	parent := path.Dir(n)
+	if parent == "." {
+		parent = ""
+	}
+	v := model.Entry{Path: n, Name: path.Base(n), Parent: parent, Mode: h.Mode, Size: h.Size, ModTime: h.ModTime.UnixNano(), UID: h.Uid, GID: h.Gid, PAX: h.PAXRecords, Archive: x.o.Snapshot, Member: h.Name}
+	switch h.Typeflag {
+	case tar.TypeDir:
+		v.Type = "directory"
+		v.Size = 0
+		return v, root.MkdirAll(n, 0700)
+	case tar.TypeReg, tar.TypeRegA:
+		v.Type = "file"
+		f, err := root.OpenFile(n, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+		if err != nil {
+			return v, err
+		}
+		hash := sha256.New()
+		_, err = io.Copy(io.MultiWriter(f, hash), r)
+		closeErr := f.Close()
+		if err != nil {
+			return v, err
+		}
+		if closeErr != nil {
+			return v, closeErr
+		}
+		v.Hash = hex.EncodeToString(hash.Sum(nil))
+		if err = fsutil.SetOwner(root, n, h.Uid, h.Gid, false); err != nil {
+			return v, err
+		}
+		if err = root.Chmod(n, fsutil.Permissions(h.Mode)); err != nil {
+			return v, err
+		}
+		return v, root.Chtimes(n, h.ModTime, h.ModTime)
+	case tar.TypeSymlink:
+		v.Type = "symlink"
+		v.Size = 0
+		v.Link = h.Linkname
+		if err := safeSymlink(n, h.Linkname); err != nil {
+			return v, err
+		}
+		if err := root.Symlink(h.Linkname, n); err != nil {
+			return v, err
+		}
+		if err := fsutil.SetOwner(root, n, h.Uid, h.Gid, true); err != nil {
+			return v, err
+		}
+		return v, fsutil.SetLinkTimes(filepath.Join(x.stage, filepath.FromSlash(n)), h.ModTime)
+	case tar.TypeLink:
+		v.Type = "hardlink"
+		v.Link = h.Linkname
+		if x.o.StripWrapper {
+			prefix := x.wrapper + "/"
+			if !strings.HasPrefix(v.Link, prefix) {
+				return v, fmt.Errorf("archive: hardlink outside wrapper")
+			}
+			v.Link = strings.TrimPrefix(v.Link, prefix)
+		}
+		_, err := SafeName(v.Link)
+		return v, err
+	default:
+		return v, fmt.Errorf("archive: unsupported tar entry type %d", h.Typeflag)
+	}
+}
+
+// linkHardlinks creates the recorded hard links and copies every entry to the
+// caller's catalog.
+func (x *extractor) linkHardlinks(ctx context.Context) error {
+	return x.scratch.EachEntry(ctx, "scan", func(v model.Entry) error {
+		if v.Type == "hardlink" {
+			if err := safeParents(x.root, v.Link); err != nil {
+				return err
+			}
+			info, err := x.root.Lstat(v.Link)
+			if err != nil {
+				return err
+			}
+			if !info.Mode().IsRegular() {
+				return fmt.Errorf("archive: hardlink target is not regular")
+			}
+			if err = x.root.Link(v.Link, v.Path); err != nil {
+				return err
+			}
+			hash, size, err := Hash(ctx, filepath.Join(x.stage, filepath.FromSlash(v.Path)))
+			if err != nil {
+				return err
+			}
+			v.Hash, v.Size = hash, size
+		}
+		if x.o.Catalog != nil {
+			return x.o.Catalog.PutEntry(ctx, x.o.Snapshot, v)
+		}
+		return nil
+	})
+}
+
+func (x *extractor) applyDirectoryMetadata(ctx context.Context) error {
+	return x.scratch.EachDirectory(ctx, "scan", func(v model.Entry) error {
 		if v.Type != "directory" {
 			return nil
 		}
-		if e := fsutil.SetOwner(root, v.Path, v.UID, v.GID, false); e != nil {
-			return e
+		if err := fsutil.SetOwner(x.root, v.Path, v.UID, v.GID, false); err != nil {
+			return err
 		}
-		if e := root.Chmod(v.Path, fsutil.Permissions(v.Mode)); e != nil {
-			return e
+		if err := x.root.Chmod(v.Path, fsutil.Permissions(v.Mode)); err != nil {
+			return err
 		}
 		t := time.Unix(0, v.ModTime)
-		return root.Chtimes(v.Path, t, t)
+		return x.root.Chtimes(v.Path, t, t)
 	})
-	return format, e
 }
