@@ -8,8 +8,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-
-	"glesha/config"
 )
 
 func TestAWSRegionSigningUsesCanonicalCase(t *testing.T) {
@@ -27,7 +25,7 @@ func TestAWSRegionSigningUsesCanonicalCase(t *testing.T) {
 				w.Header().Set("Content-Length", "0")
 			}))
 			defer server.Close()
-			provider := config.Provider{Kind: "aws", Bucket: "test", Region: region, Endpoint: server.URL}
+			provider := Remote{Kind: "aws", Bucket: "test", Region: region, Endpoint: server.URL}
 			store, err := New(context.Background(), provider, 1, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -74,7 +72,7 @@ func TestObservedLifecycleAndPinnedColdRequest(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), config.Provider{Kind: "aws", Bucket: "test", Region: "us-east-1", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "us-east-1", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,14 +113,14 @@ func TestIndependentAdaptersAndMissingCredentials(t *testing.T) {
 		w.Header().Set("ETag", `"empty"`)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), config.Provider{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.Head(context.Background(), "object", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = New(context.Background(), config.Provider{Kind: "aws", Bucket: "test", Region: "test"}, 1, nil); err == nil {
+	if _, err = New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "test"}, 1, nil); err == nil {
 		t.Fatal("missing AWS credentials accepted")
 	}
 }
@@ -144,7 +142,7 @@ func TestListingPagination(t *testing.T) {
 		fmt.Fprintf(w, `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>%s</IsTruncated><Contents><Key>%s</Key><Size>3</Size><ETag>etag</ETag></Contents></ListBucketResult>`, truncated, key)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), config.Provider{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,7 +176,7 @@ func TestClassChangeRejectsReplacingNewerVersion(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), config.Provider{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

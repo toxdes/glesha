@@ -22,7 +22,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
 
-	"glesha/config"
 	L "glesha/logger"
 )
 
@@ -66,8 +65,13 @@ type s3Store struct {
 	limit    chan struct{}
 }
 
-// New opens an S3-compatible store for the remote profile p.
-func New(ctx context.Context, p config.Provider, workers int, limit chan struct{}) (Store, error) {
+// Remote identifies one bucket of a provider.
+type Remote struct {
+	Kind, Bucket, Region, Endpoint string
+}
+
+// New opens an S3-compatible store for the remote p.
+func New(ctx context.Context, p Remote, workers int, limit chan struct{}) (Store, error) {
 	if workers < 1 || limit != nil && cap(limit) == 0 {
 		return nil, fmt.Errorf("cloud: workers and transfer buffer capacity must be positive")
 	}

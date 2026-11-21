@@ -14,7 +14,6 @@ import (
 	"testing"
 	"time"
 
-	"glesha/config"
 	L "glesha/logger"
 )
 
@@ -98,7 +97,7 @@ func TestSDKUploadDisplaysBytesBeforeAcknowledgement(t *testing.T) {
 	defer renderer.Close()
 	ctx, cancel := context.WithTimeout(L.WithProgress(context.Background(), renderer), 5*time.Second)
 	defer cancel()
-	store, err := New(ctx, config.Provider{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(ctx, Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

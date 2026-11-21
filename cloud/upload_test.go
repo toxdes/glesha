@@ -13,8 +13,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-
-	"glesha/config"
 )
 
 func TestConditionalUploadAndVerifiedBytes(t *testing.T) {
@@ -54,7 +52,7 @@ func TestConditionalUploadAndVerifiedBytes(t *testing.T) {
 	defer server.Close()
 	file := filepath.Join(t.TempDir(), "archive")
 	os.WriteFile(file, []byte("complete archive"), 0600)
-	store, err := New(context.Background(), config.Provider{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +93,7 @@ func TestFailedMultipartSessionIsAborted(t *testing.T) {
 		w.WriteHeader(400)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), config.Provider{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"glesha/config"
 )
 
 func TestCredentialRequirements(t *testing.T) {
@@ -34,7 +32,7 @@ func TestCredentialRequirements(t *testing.T) {
 				t.Fatal(err)
 			}
 			err = provider.ValidateCredentials()
-			_, setupErr := New(context.Background(), config.Provider{Kind: tc.provider, Bucket: "bucket", Endpoint: "http://127.0.0.1:1", Region: "us-east-1"}, 1, nil)
+			_, setupErr := New(context.Background(), Remote{Kind: tc.provider, Bucket: "bucket", Endpoint: "http://127.0.0.1:1", Region: "us-east-1"}, 1, nil)
 			if len(tc.missing) == 0 {
 				if err != nil || setupErr != nil {
 					t.Fatalf("valid credentials rejected: %v, %v", err, setupErr)

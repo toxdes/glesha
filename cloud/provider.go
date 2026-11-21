@@ -2,9 +2,8 @@ package cloud
 
 import (
 	"fmt"
+	"os"
 	"strings"
-
-	"glesha/config"
 )
 
 // Kind names a storage provider. Values are persisted in config and the registry.
@@ -85,7 +84,7 @@ func Supports(kind string) bool {
 func (p Provider) ValidateCredentials() error {
 	var missing []string
 	for _, names := range [][]string{p.keyEnv, p.secretEnv} {
-		if config.FirstEnv(names...) != "" {
+		if firstEnv(names...) != "" {
 			continue
 		}
 		name := names[0]
@@ -101,11 +100,21 @@ func (p Provider) ValidateCredentials() error {
 }
 
 func (p Provider) credentials() (key, secret, token string) {
-	return config.FirstEnv(p.keyEnv...), config.FirstEnv(p.secretEnv...), config.FirstEnv(p.tokenEnv...)
+	return firstEnv(p.keyEnv...), firstEnv(p.secretEnv...), firstEnv(p.tokenEnv...)
 }
 
 // CapabilitiesOf returns the capabilities of kind; an unknown kind supports nothing.
 func CapabilitiesOf(kind string) Capabilities {
 	p, _ := Lookup(kind)
 	return p.Capabilities
+}
+
+// firstEnv returns the first non-empty environment variable among keys.
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := os.Getenv(k); v != "" {
+			return v
+		}
+	}
+	return ""
 }
