@@ -41,41 +41,14 @@ func importArchive(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
 	}
-	if r.env.DeepVerify && len(r.env.From) == 0 {
-		return fmt.Errorf("cli: --deep-verify requires --from")
-	}
-	if r.env.File == "" && r.env.Key == "" {
-		return fmt.Errorf("cli: import requires --file or --key")
-	}
-	if r.env.Key != "" && len(r.env.From) == 0 {
-		return fmt.Errorf("cli: remote import requires --from")
-	}
-	if r.env.Baseline != "" && r.env.Baseline != "new" {
-		return fmt.Errorf("cli: import --baseline accepts new; select an existing snapshot with configure --baseline ID")
+	if err := checkImportFlags(r.env); err != nil {
+		return err
 	}
 	ids, err := r.remoteIDs(r.env.From)
 	if err != nil {
 		return err
 	}
-	if _, err = r.registry.Set(r.ctx, args[0]); errors.Is(err, sql.ErrNoRows) && len(r.env.From) > 0 {
-		if err = r.discoverState(nil); err != nil {
-			return err
-		}
-	}
-	if _, err = r.registry.Set(r.ctx, args[0]); errors.Is(err, sql.ErrNoRows) {
-		var set model.Set
-		set, err = backup.NewSet(args[0], nil, r.config)
-		if err != nil {
-			return err
-		}
-		if err = r.registry.Create(r.ctx, set); err != nil {
-			return err
-		}
-	}
-	if err != nil {
-		return err
-	}
-	if err = r.openSet(args[0]); err != nil {
+	if err = r.openImportSet(args[0]); err != nil {
 		return err
 	}
 	unlock, err := r.lock()
@@ -87,28 +60,7 @@ func importArchive(r *runtime, args []string) error {
 		return err
 	}
 	if r.service.Pending() {
-		if err = r.syncStores(); err != nil {
-			return err
-		}
-		if err = r.catalogSecret(true); err != nil {
-			return err
-		}
-		defer wipe(r.service.CatalogPassword)
-		file := r.env.File
-		if file != "" {
-			file, err = fsutil.Expand(file)
-			if err != nil {
-				return err
-			}
-			file, err = filepath.Abs(file)
-			if err != nil {
-				return err
-			}
-		}
-		if err = r.service.ResumeImportPublication(r.ctx, r.env.Key, file); err != nil {
-			return err
-		}
-		return r.publishState()
+		return r.resumeImport()
 	}
 	defer func() { wipe(r.service.CatalogPassword) }()
 	if err = r.prepareMutation(); err != nil {
@@ -127,12 +79,7 @@ func importArchive(r *runtime, args []string) error {
 			return err
 		}
 	}
-	file, err = fsutil.Expand(file)
-	if err != nil {
-		return err
-	}
-	file, err = filepath.Abs(file)
-	if err != nil {
+	if file, err = absolutePath(file); err != nil {
 		return err
 	}
 	roots, err := rootMappings(r.env.Root)
@@ -144,52 +91,8 @@ func importArchive(r *runtime, args []string) error {
 		return err
 	}
 	if r.env.File != "" && len(ids) > 0 {
-		key := r.env.Key
-		if key == "" {
-			key = filepath.Base(file)
-		}
-		hash, size, err := archive.Hash(r.ctx, file)
-		if err != nil {
+		if remote, object, err = r.matchRemoteCopy(ids, file); err != nil {
 			return err
-		}
-		var last error
-		for _, id := range ids {
-			h, err := r.service.Stores[id].Head(r.ctx, key, "")
-			if err != nil {
-				last = err
-				continue
-			}
-			if h.Size != size {
-				last = fmt.Errorf("cli: associated object size differs")
-				continue
-			}
-			if r.env.DeepVerify {
-				temp, err := fsutil.Temp(r.service.Directory)
-				if err != nil {
-					return err
-				}
-				name := temp.Name()
-				temp.Close()
-				os.Remove(name)
-				_, err = backup.Download(r.ctx, r.service.Stores, []string{id}, key, h.Version, name)
-				if err == nil {
-					remoteHash, _, hashErr := archive.Hash(r.ctx, name)
-					err = hashErr
-					if err == nil && remoteHash != hash {
-						err = fmt.Errorf("cli: associated object checksum differs")
-					}
-				}
-				os.Remove(name)
-				if err != nil {
-					last = err
-					continue
-				}
-			}
-			remote, object = id, h
-			break
-		}
-		if remote == "" {
-			return last
 		}
 	}
 	pw, err := password(r.ctx, r.env.PassphraseFile, "Archive passphrase", false)
@@ -209,17 +112,7 @@ func importArchive(r *runtime, args []string) error {
 		return err
 	}
 	if r.service.Set.CatalogTo != "" && r.service.Set.CatalogTo != "local" {
-		if err = r.service.PrepareImportPublication(r.ctx); err != nil {
-			return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
-		}
-		if err = r.syncStores(); err != nil {
-			return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
-		}
-		if err = r.catalogSecret(true); err != nil {
-			return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
-		}
-		defer wipe(r.service.CatalogPassword)
-		if err = r.service.PublishImport(r.ctx); err != nil {
+		if err = r.publishImport(); err != nil {
 			return err
 		}
 	}
@@ -228,6 +121,147 @@ func importArchive(r *runtime, args []string) error {
 	}
 	return r.emit("snapshot", v, fmt.Sprintf("Imported %s into %q.", v.ID, r.service.Set.Name))
 }
+
+func checkImportFlags(e *AppCmdEnv) error {
+	if e.DeepVerify && len(e.From) == 0 {
+		return fmt.Errorf("cli: --deep-verify requires --from")
+	}
+	if e.File == "" && e.Key == "" {
+		return fmt.Errorf("cli: import requires --file or --key")
+	}
+	if e.Key != "" && len(e.From) == 0 {
+		return fmt.Errorf("cli: remote import requires --from")
+	}
+	if e.Baseline != "" && e.Baseline != "new" {
+		return fmt.Errorf("cli: import --baseline accepts new; select an existing snapshot with configure --baseline ID")
+	}
+	return nil
+}
+
+// openImportSet opens the set named name, discovering it on the --from remotes
+// or creating it when it is not known locally.
+func (r *runtime) openImportSet(name string) error {
+	_, err := r.registry.Set(r.ctx, name)
+	if errors.Is(err, sql.ErrNoRows) && len(r.env.From) > 0 {
+		if err = r.discoverState(nil); err != nil {
+			return err
+		}
+	}
+	if _, err = r.registry.Set(r.ctx, name); errors.Is(err, sql.ErrNoRows) {
+		var set model.Set
+		if set, err = backup.NewSet(name, nil, r.config); err != nil {
+			return err
+		}
+		err = r.registry.Create(r.ctx, set)
+	}
+	if err != nil {
+		return err
+	}
+	return r.openSet(name)
+}
+
+// resumeImport finishes publishing an import interrupted after its local commit.
+func (r *runtime) resumeImport() error {
+	if err := r.syncStores(); err != nil {
+		return err
+	}
+	if err := r.catalogSecret(true); err != nil {
+		return err
+	}
+	defer wipe(r.service.CatalogPassword)
+	file := r.env.File
+	if file != "" {
+		var err error
+		if file, err = absolutePath(file); err != nil {
+			return err
+		}
+	}
+	if err := r.service.ResumeImportPublication(r.ctx, r.env.Key, file); err != nil {
+		return err
+	}
+	return r.publishState()
+}
+
+// matchRemoteCopy finds the first remote whose object matches the local archive
+// file: by size, or by content with --deep-verify.
+func (r *runtime) matchRemoteCopy(ids []string, file string) (string, cloud.Object, error) {
+	key := r.env.Key
+	if key == "" {
+		key = filepath.Base(file)
+	}
+	hash, size, err := archive.Hash(r.ctx, file)
+	if err != nil {
+		return "", cloud.Object{}, err
+	}
+	var last error
+	for _, id := range ids {
+		h, err := r.service.Stores[id].Head(r.ctx, key, "")
+		if err != nil {
+			last = err
+			continue
+		}
+		if h.Size != size {
+			last = fmt.Errorf("cli: associated object size differs")
+			continue
+		}
+		if r.env.DeepVerify {
+			if err = r.sameRemoteContent(id, key, h.Version, hash); err != nil {
+				last = err
+				continue
+			}
+		}
+		return id, h, nil
+	}
+	return "", cloud.Object{}, last
+}
+
+// sameRemoteContent downloads one object version and compares its hash with hash.
+func (r *runtime) sameRemoteContent(id, key, version, hash string) error {
+	temp, err := fsutil.Temp(r.service.Directory)
+	if err != nil {
+		return err
+	}
+	name := temp.Name()
+	temp.Close()
+	os.Remove(name)
+	defer os.Remove(name)
+	if _, err = backup.Download(r.ctx, r.service.Stores, []string{id}, key, version, name); err != nil {
+		return err
+	}
+	remoteHash, _, err := archive.Hash(r.ctx, name)
+	if err == nil && remoteHash != hash {
+		err = fmt.Errorf("cli: associated object checksum differs")
+	}
+	return err
+}
+
+// publishImport publishes a local import to the set's catalog remote.
+func (r *runtime) publishImport() error {
+	pending := func(err error) error {
+		return fmt.Errorf("%w: imported locally; publication pending: %w", backup.ErrPending, err)
+	}
+	if err := r.service.PrepareImportPublication(r.ctx); err != nil {
+		return pending(err)
+	}
+	if err := r.syncStores(); err != nil {
+		return pending(err)
+	}
+	if err := r.catalogSecret(true); err != nil {
+		return pending(err)
+	}
+	// importArchive wipes the catalog passphrase after publishState, which still needs it
+	return r.service.PublishImport(r.ctx)
+}
+
+// absolutePath expands '~' in p and makes it absolute.
+func absolutePath(p string) (string, error) {
+	p, err := fsutil.Expand(p)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(p)
+}
+
 func restore(r *runtime, args []string) error {
 	if r.env.Cancel {
 		if r.env.given("snapshot") || r.env.RequestRetrieval {
