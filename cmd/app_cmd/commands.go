@@ -11,7 +11,24 @@ type command struct {
 	options []string
 	// overrides adjust how an option is described for this command
 	overrides map[string]optionHelp
+	setup     setup
+	// recordsResult saves the outcome in the set's operation history
+	recordsResult bool
+	// listsResults prints a possibly empty list, so JSON output needs no completion record
+	listsResults bool
 }
+
+// setup says how much of the environment a command needs before it runs.
+type setup int
+
+const (
+	// fullSetup loads configuration and credentials, sizes memory and opens local state.
+	fullSetup setup = iota
+	// localSetup is fullSetup without local state, for standalone files.
+	localSetup
+	// configSetup loads configuration only.
+	configSetup
+)
 
 // commandHelp is the single source for --help output and manual pages.
 type commandHelp struct {
@@ -81,8 +98,9 @@ func init() {
 			},
 		},
 		{
-			name: "run",
-			run:  run,
+			name:          "run",
+			run:           run,
+			recordsResult: true,
 			help: commandHelp{
 				synopsis: []string{"SET"},
 				summary:  "create a snapshot and upload it",
@@ -102,8 +120,9 @@ func init() {
 			},
 		},
 		{
-			name: "retry",
-			run:  retry,
+			name:          "retry",
+			run:           retry,
+			recordsResult: true,
 			help: commandHelp{
 				synopsis: []string{"SET"},
 				summary:  "resume the pending operation of a set",
@@ -116,8 +135,9 @@ func init() {
 			options: []string{"archive", "to", "from", "keep-archive", "catalog-passphrase-file"},
 		},
 		{
-			name: "list",
-			run:  list,
+			name:         "list",
+			run:          list,
+			listsResults: true,
 			help: commandHelp{
 				summary: "list known backup sets",
 				description: []string{
@@ -132,8 +152,9 @@ func init() {
 			},
 		},
 		{
-			name: "status",
-			run:  status,
+			name:         "status",
+			run:          status,
+			listsResults: true,
 			help: commandHelp{
 				synopsis: []string{"[SET]"},
 				summary:  "show the state, size, and cost of backup sets",
@@ -163,8 +184,9 @@ func init() {
 			options: []string{"all", "dry-run", "assume-yes", "to", "from"},
 		},
 		{
-			name: "history",
-			run:  history,
+			name:         "history",
+			run:          history,
+			listsResults: true,
 			help: commandHelp{
 				synopsis: []string{"SET"},
 				summary:  "list the snapshots of a set",
@@ -177,8 +199,9 @@ func init() {
 			options: []string{"refresh", "to", "from", "catalog-passphrase-file"},
 		},
 		{
-			name: "browse",
-			run:  browse,
+			name:         "browse",
+			run:          browse,
+			listsResults: true,
 			help: commandHelp{
 				synopsis: []string{"SET"},
 				summary:  "list the files in a snapshot",
@@ -191,8 +214,9 @@ func init() {
 			options: []string{"snapshot", "path", "recursive", "to", "from", "catalog-passphrase-file"},
 		},
 		{
-			name: "restore",
-			run:  restore,
+			name:          "restore",
+			run:           restore,
+			recordsResult: true,
 			help: commandHelp{
 				synopsis: []string{"SET --into DIR", "SET --cancel [--into DIR]"},
 				summary:  "restore a snapshot into a directory",
@@ -210,8 +234,9 @@ func init() {
 			},
 		},
 		{
-			name: "import",
-			run:  importArchive,
+			name:          "import",
+			run:           importArchive,
+			recordsResult: true,
 			help: commandHelp{
 				synopsis: []string{"SET --file FILE", "SET --file FILE --from REMOTE [--key KEY]", "SET --from REMOTE --key KEY"},
 				summary:  "add an existing full archive to a set",
@@ -229,8 +254,9 @@ func init() {
 			},
 		},
 		{
-			name: "move",
-			run:  move,
+			name:          "move",
+			run:           move,
+			recordsResult: true,
 			help: commandHelp{
 				synopsis: []string{"SET --to REMOTE"},
 				summary:  "copy the history of a set to another remote",
@@ -247,8 +273,9 @@ func init() {
 			},
 		},
 		{
-			name: "archive",
-			run:  localArchive,
+			name:  "archive",
+			run:   localArchive,
+			setup: localSetup,
 			help: commandHelp{
 				synopsis: []string{"PATH..."},
 				summary:  "create a standalone encrypted archive",
@@ -265,8 +292,9 @@ func init() {
 			},
 		},
 		{
-			name: "decrypt",
-			run:  decrypt,
+			name:  "decrypt",
+			run:   decrypt,
+			setup: localSetup,
 			help: commandHelp{
 				synopsis: []string{"FILE"},
 				summary:  "decrypt an archive to a compressed tar file",
@@ -281,8 +309,9 @@ func init() {
 			},
 		},
 		{
-			name: "extract",
-			run:  extract,
+			name:  "extract",
+			run:   extract,
+			setup: localSetup,
 			help: commandHelp{
 				synopsis: []string{"FILE --into DIR"},
 				summary:  "unpack an archive into a new directory",
@@ -372,8 +401,9 @@ func init() {
 			},
 		},
 		{
-			name: "storage-class",
-			run:  storageClass,
+			name:          "storage-class",
+			run:           storageClass,
+			recordsResult: true,
 			help: commandHelp{
 				synopsis: []string{"SET --class CLASS"},
 				summary:  "change the AWS storage class of a snapshot",
@@ -406,8 +436,9 @@ func init() {
 			},
 		},
 		{
-			name: "state",
-			run:  migrateState,
+			name:  "state",
+			run:   migrateState,
+			setup: configSetup,
 			help: commandHelp{
 				synopsis: []string{"migrate"},
 				summary:  "move local state from the legacy location",

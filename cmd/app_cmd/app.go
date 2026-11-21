@@ -186,6 +186,8 @@ func resolveCommand(args []string) (string, []string, error) {
 	}
 	return "", args, nil
 }
+
+// Execute runs one glesha invocation.
 func Execute(ctx context.Context, args []string, version, sha string) error {
 	command, rest, err := resolveCommand(args)
 	if err != nil {
@@ -193,25 +195,115 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	}
 	// spec is nil only when no command was given, which shows the overview
 	spec, _ := lookupCommand(command)
-	e := &AppCmdEnv{present: map[string]bool{}}
-	f := flagSet(command, e)
-	rest, err = reorder(f, rest)
+	e, args, err := parseFlags(command, rest)
 	if err != nil {
-		return err
-	}
-	if err = f.Parse(rest); err != nil {
-		return fmt.Errorf("cli: %w", err)
-	}
-	f.Visit(func(v *flag.Flag) { e.present[v.Name] = true })
-	if err = normalizeOutput(command, e); err != nil {
 		return err
 	}
 	L.SetStructuredDiagnostics(e.jsonOutput())
 	defer L.SetStructuredDiagnostics(false)
 	early := &runtime{ctx: ctx, env: e, out: os.Stdout, command: command}
-	if e.present["state-dir"] && e.StateDirectory == "" {
+	if e.given("state-dir") && e.StateDirectory == "" {
 		return fmt.Errorf("cli: --state-dir requires a directory")
 	}
+	if err = e.expandPaths(); err != nil {
+		return err
+	}
+	if done, err := early.showInformation(spec, args, version, sha); done {
+		return err
+	}
+	if err = L.SetLevelFromString(e.LogLevel); err != nil {
+		return err
+	}
+	if err = L.SetColorModeFromString(e.Color); err != nil {
+		return err
+	}
+	if err = checkAction(spec, args); err != nil {
+		return err
+	}
+	c, err := config.Load(e.Config)
+	if err != nil {
+		return err
+	}
+	if e.StateDirectory != "" {
+		c.Catalog.Directory = e.StateDirectory
+	}
+	if spec.setup == configSetup {
+		early.config = c
+		return spec.run(early, args)
+	}
+	if err = config.Env(e.Env); err != nil {
+		return err
+	}
+	c.ProviderEnv()
+	if err = e.applyTo(&c); err != nil {
+		return err
+	}
+	budget, err := memory.Resolve(c.Memory.Max, c.Workers.Hash, c.Workers.Transfer, memory.Available)
+	if err != nil {
+		return err
+	}
+	budget.Apply()
+	ctx = memory.WithBudget(ctx, budget)
+	root, err := stateRoot(ctx, c, spec.setup == fullSetup)
+	if err != nil {
+		return err
+	}
+	var registry repository.Registryor
+	if spec.setup == fullSetup {
+		var closeState func()
+		registry, closeState, err = openState(ctx, root)
+		if err != nil {
+			return err
+		}
+		defer closeState()
+	}
+	ctx = L.WithWorkerDetails(ctx, e.given("transfer-workers") || e.given("hash-workers"))
+	r := &runtime{ctx: ctx, command: command, env: e, config: c, budget: budget, registry: registry, root: root, out: os.Stdout, limit: make(chan struct{}, budget.TransferWorkers)}
+	renderer := newProgressRenderer(e)
+	if renderer != nil {
+		defer renderer.Close()
+		r.ctx = L.WithProgress(ctx, renderer)
+	}
+	L.Debug(fmt.Sprintf("command=%s; memory=%s; hash-workers=%d; transfer-workers=%d", command, L.Bytes(budget.Total), budget.HashWorkers, budget.TransferWorkers))
+	if err := r.selectCommandRemotes(); err != nil {
+		return err
+	}
+	err = spec.run(r, args)
+	if spec.recordsResult {
+		r.recordResult(err)
+	}
+	if renderer != nil {
+		renderer.Close()
+		if err == nil {
+			err = renderer.Err()
+		}
+	}
+	if err == nil && e.jsonOutput() && r.emitted == 0 && !spec.listsResults {
+		return r.completed("", "", "")
+	}
+	return err
+}
+
+// parseFlags parses the options of command and returns the positional arguments.
+func parseFlags(command string, args []string) (*AppCmdEnv, []string, error) {
+	e := &AppCmdEnv{present: map[string]bool{}}
+	f := flagSet(command, e)
+	args, err := reorder(f, args)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err = f.Parse(args); err != nil {
+		return nil, nil, fmt.Errorf("cli: %w", err)
+	}
+	f.Visit(func(v *flag.Flag) { e.present[v.Name] = true })
+	if err = normalizeOutput(command, e); err != nil {
+		return nil, nil, err
+	}
+	return e, f.Args(), nil
+}
+
+// expandPaths resolves '~' in path options; '-' keeps meaning stdin.
+func (e *AppCmdEnv) expandPaths() error {
 	for _, p := range []*string{&e.Output, &e.Into, &e.File, &e.Archive, &e.PasswordFile, &e.CatalogPasswordFile} {
 		if *p != "" && *p != "-" {
 			expanded, err := file_io.Expand(*p)
@@ -221,61 +313,55 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 			*p = expanded
 		}
 	}
-	if command == "version" && !e.Help {
-		if err := count(f.Args(), 0); err != nil {
-			return err
+	return nil
+}
+
+// showInformation handles version and help requests; done reports whether it did.
+func (r *runtime) showInformation(spec *command, args []string, version, sha string) (done bool, err error) {
+	e := r.env
+	if r.command == "version" && !e.Help {
+		if err := count(args, 0); err != nil {
+			return true, err
 		}
 		e.Version = true
 	}
 	if e.Version {
-		return early.emit("version", struct {
+		return true, r.emit("version", struct {
 			Version  string `json:"version"`
 			Revision string `json:"revision"`
 		}{version, sha}, fmt.Sprintf("glesha %s (%s)", L.ASCII(version), L.ASCII(sha)))
 	}
-	if command == "help" {
-		return early.help(f.Args())
-	}
-	if e.Help || command == "" {
-		if command == "" {
-			return early.help(nil)
+	switch {
+	case r.command == "help":
+		return true, r.help(args)
+	case spec == nil:
+		return true, r.help(nil)
+	case e.Help:
+		helpArgs := []string{r.command}
+		if len(spec.actions) > 0 && len(args) > 0 {
+			helpArgs = append(helpArgs, args[0])
 		}
-		helpArgs := []string{command}
-		if (command == "catalog" || command == "state") && len(f.Args()) > 0 {
-			helpArgs = append(helpArgs, f.Args()[0])
-		}
-		return early.help(helpArgs)
+		return true, r.help(helpArgs)
 	}
-	if err = L.SetLevelFromString(e.LogLevel); err != nil {
-		return err
-	}
-	if err = L.SetColorModeFromString(e.Color); err != nil {
-		return err
-	}
-	if command == "catalog" {
-		if len(f.Args()) == 0 {
-			return fmt.Errorf("cli: choose a catalog action: sync, unlock, or resolve; see glesha help catalog")
-		}
-		if !knownHelpAction("catalog", f.Args()[0]) {
-			return fmt.Errorf("cli: unknown catalog action %q; see glesha help catalog", f.Args()[0])
-		}
-	}
+	return false, nil
+}
 
-	c, err := config.Load(e.Config)
-	if err != nil {
-		return err
+// checkAction rejects a missing or unknown catalog action before any setup.
+func checkAction(spec *command, args []string) error {
+	if spec.name != "catalog" {
+		return nil
 	}
-	if e.StateDirectory != "" {
-		c.Catalog.Directory = e.StateDirectory
+	if len(args) == 0 {
+		return fmt.Errorf("cli: choose a catalog action: sync, unlock, or resolve; see glesha help catalog")
 	}
-	if command == "state" {
-		early.config = c
-		return spec.run(early, f.Args())
+	if spec.action(args[0]) == nil {
+		return fmt.Errorf("cli: unknown catalog action %q; see glesha help catalog", args[0])
 	}
-	if err = config.Env(e.Env); err != nil {
-		return err
-	}
-	c.ProviderEnv()
+	return nil
+}
+
+// applyTo applies command-line overrides to c and validates the result.
+func (e *AppCmdEnv) applyTo(c *config.Config) error {
 	if e.Compression != "" {
 		c.Archive.Compression = e.Compression
 	}
@@ -291,7 +377,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if e.Memory != "" {
 		c.Memory.Max = e.Memory
 	}
-	if e.present["compression-level"] && e.Level < 1 || e.present["hash-workers"] && e.HashWorkers < 1 || (e.present["transfer-workers"] || e.present["jobs"] || e.present["j"]) && e.TransferWorkers < 1 {
+	if e.given("compression-level") && e.Level < 1 || e.given("hash-workers") && e.HashWorkers < 1 || e.given("transfer-workers") && e.TransferWorkers < 1 {
 		return fmt.Errorf("cli: numeric overrides must be positive")
 	}
 	if e.HashWorkers > 0 {
@@ -300,94 +386,82 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if e.TransferWorkers > 0 {
 		c.Workers.Transfer = e.TransferWorkers
 	}
-	if err = c.Validate(); err != nil {
-		return err
-	}
-	budget, err := memory.Resolve(c.Memory.Max, c.Workers.Hash, c.Workers.Transfer, memory.Available)
-	if err != nil {
-		return err
-	}
-	budget.Apply()
-	ctx = memory.WithBudget(ctx, budget)
-	localOnly := command == "archive" || command == "decrypt" || command == "extract"
+	return c.Validate()
+}
+
+// stateRoot returns the absolute local state directory. With checkLegacy, it refuses
+// to start while state still sits in the legacy location.
+func stateRoot(ctx context.Context, c config.Config, checkLegacy bool) (string, error) {
 	root := c.Catalog.Directory
 	if root == "" {
-		root, err = config.DefaultStatePath()
-		if err != nil {
-			return err
+		var err error
+		if root, err = config.DefaultStatePath(); err != nil {
+			return "", err
 		}
 		legacy, err := config.LegacyStatePath()
 		if err != nil {
-			return err
+			return "", err
 		}
-		if !localOnly {
+		if checkLegacy {
 			if err = state.CheckDefault(ctx, legacy, root); err != nil {
-				return err
+				return "", err
 			}
 		}
 	}
-	root, err = file_io.Expand(root)
+	root, err := file_io.Expand(root)
 	if err != nil {
-		return err
+		return "", err
 	}
-	root, err = filepath.Abs(root)
+	return filepath.Abs(root)
+}
+
+// openState locks the state directory and opens its registry; closeState undoes both.
+func openState(ctx context.Context, root string) (registry repository.Registryor, closeState func(), err error) {
+	stateLock, err := state.Lock(root, false)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
-	var registry repository.Registryor
-	if !localOnly {
-		stateLock, err := state.Lock(root, false)
-		if err != nil {
-			return err
+	if err = os.MkdirAll(root, 0700); err != nil {
+		stateLock.Unlock()
+		return nil, nil, err
+	}
+	registry, err = repository.NewRegistryRepository(ctx, filepath.Join(root, "registry.db"))
+	if err != nil {
+		stateLock.Unlock()
+		return nil, nil, err
+	}
+	return registry, func() {
+		registry.Close()
+		stateLock.Unlock()
+	}, nil
+}
+
+// newProgressRenderer picks the progress output for e; nil means no progress.
+func newProgressRenderer(e *AppCmdEnv) *L.ProgressRenderer {
+	switch {
+	case e.Progress == "off" || !L.ProgressEnabled():
+		return nil
+	case e.jsonOutput():
+		return L.NewEventProgressRenderer(L.EmitProgress)
+	case e.Progress == "plain" || !term.IsTerminal(int(os.Stderr.Fd())) || os.Getenv("TERM") == "dumb":
+		return L.NewPlainProgressRenderer(os.Stderr)
+	default:
+		return L.NewProgressRenderer(os.Stderr, L.ColorEnabled(true))
+	}
+}
+
+// recordResult saves the outcome of a set operation, if the set is not busy again.
+func (r *runtime) recordResult(err error) {
+	if !r.operationLocked || r.service == nil || r.service.Set.ID == "" || r.env.All || r.env.CancelRestore {
+		return
+	}
+	lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
+	if free, lockErr := lock.TryLock(); lockErr == nil && free {
+		if recordErr := r.service.RecordResult(context.WithoutCancel(r.ctx), r.command, err); recordErr != nil {
+			L.Debug(recordErr.Error())
 		}
-		defer stateLock.Unlock()
-		if err = os.MkdirAll(root, 0700); err != nil {
-			return err
-		}
-		registry, err = repository.NewRegistryRepository(ctx, filepath.Join(root, "registry.db"))
-		if err != nil {
-			return err
-		}
-		defer registry.Close()
+		lock.Unlock()
 	}
-	ctx = L.WithWorkerDetails(ctx, e.present["j"] || e.present["jobs"] || e.present["transfer-workers"] || e.present["hash-workers"])
-	r := &runtime{ctx: ctx, command: command, env: e, config: c, budget: budget, registry: registry, root: root, out: os.Stdout, limit: make(chan struct{}, budget.TransferWorkers)}
-	var renderer *L.ProgressRenderer
-	if e.Progress != "off" && L.ProgressEnabled() {
-		if e.jsonOutput() {
-			renderer = L.NewEventProgressRenderer(L.EmitProgress)
-		} else if e.Progress == "plain" || !term.IsTerminal(int(os.Stderr.Fd())) || os.Getenv("TERM") == "dumb" {
-			renderer = L.NewPlainProgressRenderer(os.Stderr)
-		} else {
-			renderer = L.NewProgressRenderer(os.Stderr, L.ColorEnabled(true))
-		}
-		defer renderer.Close()
-		r.ctx = L.WithProgress(ctx, renderer)
-	}
-	L.Debug(fmt.Sprintf("command=%s; memory=%s; hash-workers=%d; transfer-workers=%d", command, L.Bytes(budget.Total), budget.HashWorkers, budget.TransferWorkers))
-	if err := r.selectCommandRemotes(); err != nil {
-		return err
-	}
-	err = spec.run(r, f.Args())
-	if r.operationLocked && r.service != nil && r.service.Set.ID != "" && strings.Contains(" run retry import restore move storage-class ", " "+command+" ") && !e.All && !e.CancelRestore {
-		lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
-		if free, lockErr := lock.TryLock(); lockErr == nil && free {
-			if recordErr := r.service.RecordResult(context.WithoutCancel(r.ctx), command, err); recordErr != nil {
-				L.Debug(recordErr.Error())
-			}
-			lock.Unlock()
-		}
-	}
-	if renderer != nil {
-		renderer.Close()
-		if err == nil {
-			err = renderer.Err()
-		}
-	}
-	if err == nil && e.jsonOutput() && r.emitted == 0 && !strings.Contains(" list status history browse ", " "+command+" ") {
-		return r.completed("", "", "")
-	}
-	return err
 }
 func (r *runtime) openSet(name string) error {
 	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}}

@@ -170,3 +170,14 @@ func (o *option) register(f *flag.FlagSet, e *AppCmdEnv) {
 		o.bind(f, e, name)
 	}
 }
+
+// given reports whether the user set the option name, under any of its spellings.
+func (e *AppCmdEnv) given(name string) bool {
+	o := optionIndex[name]
+	for _, spelling := range append([]string{o.name}, o.aliases...) {
+		if e.present[spelling] {
+			return true
+		}
+	}
+	return false
+}

@@ -113,7 +113,7 @@ func configure(r *runtime, args []string) error {
 		return err
 	}
 	previous := s.Set
-	if r.env.present["chunked"] {
+	if r.env.given("chunked") {
 		s.Set.Chunked = r.env.Chunked
 	}
 	if r.env.SpoolMax != "" {
@@ -261,7 +261,7 @@ func run(r *runtime, args []string) error {
 		return err
 	}
 	chunked := s.Set.Chunked
-	if r.env.present["chunked"] {
+	if r.env.given("chunked") {
 		chunked = r.env.Chunked
 	}
 	if chunked && (r.env.KeepArchive || r.env.Output != "" || r.env.Mode == "memory") {
@@ -331,7 +331,7 @@ func run(r *runtime, args []string) error {
 			return err
 		}
 	}
-	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.present["chunked"], SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
+	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.given("chunked"), SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.Level, Class: r.env.Class, Mode: r.env.Mode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
 	if err != nil {
 		return err
 	}

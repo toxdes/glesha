@@ -19,7 +19,7 @@ import (
 
 func (r *runtime) retrieval() (backup.RetrievalOptions, error) {
 	tier := r.env.Retrieval
-	if !r.env.present["retrieval"] {
+	if !r.env.given("retrieval") {
 		tier = strings.ToLower(r.config.Cold.Tier)
 	}
 	if tier == "" {
@@ -29,13 +29,13 @@ func (r *runtime) retrieval() (backup.RetrievalOptions, error) {
 		return backup.RetrievalOptions{}, fmt.Errorf("cli: retrieval must be bulk, standard or expedited")
 	}
 	days := r.env.Days
-	if days == 0 && !r.env.present["days"] {
+	if days == 0 && !r.env.given("days") {
 		days = int(r.config.Cold.Days)
 	}
 	if days < 1 || int64(days) > 2147483647 {
 		return backup.RetrievalOptions{}, fmt.Errorf("cli: availability days must be positive and fit int32")
 	}
-	return backup.RetrievalOptions{Tier: tier, Days: int32(days), UseSavedDays: !r.env.present["days"], Request: r.env.RequestRetrieval, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, false) }}, nil
+	return backup.RetrievalOptions{Tier: tier, Days: int32(days), UseSavedDays: !r.env.given("days"), Request: r.env.RequestRetrieval, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, false) }}, nil
 }
 func importArchive(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
@@ -230,7 +230,7 @@ func importArchive(r *runtime, args []string) error {
 }
 func restore(r *runtime, args []string) error {
 	if r.env.CancelRestore {
-		if r.env.present["snapshot"] || r.env.RequestRetrieval {
+		if r.env.given("snapshot") || r.env.RequestRetrieval {
 			return fmt.Errorf("cli: --cancel selects restore tasks by --into, not snapshot or retrieval flags")
 		}
 		unlock, err := requireSet(r, args)
