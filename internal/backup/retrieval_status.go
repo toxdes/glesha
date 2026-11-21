@@ -129,120 +129,13 @@ func (s *Service) Retrievals(ctx context.Context, refresh bool) ([]RetrievalStat
 			if err = ctx.Err(); err != nil {
 				return nil, err
 			}
-			name := entry.Name()
-			isImport := strings.HasPrefix(name, "import-") && strings.HasSuffix(name, ".gpg.json")
-			isRestore := strings.HasPrefix(name, "restore-") && strings.HasSuffix(name, ".json")
-			if !isImport && !isRestore {
-				continue
-			}
-			file := filepath.Join(s.Directory, name)
-			data, err := os.ReadFile(file)
-			if os.IsNotExist(err) {
-				continue
-			}
+			status, ok, err := s.retrievalStatus(ctx, catalog, entry.Name(), refresh)
 			if err != nil {
 				return nil, err
 			}
-			cache := retrievalCache{Version: 1, Set: s.Set.ID, Job: name, Task: RETRIEVAL_RESTORE}
-			indices := map[retrievalIdentity]int{}
-			if isImport {
-				var job importJob
-				if err = json.Unmarshal(data, &job); err != nil {
-					return nil, err
-				}
-				if !job.Requested && !strings.Contains(job.Object.Restore, `ongoing-request="true"`) {
-					continue
-				}
-				completed := false
-				if catalog != nil {
-					err = catalog.EachSnapshot(ctx, func(v model.Snapshot) error {
-						completed = completed || v.Status == model.STATUS_COMPLETED && v.File == strings.TrimSuffix(file, ".json")
-						return nil
-					})
-					if err != nil {
-						return nil, err
-					}
-				}
-				if completed {
-					continue
-				}
-				cache.Task = RETRIEVAL_IMPORT
-				mergeRetrievalObject(&cache.Objects, indices, RetrievalObject{Provider: job.Remote, Object: job.Object, CheckedAt: job.CheckedAt})
-			} else {
-				var job restoreJob
-				if err = json.Unmarshal(data, &job); err != nil {
-					return nil, err
-				}
-				for _, item := range append(job.Retrievals, job.Requests...) {
-					if !item.Requested && !strings.Contains(item.Location.Restore, `ongoing-request="true"`) {
-						continue
-					}
-					l := item.Location
-					if err = s.observeLocation(ctx, l.Snapshot, &l); err != nil {
-						return nil, err
-					}
-					object := RetrievalObject{Provider: l.Provider, Object: cloud.Object{Key: l.Key, Version: l.Version, ETag: l.ETag, Class: l.CurrentClass, Cold: l.Cold, Restore: l.Restore, ArchiveStatus: l.ArchiveStatus}, CheckedAt: l.ObservedAt}
-					mergeRetrievalObject(&cache.Objects, indices, object)
-				}
+			if ok {
+				result = append(result, status)
 			}
-			if len(cache.Objects) == 0 {
-				continue
-			}
-			cacheFile := file + ".retrieval-status"
-			if data, err = os.ReadFile(cacheFile); err == nil {
-				var saved retrievalCache
-				if err = json.Unmarshal(data, &saved); err != nil {
-					return nil, err
-				}
-				if saved.Version != 1 || saved.Set != cache.Set || saved.Job != name || saved.Task != cache.Task {
-					return nil, fmt.Errorf("backup: unsupported or mismatched retrieval cache")
-				}
-				for _, object := range saved.Objects {
-					if _, ok := indices[retrievalIdentity{object.Provider, object.Object.Key, object.Object.Version}]; !ok {
-						return nil, fmt.Errorf("backup: retrieval cache references a different object")
-					}
-					if object.State != "" {
-						if _, err = ParseRetrievalState(object.State.String()); err != nil {
-							return nil, err
-						}
-					}
-					mergeRetrievalObject(&cache.Objects, indices, object)
-				}
-			} else if !os.IsNotExist(err) {
-				return nil, err
-			}
-			for i := range cache.Objects {
-				object := &cache.Objects[i]
-				if refresh {
-					store := s.Stores[object.Provider]
-					if store == nil {
-						return nil, fmt.Errorf("backup: retrieval remote unavailable")
-					}
-					h, err := store.Head(ctx, object.Object.Key, object.Object.Version)
-					if err != nil {
-						return nil, err
-					}
-					old := object.Object
-					if h.Version != old.Version || h.Key != "" && h.Key != old.Key || old.ETag != "" && h.ETag != old.ETag || old.Size > 0 && h.Size != old.Size || old.Hash != "" && h.Hash != "" && old.Hash != h.Hash {
-						return nil, fmt.Errorf("backup: retrieval object identity changed")
-					}
-					h.Key = old.Key
-					checked := now()
-					object.Object, object.CheckedAt = h, &checked
-					if h.Cold && h.Restore == "" {
-						object.State = RETRIEVAL_EXPIRED
-					} else if !h.Cold && h.Restore == "" {
-						object.State = RETRIEVAL_READY
-					}
-				}
-				classifyRetrieval(object, now())
-			}
-			if refresh {
-				if err = s.saveJob(cacheFile, cache); err != nil {
-					return nil, err
-				}
-			}
-			result = append(result, summarizeRetrieval(cache))
 		}
 		if readErr == io.EOF {
 			break
@@ -250,6 +143,154 @@ func (s *Service) Retrievals(ctx context.Context, refresh bool) ([]RetrievalStat
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
+}
+
+// retrievalStatus summarizes the retrievals of the job file name; ok is false
+// when name is not a job or the job has nothing to retrieve.
+func (s *Service) retrievalStatus(ctx context.Context, catalog repository.Cataloger, name string, refresh bool) (status RetrievalStatus, ok bool, err error) {
+	isImport := strings.HasPrefix(name, "import-") && strings.HasSuffix(name, ".gpg.json")
+	isRestore := strings.HasPrefix(name, "restore-") && strings.HasSuffix(name, ".json")
+	if !isImport && !isRestore {
+		return status, false, nil
+	}
+	file := filepath.Join(s.Directory, name)
+	data, err := os.ReadFile(file)
+	if os.IsNotExist(err) {
+		return status, false, nil
+	}
+	if err != nil {
+		return status, false, err
+	}
+	cache := retrievalCache{Version: 1, Set: s.Set.ID, Job: name, Task: RETRIEVAL_RESTORE}
+	indices := map[retrievalIdentity]int{}
+	if isImport {
+		err = s.importRetrievals(ctx, catalog, file, data, &cache, indices)
+	} else {
+		err = s.restoreRetrievals(ctx, data, &cache, indices)
+	}
+	if err != nil || len(cache.Objects) == 0 {
+		return status, false, err
+	}
+	cacheFile := file + ".retrieval-status"
+	if err = mergeSavedRetrievals(cacheFile, &cache, indices); err != nil {
+		return status, false, err
+	}
+	for i := range cache.Objects {
+		object := &cache.Objects[i]
+		if refresh {
+			if err = s.refreshRetrieval(ctx, object); err != nil {
+				return status, false, err
+			}
+		}
+		classifyRetrieval(object, now())
+	}
+	if refresh {
+		if err = s.saveJob(cacheFile, cache); err != nil {
+			return status, false, err
+		}
+	}
+	return summarizeRetrieval(cache), true, nil
+}
+
+// importRetrievals adds the requested object of an unfinished import job to cache.
+func (s *Service) importRetrievals(ctx context.Context, catalog repository.Cataloger, file string, data []byte, cache *retrievalCache, indices map[retrievalIdentity]int) error {
+	var job importJob
+	if err := json.Unmarshal(data, &job); err != nil {
+		return err
+	}
+	if !job.Requested && !strings.Contains(job.Object.Restore, `ongoing-request="true"`) {
+		return nil
+	}
+	if catalog != nil {
+		completed := false
+		if err := catalog.EachSnapshot(ctx, func(v model.Snapshot) error {
+			completed = completed || v.Status == model.STATUS_COMPLETED && v.File == strings.TrimSuffix(file, ".json")
+			return nil
+		}); err != nil {
+			return err
+		}
+		if completed {
+			return nil
+		}
+	}
+	cache.Task = RETRIEVAL_IMPORT
+	mergeRetrievalObject(&cache.Objects, indices, RetrievalObject{Provider: job.Remote, Object: job.Object, CheckedAt: job.CheckedAt})
+	return nil
+}
+
+// restoreRetrievals adds the requested objects of a restore job to cache.
+func (s *Service) restoreRetrievals(ctx context.Context, data []byte, cache *retrievalCache, indices map[retrievalIdentity]int) error {
+	var job restoreJob
+	if err := json.Unmarshal(data, &job); err != nil {
+		return err
+	}
+	for _, item := range append(job.Retrievals, job.Requests...) {
+		if !item.Requested && !strings.Contains(item.Location.Restore, `ongoing-request="true"`) {
+			continue
+		}
+		l := item.Location
+		if err := s.observeLocation(ctx, l.Snapshot, &l); err != nil {
+			return err
+		}
+		object := RetrievalObject{Provider: l.Provider, Object: cloud.Object{Key: l.Key, Version: l.Version, ETag: l.ETag, Class: l.CurrentClass, Cold: l.Cold, Restore: l.Restore, ArchiveStatus: l.ArchiveStatus}, CheckedAt: l.ObservedAt}
+		mergeRetrievalObject(&cache.Objects, indices, object)
+	}
+	return nil
+}
+
+// mergeSavedRetrievals merges the status saved by an earlier refresh into cache.
+func mergeSavedRetrievals(cacheFile string, cache *retrievalCache, indices map[retrievalIdentity]int) error {
+	data, err := os.ReadFile(cacheFile)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var saved retrievalCache
+	if err = json.Unmarshal(data, &saved); err != nil {
+		return err
+	}
+	if saved.Version != 1 || saved.Set != cache.Set || saved.Job != cache.Job || saved.Task != cache.Task {
+		return fmt.Errorf("backup: unsupported or mismatched retrieval cache")
+	}
+	for _, object := range saved.Objects {
+		if _, ok := indices[retrievalIdentity{object.Provider, object.Object.Key, object.Object.Version}]; !ok {
+			return fmt.Errorf("backup: retrieval cache references a different object")
+		}
+		if object.State != "" {
+			if _, err = ParseRetrievalState(object.State.String()); err != nil {
+				return err
+			}
+		}
+		mergeRetrievalObject(&cache.Objects, indices, object)
+	}
+	return nil
+}
+
+// refreshRetrieval reads object's current state from its remote.
+func (s *Service) refreshRetrieval(ctx context.Context, object *RetrievalObject) error {
+	store := s.Stores[object.Provider]
+	if store == nil {
+		return fmt.Errorf("backup: retrieval remote unavailable")
+	}
+	h, err := store.Head(ctx, object.Object.Key, object.Object.Version)
+	if err != nil {
+		return err
+	}
+	old := object.Object
+	if h.Version != old.Version || h.Key != "" && h.Key != old.Key || old.ETag != "" && h.ETag != old.ETag || old.Size > 0 && h.Size != old.Size || old.Hash != "" && h.Hash != "" && old.Hash != h.Hash {
+		return fmt.Errorf("backup: retrieval object identity changed")
+	}
+	h.Key = old.Key
+	checked := now()
+	object.Object, object.CheckedAt = h, &checked
+	if h.Cold && h.Restore == "" {
+		object.State = RETRIEVAL_EXPIRED
+	} else if !h.Cold && h.Restore == "" {
+		object.State = RETRIEVAL_READY
+	}
+	return nil
 }
 
 func mergeRetrievalObject(objects *[]RetrievalObject, indices map[retrievalIdentity]int, candidate RetrievalObject) {
