@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -41,27 +42,15 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	if err != nil {
 		return v, err
 	}
-	found := errors.New("archive already registered")
-	err = c.EachSnapshot(ctx, func(existing model.Snapshot) error {
-		if existing.Hash == hash && existing.Size == size {
-			v = existing
-			return found
+	if existing, ok, err := findRegistered(ctx, c, hash, size); err != nil || ok {
+		if err != nil || o.Remote == "" {
+			return existing, err
 		}
-		return nil
-	})
-	if errors.Is(err, found) {
-		err = nil
-		if o.Remote != "" {
-			o.Object.Snapshot = v.ID
-			if err = c.PutLocation(ctx, o.Object); err != nil {
-				return v, err
-			}
-			err = c.SetMeta(ctx, "dirty", "import")
+		o.Object.Snapshot = existing.ID
+		if err = c.PutLocation(ctx, o.Object); err != nil {
+			return existing, err
 		}
-		return v, err
-	}
-	if err != nil {
-		return v, err
+		return existing, c.SetMeta(ctx, "dirty", "import")
 	}
 	temp, err := fsutil.Temp(s.Directory)
 	if err != nil {
@@ -100,66 +89,12 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 		v.PayloadID = manifest.ID
 		v.InitialClass = manifest.InitialClass
 	}
-	roots := []model.Root{}
-	dir, err := os.Open(extraction)
+	roots, err := readImportedRoots(extraction)
 	if err != nil {
 		return v, err
 	}
-	defer dir.Close()
-	bytes := 0
-	for {
-		entries, err := dir.ReadDir(128)
-		if err != nil && len(entries) == 0 {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return v, err
-		}
-		for _, e := range entries {
-			bytes += len(e.Name()) + 64
-			if bytes > 4<<20 {
-				return v, fmt.Errorf("backup: too many imported roots")
-			}
-			roots = append(roots, model.Root{Name: e.Name()})
-		}
-	}
-	for i := range roots {
-		for _, r := range s.Set.Roots {
-			if r.Name == roots[i].Name {
-				roots[i].Path = r.Path
-			}
-		}
-		for _, r := range o.Roots {
-			if r.Name == roots[i].Name {
-				if roots[i].Path != "" && roots[i].Path != r.Path {
-					return v, fmt.Errorf("backup: source mappings differ from registered set")
-				}
-				roots[i].Path = r.Path
-			}
-		}
-	}
-	for _, r := range o.Roots {
-		seen := false
-		for _, x := range roots {
-			seen = seen || x.Name == r.Name
-		}
-		if !seen {
-			return v, fmt.Errorf("backup: mapped root %q is absent", r.Name)
-		}
-	}
-	if len(s.Set.Roots) > 0 {
-		if len(roots) != len(s.Set.Roots) {
-			return v, fmt.Errorf("backup: imported root selection differs")
-		}
-		for _, r := range roots {
-			found := false
-			for _, old := range s.Set.Roots {
-				found = found || r.Name == old.Name
-			}
-			if !found {
-				return v, fmt.Errorf("backup: imported root selection differs")
-			}
-		}
+	if err = mapImportedRoots(roots, s.Set.Roots, o.Roots); err != nil {
+		return v, err
 	}
 	v.Roots = roots
 	scanRoots := make([]model.Root, len(roots))
@@ -169,26 +104,8 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	if err = archive.Inventory(ctx, staged, v.ID, scanRoots, nil, s.Budget.HashWorkers); err != nil {
 		return v, err
 	}
-	wrapper := ""
-	if err = staged.EachEntry(ctx, v.ID, func(e model.Entry) error {
-		original, err := staged.Entry(ctx, scan, e.Path)
-		if err != nil {
-			return err
-		}
-		prefix := strings.TrimSuffix(strings.TrimSuffix(original.Member, "/"), e.Path)
-		prefix = strings.TrimSuffix(prefix, "/")
-		if wrapper == "" {
-			wrapper = prefix
-		}
-		if prefix != wrapper {
-			return fmt.Errorf("backup: archive has inconsistent wrappers")
-		}
-		e.UID, e.GID, e.PAX = original.UID, original.GID, original.PAX
-		e.Archive = v.ID
-		e.Member = original.Member
-		e.Source, e.Identity, e.SourceIdentity = "", "", ""
-		return staged.PutEntry(ctx, v.ID, e)
-	}); err != nil {
+	wrapper, err := catalogImportedEntries(ctx, staged, v.ID, scan)
+	if err != nil {
 		return v, err
 	}
 	afterHash, afterSize, err := archive.Hash(ctx, o.File)
@@ -239,6 +156,113 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	}
 	err = s.Registry.Save(ctx, s.Set)
 	return v, err
+}
+
+// findRegistered returns the snapshot already holding the archive with hash and size.
+func findRegistered(ctx context.Context, c repository.Cataloger, hash string, size int64) (model.Snapshot, bool, error) {
+	var match model.Snapshot
+	found := errors.New("archive already registered")
+	err := c.EachSnapshot(ctx, func(existing model.Snapshot) error {
+		if existing.Hash == hash && existing.Size == size {
+			match = existing
+			return found
+		}
+		return nil
+	})
+	if errors.Is(err, found) {
+		return match, true, nil
+	}
+	return match, false, err
+}
+
+// readImportedRoots lists the top-level directories of an extracted archive.
+func readImportedRoots(extraction string) ([]model.Root, error) {
+	roots := []model.Root{}
+	dir, err := os.Open(extraction)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	bytes := 0
+	for {
+		entries, err := dir.ReadDir(128)
+		if err != nil && len(entries) == 0 {
+			if errors.Is(err, io.EOF) {
+				return roots, nil
+			}
+			return nil, err
+		}
+		for _, e := range entries {
+			bytes += len(e.Name()) + 64
+			if bytes > 4<<20 {
+				return nil, fmt.Errorf("backup: too many imported roots")
+			}
+			roots = append(roots, model.Root{Name: e.Name()})
+		}
+	}
+}
+
+// mapImportedRoots binds each imported root to its registered or mapped source
+// path, and checks the roots match the set's.
+func mapImportedRoots(roots, registered, mappings []model.Root) error {
+	for i := range roots {
+		for _, r := range registered {
+			if r.Name == roots[i].Name {
+				roots[i].Path = r.Path
+			}
+		}
+		for _, r := range mappings {
+			if r.Name == roots[i].Name {
+				if roots[i].Path != "" && roots[i].Path != r.Path {
+					return fmt.Errorf("backup: source mappings differ from registered set")
+				}
+				roots[i].Path = r.Path
+			}
+		}
+	}
+	for _, r := range mappings {
+		if !slices.ContainsFunc(roots, func(x model.Root) bool { return x.Name == r.Name }) {
+			return fmt.Errorf("backup: mapped root %q is absent", r.Name)
+		}
+	}
+	if len(registered) == 0 {
+		return nil
+	}
+	if len(roots) != len(registered) {
+		return fmt.Errorf("backup: imported root selection differs")
+	}
+	for _, r := range roots {
+		if !slices.ContainsFunc(registered, func(old model.Root) bool { return r.Name == old.Name }) {
+			return fmt.Errorf("backup: imported root selection differs")
+		}
+	}
+	return nil
+}
+
+// catalogImportedEntries records the inventoried entries of snapshot id with the
+// tar metadata of the scan, and returns the archive's common wrapper directory.
+func catalogImportedEntries(ctx context.Context, staged repository.Cataloger, id, scan string) (string, error) {
+	wrapper := ""
+	err := staged.EachEntry(ctx, id, func(e model.Entry) error {
+		original, err := staged.Entry(ctx, scan, e.Path)
+		if err != nil {
+			return err
+		}
+		prefix := strings.TrimSuffix(strings.TrimSuffix(original.Member, "/"), e.Path)
+		prefix = strings.TrimSuffix(prefix, "/")
+		if wrapper == "" {
+			wrapper = prefix
+		}
+		if prefix != wrapper {
+			return fmt.Errorf("backup: archive has inconsistent wrappers")
+		}
+		e.UID, e.GID, e.PAX = original.UID, original.GID, original.PAX
+		e.Archive = id
+		e.Member = original.Member
+		e.Source, e.Identity, e.SourceIdentity = "", "", ""
+		return staged.PutEntry(ctx, id, e)
+	})
+	return wrapper, err
 }
 func (s *Service) BindRoots(ctx context.Context, mappings []model.Root) error {
 	roots := append([]model.Root(nil), s.Set.Roots...)
