@@ -1,61 +1,31 @@
 .TH "GLESHA-EXTRACT" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-extract \- extract an encrypted or plaintext archive into a new directory
+glesha\-extract \- unpack an archive into a new directory
 .SH SYNOPSIS
-.B glesha extract FILE \-\-into DIR [options]
+\fBglesha extract\fR FILE \-\-into DIR [options]
 .SH DESCRIPTION
-Extract an encrypted or plaintext archive into a new directory.
-.PP
-Accepts encrypted archives or plaintext compressed tar. The destination must not exist.
+Unpack FILE into DIR, which must not exist. FILE may be an encrypted archive or a compressed tar file; the passphrase is only requested for encrypted input.
 .SH OPTIONS
-
 .TP
 .B \-\-into DIR
-New destination directory.
-.SS Passphrases
+Unpack into DIR, which must not exist.
+.SS Passphrase options
 .TP
-.B \-\-passphrase\-file FILE|\-
-Archive passphrase file; '\-' reads stdin.
-.SS Performance
+.B \-\-passphrase\-file FILE
+Read the archive passphrase from FILE ('\-': stdin). A trailing newline is ignored. Without this option, the passphrase is read from a hidden prompt.
+.SS Performance options
 .TP
 .B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha extract documents.tar.xz.gpg \-\-into ~/recovered
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-archive (1),
+.BR glesha\-decrypt (1)

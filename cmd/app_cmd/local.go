@@ -11,7 +11,6 @@ import (
 	"glesha/database/model"
 	"glesha/database/repository"
 	"glesha/file_io"
-	L "glesha/logger"
 )
 
 func localArchive(r *runtime, args []string) error {
@@ -57,7 +56,7 @@ func localArchive(r *runtime, args []string) error {
 	defer wipe(pw)
 	_, _, err = archive.Create(r.ctx, archive.Options{Output: output, Compression: r.config.Archive.Compression, Level: r.config.Archive.Level, Mode: r.config.Archive.Mode, Budget: r.budget, Password: pw, Manifest: model.Manifest{Version: 1, ID: id, Full: true, Roots: roots, Compression: r.config.Archive.Compression}, Catalog: c, Exclusions: exclude})
 	if err == nil {
-		return r.completed(output, "", fmt.Sprintf("Created archive: %s", L.Value(output)))
+		return r.completed(output, "", fmt.Sprintf("Created %q.", output))
 	}
 	return err
 }

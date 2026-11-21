@@ -1,80 +1,49 @@
 .TH "GLESHA-UPLOAD" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-upload \- upload a file. Replacing an existing key requires \-\-force
+glesha\-upload \- upload a file to remote buckets
 .SH SYNOPSIS
-.B glesha upload FILE \-\-to REMOTE... [options]
+\fBglesha upload\fR FILE \-\-to REMOTE... [options]
 .SH DESCRIPTION
-Upload a file. Replacing an existing key requires \-\-force.
-.PP
-Uploads bytes without creating a backup set. Replacing an object requires \-\-force.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+Upload FILE to every remote named by \-\-to, in parallel. No backup set is involved. An existing object is only replaced with \-\-force.
 .SH OPTIONS
-
 .TP
 .B \-\-key KEY
-Remote key (default filename).
-.SS Buckets
-.TP
-.B \-\-to REMOTE...
-Destination remotes; comma\-separated or repeated.
-.TP
-.B \-\-from REMOTE...
-Source or catalog buckets this command may access.
-.SS Cloud retrieval
-.TP
-.B \-\-storage\-class CLASS
-AWS storage class.
-.SS Performance
-.TP
-.B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
-.TP
-.B \-j, \-\-jobs, \-\-transfer\-workers N
-Maximum parallel transfers; memory may lower this limit.
-.TP
-.B \-\-hash\-workers N
-Maximum parallel file hashing workers.
-.SS Confirmations
+Object key (default: the file name).
 .TP
 .B \-\-force
-Explicitly replace an existing remote key.
-.SS Global options
+Replace an existing object.
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-storage\-class CLASS
+AWS storage class (default: STANDARD). Classes other than STANDARD require an AWS remote.
+.SS Remote options
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.B \-\-to REMOTE...
+Upload to REMOTE.
 .TP
-.B \-\-config FILE
-TOML settings file.
+.B \-\-from REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Performance options
 .TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
+.B \-\-memory\-max SIZE
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
 .TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
+.B \-j, \-\-jobs, \-\-transfer\-workers N
+Run up to N transfers at once (default: 4). The memory limit may lower the effective number.
 .TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-hash\-workers N
+Hash up to N files at once (default: 4).
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
-glesha upload documents.tar.xz.gpg \-\-to b2 \-\-key backups/documents.gpg
+glesha upload documents.tar.xz.gpg \-\-to b2
+glesha upload documents.tar.xz.gpg \-\-to aws,b2 \-\-key backups/documents.gpg
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-check (1),
+.BR glesha\-download (1)

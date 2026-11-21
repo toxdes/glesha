@@ -1,117 +1,91 @@
 .TH "GLESHA-RUN" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-run \- create and upload a full or incremental backup
+glesha\-run \- create a snapshot and upload it
 .SH SYNOPSIS
-.B glesha run SET [options]
+\fBglesha run\fR SET [options]
 .SH DESCRIPTION
-Create and upload a full or incremental backup.
+Archive the sources of SET, encrypt the archive, and upload it to the set's remotes. The snapshot is full unless \-\-incremental is given.
 .PP
-Creates a full backup by default. \-\-incremental requires an existing baseline. Repeating a pending run resumes it with the original archive passphrase.
+An incremental snapshot stores the changes since the baseline snapshot and needs exactly one remote. Removed paths and type changes are confirmed first.
 .PP
-Chunked runs use \-\-spool\-max and do not accept \-\-output or \-\-keep\-archive.
+The local archive is deleted after a verified upload, unless \-\-output or \-\-keep\-archive is given. If no source changed, no snapshot is created.
 .PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+If a run is interrupted, run it again or use 'glesha retry' to resume it. Options must match the interrupted run, and the same archive passphrase is required.
 .SH OPTIONS
 .TP
 .B \-\-full
-Create a full snapshot.
+Create a full snapshot (default).
 .TP
 .B \-\-incremental
-Create changes relative to an existing baseline.
+Store only the changes since the baseline. Requires exactly one remote.
 .TP
 .B \-\-output FILE
-New output file.
-.SS Buckets
-.TP
-.B \-\-to REMOTE...
-Destination remotes; comma\-separated or repeated.
-.TP
-.B \-\-from REMOTE...
-Source or catalog buckets this command may access.
-.TP
-.B \-\-prefix PREFIX
-Prefix for new archive names: glesha or encb.
-.SS Archive settings
-.TP
-.B \-\-chunked
-Upload independent chunks using bounded temporary storage.
-.TP
-.B \-\-spool\-max SIZE
-Maximum temporary chunk payload storage (default 128MiB).
-.TP
-.B \-\-compression FORMAT
-Archive compression: xz, gzip, or bzip2.
-.TP
-.B \-\-compression\-level LEVEL
-Compression level 1..9.
-.TP
-.B \-\-archive\-mode MODE
-Archive memory mode: auto, memory, or stream.
-.TP
-.B \-\-keep\-archive
-Retain the local archive after a successful backup.
-.SS Passphrases
-.TP
-.B \-\-catalog\-passphrase\-file FILE|\-
-Catalog passphrase file; '\-' reads stdin.
-.TP
-.B \-\-passphrase\-file FILE|\-
-Archive passphrase file; '\-' reads stdin.
-.SS Cloud retrieval
-.TP
-.B \-\-storage\-class CLASS
-AWS storage class.
-.SS Performance
-.TP
-.B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
-.TP
-.B \-j, \-\-jobs, \-\-transfer\-workers N
-Maximum parallel transfers; memory may lower this limit.
-.TP
-.B \-\-hash\-workers N
-Maximum parallel file hashing workers.
-.SS Confirmations
+Keep the archive at FILE, which must not exist.
 .TP
 .B \-\-assume\-yes
-Skip confirmation prompts for this command.
-.SS Global options
+Answer yes to all confirmations. Confirms removed paths and type changes in an incremental snapshot.
+.SS Remote options
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-to REMOTE...
+Upload to REMOTE (default: the set's remotes).
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
+.B \-\-from REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.SS Archive options
 .TP
-.B \-\-config FILE
-TOML settings file.
+.B \-\-storage\-class CLASS
+AWS storage class of this snapshot. Overrides the set's setting. Classes other than STANDARD require an AWS remote.
 .TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
+.B \-\-compression FORMAT
+Compression: xz, gzip, or bzip2 (default: xz).
 .TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
+.B \-\-compression\-level N
+Compression level, 1 to 9 (default: 6).
 .TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
+.B \-\-prefix PREFIX
+Name prefix: glesha or encb (default: glesha).
 .TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
+.B \-\-archive\-mode MODE
+Buffering: auto, memory, or stream (default: auto). With memory, the encrypted archive is held in memory and the command fails if it does not fit. With stream, it is written to a temporary file. With auto, it starts in memory and moves to a file when needed.
 .TP
-.B \-h, \-\-help
-Show this command's help.
+.B \-\-chunked
+Upload in chunks using bounded local space.
 .TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-spool\-max SIZE
+Local space for chunks (default: 128MiB, min: 2MiB). Requires \-\-chunked.
+.TP
+.B \-\-keep\-archive
+Keep the local archive after a successful upload.
+.SS Passphrase options
+.TP
+.B \-\-passphrase\-file FILE
+Read the archive passphrase from FILE ('\-': stdin). A trailing newline is ignored. Without this option, the passphrase is read from a hidden prompt.
+.TP
+.B \-\-catalog\-passphrase\-file FILE
+Read the catalog passphrase from FILE ('\-': stdin). Without this option, GLESHA_CATALOG_PASSPHRASE or a hidden prompt is used.
+.SS Performance options
+.TP
+.B \-\-memory\-max SIZE
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
+.TP
+.B \-j, \-\-jobs, \-\-transfer\-workers N
+Run up to N transfers at once (default: 4). The memory limit may lower the effective number.
+.TP
+.B \-\-hash\-workers N
+Hash up to N files at once (default: 4).
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha run docs
 glesha run docs \-\-incremental
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-history (1),
+.BR glesha\-restore (1),
+.BR glesha\-retry (1)

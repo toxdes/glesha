@@ -455,10 +455,10 @@ Plain status uses local records and cached measurements, without cloud requests.
 `--refresh` checks recorded archive metadata and lists current metadata objects;
 it does not download or pull catalogs or request cold restoration.
 
-Pending cold imports/restores add a `Retrieval Status` table:
+Pending cold imports/restores add a `Retrievals` table:
 
 ```text
-Retrieval Status
+Retrievals
 Last checked: 2026-10-15 14:32 IST
 SET        TASK     STATE    READY  WAITING  EXPIRES (IST)
 music      RESTORE  READY    1      0        Oct 18 05:30
@@ -1119,8 +1119,8 @@ Both flags are accepted by commands that access remote state. Existing source an
 For development, use a separate state directory and test buckets.
 
 An empty legacy directory or supported empty registry does not block the platform
-default state directory. `state migrate` reports that no legacy backups need
-migration and leaves it untouched. If both locations contain state, choose one
+default state directory. `state migrate` reports that there is no legacy state
+to migrate and leaves it untouched. If both locations contain state, choose one
 explicitly using `--state-dir`, or migrate the legacy state to an unused
 `--state-dir` destination. Existing databases are never automatically merged.
 

@@ -108,62 +108,22 @@ var handlers = map[string]handler{
 }
 
 func Usage() string {
-	return `glesha - encrypted archives and cloud backups
-
-Usage:
-  glesha [global options] COMMAND [arguments] [options]
-
-Back up and recover:
-  create SET PATH...          Register sources and a backup destination
-  run SET                     Create and upload a backup
-  restore SET --into DIR      Restore files without overwriting existing files
-  import SET                  Register an existing archive
-
-Inspect:
-  list                        List locally known sets and IDs
-  status [SET]                Show backup state, sizes, and estimated cost
-  history SET                 List snapshots
-  browse SET                  List files in a snapshot
-  catalog sync [SET]          Discover sets or synchronize one catalog
-  catalog unlock SET          Open a downloaded encrypted catalog locally
-
-Manage:
-  configure SET               Change saved settings or bind local sources
-  retry SET                   Resume pending work
-  cleanup SET|--all           Remove eligible local archive copies
-  move SET --from A --to B     Copy history and switch destinations
-  storage-class SET           Change an AWS archive's storage class
-  check --to REMOTE...        Test bucket access
-  state migrate              Move legacy local state to the current location
-
-Standalone files:
-  archive PATH...             Create an encrypted archive
-  decrypt FILE                Decrypt to compressed tar
-  extract FILE --into DIR     Extract into a new directory
-  upload FILE --to REMOTE...  Upload a file
-  download KEY --from REMOTE  Download a file
-
-Help and version:
-  help [COMMAND [ACTION]]     Show options and examples
-  version                     Show version and build revision
-
-Global options:
-  --config FILE               TOML settings
-  --state-dir DIR             Local state directory override
-  --env FILE                  Credential file; process variables take priority
-  --color MODE                auto, yes, or no (default: auto)
-  -L, --log-level LEVEL       debug, info, warn, error, silent (default: info)
-  --format FORMAT             plain or json; status also supports table/csv
-  --progress MODE             auto, plain or off (default: auto)
-  -h, --help                  Show help
-  -v, --version               Show version
-
-Examples:
-  glesha create docs ~/Documents --to b2
-  glesha run docs
-  glesha help catalog
-
-`
+	var out strings.Builder
+	out.WriteString("usage: glesha [global options] COMMAND [ARGS] [options]\n\n")
+	out.WriteString("Encrypted archives and incremental cloud backups.\n")
+	for _, group := range commandOrder {
+		fmt.Fprintf(&out, "\n%s:\n", group.title)
+		for _, name := range group.commands {
+			entry := overviewEntries[name]
+			out.WriteString(helpEntry(entry[0], entry[1]) + "\n")
+		}
+	}
+	out.WriteString("\nGlobal options:\n")
+	for _, f := range helpFlags("", nil) {
+		out.WriteString(helpEntry(helpFlagLabel("", f), helpFlagDescription("", f)) + "\n")
+	}
+	out.WriteString("\nRun 'glesha help COMMAND' for the options of a command.\n")
+	return out.String()
 }
 
 func PrintUsage() { fmt.Print(Usage()) }

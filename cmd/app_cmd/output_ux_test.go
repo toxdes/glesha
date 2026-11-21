@@ -100,7 +100,7 @@ func TestUnavailableCatalogDoesNotClaimZeroSnapshots(t *testing.T) {
 			}
 		}
 	}
-	if !found || !strings.Contains(output, "Totals cover 0 of 1") || !strings.Contains(output, "catalog unlock SET") {
+	if !found || !strings.Contains(output, "Totals include 0 of 1") || !strings.Contains(output, "catalog unlock SET") {
 		t.Fatalf("missing catalog guidance: %s", output)
 	}
 }
@@ -161,7 +161,7 @@ func TestPortableActionHelpSupportsStructuredFormat(t *testing.T) {
 }
 
 func TestHelpIncludesArgumentsAndActionSpecificOptions(t *testing.T) {
-	for command, arguments := range map[string]string{"create": "SET PATH...", "run": "SET", "restore": "SET (--into DIR | --cancel)", "archive": "PATH...", "download": "KEY --from REMOTE..."} {
+	for command, arguments := range map[string]string{"create": "SET PATH...", "run": "SET", "restore": "SET --into DIR", "archive": "PATH...", "download": "KEY --from REMOTE..."} {
 		t.Run(command, func(t *testing.T) {
 			if text := CommandUsage(command); !strings.Contains(text, "glesha "+command+" "+arguments) {
 				t.Fatalf("required arguments missing: %s", text)

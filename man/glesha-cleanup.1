@@ -1,70 +1,42 @@
 .TH "GLESHA-CLEANUP" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-cleanup \- remove eligible local archive copies; remote backups are kept
+glesha\-cleanup \- delete local archive copies that are stored remotely
 .SH SYNOPSIS
-.B glesha cleanup SET|\-\-all [options]
+\fBglesha cleanup\fR SET [options]
+.br
+\fBglesha cleanup\fR \-\-all [options]
 .SH DESCRIPTION
-Remove eligible local archive copies; remote backups are kept.
+Delete the archive copies kept in the local state of SET, or of every set with \-\-all, once a remote copy has been verified. Remote objects and archives outside the state directory are never touched.
 .PP
-Checks remote copies before removing local archives. Review \-\-dry\-run first. Remote backups are retained.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+Sets with pending or unresolved work are skipped. The files are listed and confirmed before deletion.
 .SH OPTIONS
-
 .TP
 .B \-\-all
-Process all locally registered sets.
+Process every set.
 .TP
 .B \-\-dry\-run
-Preview archive cleanup.
-.SS Buckets
-.TP
-.B \-\-to REMOTE...
-Additional buckets this command may access.
-.TP
-.B \-\-from REMOTE...
-Source or catalog buckets this command may access.
-.SS Confirmations
+List the files without deleting them.
 .TP
 .B \-\-assume\-yes
-Skip confirmation prompts for this command.
-.SS Global options
+Answer yes to all confirmations.
+.SS Remote options
 .TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
+.B \-\-to REMOTE...
+Limit bucket access to REMOTE.
 .TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.B \-\-from REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha cleanup docs \-\-dry\-run
-glesha cleanup docs
+glesha cleanup \-\-all \-\-assume\-yes
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-status (1)

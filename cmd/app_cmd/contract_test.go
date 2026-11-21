@@ -226,7 +226,7 @@ func TestVersionFormsNeedNoConfigOrCredentials(t *testing.T) {
 	}
 }
 func TestManualDocumentsEverySupportedFlag(t *testing.T) {
-	for command := range commandDescriptions {
+	for command := range commandHelps {
 		t.Run(command, func(t *testing.T) {
 			file := filepath.Join("..", "..", "man", "glesha-"+command+".1")
 			data, err := os.ReadFile(file)
@@ -241,6 +241,9 @@ func TestManualDocumentsEverySupportedFlag(t *testing.T) {
 				t.Fatal("manual has no examples")
 			}
 			flagSet(command, &AppCmdEnv{}).VisitAll(func(f *flag.Flag) {
+				if globalFlag(f.Name) {
+					return
+				}
 				documented := false
 				for _, line := range strings.Split(text, "\n") {
 					if !strings.HasPrefix(line, ".B ") {
@@ -259,6 +262,24 @@ func TestManualDocumentsEverySupportedFlag(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestMainManualDocumentsGlobalFlags(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "man", "glesha.1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(data), `\-`, "-")
+	for command := range commandHelps {
+		if !strings.Contains(text, "glesha-"+command+" (1)") {
+			t.Errorf("glesha(1) does not reference glesha-%s(1)", command)
+		}
+	}
+	flagSet("", &AppCmdEnv{}).VisitAll(func(f *flag.Flag) {
+		if !strings.Contains(text, "-"+f.Name+" ") && !strings.Contains(text, "-"+f.Name+",") && !strings.Contains(text, "-"+f.Name+"\n") {
+			t.Errorf("glesha(1) does not document -%s", f.Name)
+		}
+	})
 }
 
 func TestHelpIsASCIIAndReadable(t *testing.T) {

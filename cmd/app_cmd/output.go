@@ -264,5 +264,5 @@ func (r *runtime) remoteLabel(id string) string {
 }
 
 func (r *runtime) emptyInventory() error {
-	return r.result("No sets found locally.\n  Discover backups: glesha catalog sync\n  Start a backup:   glesha create SET PATH --to REMOTE")
+	return r.result("No sets found locally.\n  Find existing sets: glesha catalog sync\n  Create a set:       glesha create SET PATH... --to REMOTE")
 }

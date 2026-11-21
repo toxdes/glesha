@@ -8,75 +8,73 @@ import (
 )
 
 type helpAction struct {
-	name, arguments, description, flags string
-	notes                               []string
+	name, arguments, summary, flags string
+	description                     []string
 }
 
 var helpActions = map[string][]helpAction{
 	"catalog": {
-		{"sync", "[SET]", "Discover catalogs, or synchronize one set.", "from to all json catalog-passphrase-file", []string{"Without SET, download catalog metadata without passphrase prompts. With SET, open the catalog, merge changes, and publish metadata. Sync can write to the selected buckets."}},
-		{"unlock", "SET", "Open a downloaded catalog locally.", "json catalog-passphrase-file", []string{"Requires the catalog passphrase. Uses cached metadata and makes no cloud requests. Archive files stay encrypted."}},
-		{"resolve", "SET", "Review or resolve conflicting catalog metadata.", "from to json keep authority assume-yes catalog-passphrase-file", []string{"Omit --keep to review differences. Choose --keep local|remote to resolve references, or --authority REMOTE to select a catalog location. Original histories are preserved."}},
-		{"pull", "SET", "Pull remote metadata into the local catalog.", "from to json catalog-passphrase-file", nil},
-		{"push", "SET", "Publish pending catalog changes.", "from to json catalog-passphrase-file", nil},
-		{"reconcile", "SET", "Merge compatible catalog histories.", "from to json catalog-passphrase-file", nil},
-		{"abandon", "SET", "Discard a pending operation's local work.", "", []string{"Keeps the current catalog and remote objects. Pending chunk spool files may be removed."}},
+		{"sync", "[SET]", "discover sets, or synchronize one catalog", "from to all catalog-passphrase-file", []string{
+			"Without SET, search the remotes for sets and download their catalog metadata. No passphrase is needed. --all is the same as giving no SET.",
+			"With SET, merge remote changes into the local catalog and publish local changes. This writes to the catalog remote.",
+		}},
+		{"unlock", "SET", "open a downloaded catalog", "catalog-passphrase-file", []string{
+			"Decrypt the downloaded catalog of SET so that history, browse, and restore can read it. Makes no cloud requests. Requires the catalog passphrase; archives stay encrypted.",
+		}},
+		{"resolve", "SET", "review or settle catalog conflicts", "from to keep authority assume-yes catalog-passphrase-file", []string{
+			"Without options, show the metadata that differs between the local and remote catalogs of SET.",
+			"With --keep, settle the differences using local or remote values. With --authority, make the catalog on REMOTE the authoritative one. Both histories are preserved.",
+		}},
+		{"pull", "SET", "replace the local catalog with the remote one", "from to catalog-passphrase-file", []string{
+			"Replace the local catalog of SET with the remote catalog. The previous local catalog is kept.",
+		}},
+		{"push", "SET", "publish local catalog changes", "from to catalog-passphrase-file", []string{
+			"Publish the pending local catalog changes of SET to its catalog remote.",
+		}},
+		{"reconcile", "SET", "merge compatible catalog histories", "from to catalog-passphrase-file", []string{
+			"Merge the local and remote histories of SET when they do not conflict.",
+		}},
+		{"abandon", "SET", "discard the local work of a pending operation", "", []string{
+			"Discard the local work of the pending operation of SET. The catalog and remote objects are kept; spooled chunks may be deleted.",
+		}},
 	},
-	"state": {{"migrate", "", "Move legacy local state to the current location.", "", []string{"No cloud access is required. Archive files move without re-encryption. Empty legacy registries need no migration. Existing destinations are not merged; use --state-dir to select a fresh destination."}}},
+	"state": {
+		{"migrate", "", "move local state from the legacy location", "", []string{
+			"Move local state from the legacy location, USER_CONFIG/glesha/state-v2, to the current one: the --state-dir directory, the [catalog] directory setting, or DATA/glesha/state.",
+			"Archives are moved without re-encryption. A destination that already holds state is never merged into; choose an empty one with --state-dir. No cloud access is needed.",
+		}},
+	},
 }
 
-var commandNotes = map[string][]string{
-	"create":        {"Registers sources and publishes initial metadata. Run glesha run SET to create the first archive."},
-	"configure":     {"Use --root NAME=PATH to bind sources on this computer. Other changes update the set's saved settings."},
-	"run":           {"Creates a full backup by default. --incremental requires an existing baseline. Repeating a pending run resumes it with the original archive passphrase.", "Chunked runs use --spool-max and do not accept --output or --keep-archive."},
-	"retry":         {"Resumes pending work or repairs registry copies. Use --archive if a pending archive was moved."},
-	"list":          {"Reads local inventory. Run catalog sync to discover sets on another computer; status shows their condition and storage details."},
-	"status":        {"Reads cached state by default. --refresh checks remote archive availability. '-' means unavailable, not zero. Locked catalogs need metadata or a catalog passphrase."},
-	"history":       {"Reads the local catalog. --refresh checks live archive availability. Open an encrypted catalog first with catalog unlock SET."},
-	"browse":        {"Lists entries in the latest snapshot by default. Open an encrypted catalog first with catalog unlock SET."},
-	"restore":       {"Restores into a new or existing directory without replacing files. --into . is supported. Cold archives may require retrieval consent.", "Use --cancel to clear unfinished local restore tasks, optionally selecting --into DIR. Restored files and staging data are preserved. Cloud retrieval requests already submitted continue."},
-	"import":        {"Registers an existing full archive. Associating an uploaded archive does not upload it again. Use configure --root to bind local sources afterward."},
-	"move":          {"Copies complete history and switches future destinations. Source copies are retained. Select every source and catalog bucket with --from."},
-	"archive":       {"Creates a standalone encrypted archive. Compression defaults to xz; --output chooses its filename."},
-	"decrypt":       {"Produces compressed tar. Use extract to unpack files. Existing output files are never overwritten."},
-	"extract":       {"Accepts encrypted archives or plaintext compressed tar. The destination must not exist."},
-	"upload":        {"Uploads bytes without creating a backup set. Replacing an object requires --force."},
-	"download":      {"Tries sources in the specified order. The output file must not exist."},
-	"catalog":       {"sync fetches or synchronizes metadata. unlock opens a cached catalog using its catalog passphrase. resolve handles conflicting metadata. These actions do not restore archive contents."},
-	"cleanup":       {"Checks remote copies before removing local archives. Review --dry-run first. Remote backups are retained."},
-	"storage-class": {"Changes the AWS storage class of one snapshot, latest by default. Cold source objects may need retrieval first."},
-	"check":         {"Writes a temporary test object, verifies it, then deletes it. Failures include the affected step and any object left behind."},
-}
+var helpGroupOrder = []string{"Options", "Remote options", "Archive options", "Passphrase options", "Retrieval options", "Performance options", "Global options"}
 
-var helpGroupOrder = []string{"Options", "Buckets", "Archive settings", "Passphrases", "Cloud retrieval", "Performance", "Confirmations", "Output", "Compatibility", "Global options"}
-
-func helpFlagGroup(name string) string {
+func helpFlagGroup(command, name string) string {
 	if globalFlag(name) {
 		return "Global options"
 	}
 	switch name {
-	case "from", "to", "catalog-to", "prefix":
-		return "Buckets"
-	case "compression", "compression-level", "archive-mode", "chunked", "spool-max", "keep-archive":
-		return "Archive settings"
+	case "from", "to", "catalog-to":
+		return "Remote options"
+	case "storage-class", "incremental-storage-class":
+		if command == "upload" || command == "storage-class" {
+			return "Options"
+		}
+		return "Archive options"
+	case "compression", "compression-level", "prefix", "archive-mode", "chunked", "spool-max", "keep-archive":
+		return "Archive options"
 	case "passphrase-file", "catalog-passphrase-file", "archive-passphrase-file":
-		return "Passphrases"
-	case "request-retrieval", "retrieval", "days", "storage-class", "incremental-storage-class":
-		return "Cloud retrieval"
+		return "Passphrase options"
+	case "request-retrieval", "retrieval", "days":
+		return "Retrieval options"
 	case "memory-max", "hash-workers", "transfer-workers", "jobs", "j":
-		return "Performance"
-	case "assume-yes", "force":
-		return "Confirmations"
-	case "format", "json":
-		return "Output"
-	case "remote":
-		return "Compatibility"
+		return "Performance options"
 	default:
 		return "Options"
 	}
 }
 
-func helpFlagLabel(f *flag.Flag) string {
+// helpFlagLabel returns the flag spelling shown in --help.
+func helpFlagLabel(command string, f *flag.Flag) string {
 	label := "--" + f.Name
 	switch f.Name {
 	case "log-level":
@@ -88,163 +86,270 @@ func helpFlagLabel(f *flag.Flag) string {
 	case "transfer-workers":
 		label = "-j, --jobs, --transfer-workers"
 	}
-	if value := flagValueName(f); value != "" {
+	if value := flagValueName(command, f); value != "" {
 		label += " " + value
 	}
 	return label
 }
 
+// lowercase, no trailing period
+var flagDescriptions = map[string]string{
+	"to":                        "limit bucket access to REMOTE",
+	"from":                      "limit bucket access to REMOTE",
+	"catalog-to":                "where to keep the catalog (default: the first --to remote)",
+	"compression":               "compression: xz, gzip, or bzip2 (default: xz)",
+	"compression-level":         "compression level, 1 to 9 (default: 6)",
+	"prefix":                    "name prefix: glesha or encb (default: glesha)",
+	"archive-mode":              "buffering: auto, memory, or stream (default: auto)",
+	"storage-class":             "AWS storage class of full snapshots",
+	"incremental-storage-class": "AWS storage class of incremental snapshots",
+	"class":                     "new AWS storage class",
+	"chunked":                   "upload in chunks using bounded local space",
+	"spool-max":                 "local space for chunks (default: 128MiB, min: 2MiB)",
+	"keep-archive":              "keep the local archive after a successful upload",
+	"output":                    "write the archive to FILE, which must not exist",
+	"into":                      "unpack into DIR, which must not exist",
+	"root":                      "bind root NAME to directory PATH; repeatable",
+	"baseline":                  "use snapshot ID as the next incremental's baseline",
+	"file":                      "local archive to import",
+	"key":                       "object key (default with --file: the file name)",
+	"date":                      "original backup time, in RFC 3339 format",
+	"deep-verify":               "compare content with the uploaded copy, not size",
+	"force":                     "replace an existing object",
+	"archive":                   "use the completed archive moved to FILE",
+	"incremental":               "store only the changes since the baseline",
+	"full":                      "create a full snapshot (default)",
+	"assume-yes":                "answer yes to all confirmations",
+	"retrieval":                 "tier: bulk, standard, or expedited (default: bulk)",
+	"days":                      "keep retrieved copies for N days (default: 3)",
+	"request-retrieval":         "allow charged cold retrieval without asking",
+	"snapshot":                  "snapshot ID, or 'latest' (default: latest)",
+	"path":                      "list entries under PATH (default: the roots)",
+	"recursive":                 "include all descendants",
+	"refresh":                   "query the remotes for archive availability",
+	"all":                       "process every set",
+	"keep":                      "settle conflicts using local or remote values",
+	"authority":                 "make the catalog on REMOTE authoritative",
+	"dry-run":                   "list the files without deleting them",
+	"remote":                    "search --from remotes (deprecated: use catalog sync)",
+	"cancel":                    "cancel unfinished restore tasks",
+	"passphrase-file":           "read the archive passphrase from FILE ('-': stdin)",
+	"catalog-passphrase-file":   "read the catalog passphrase from FILE ('-': stdin)",
+	"archive-passphrase-file":   "read the passphrase of snapshot ID from FILE",
+	"memory-max":                "memory limit (default: half of available memory)",
+	"hash-workers":              "hash up to N files at once (default: 4)",
+	"transfer-workers":          "run up to N transfers at once (default: 4)",
+	"config":                    "read settings from FILE",
+	"state-dir":                 "keep local state in DIR",
+	"env":                       "load credentials from FILE",
+	"format":                    "output format: plain or json (default: plain)",
+	"progress":                  "progress: auto, plain, or off (default: auto)",
+	"color":                     "color: auto, yes, or no (default: auto)",
+	"log-level":                 "debug, info, warn, error, or silent (default: info)",
+	"help":                      "show this help",
+	"version":                   "show version information",
+}
+
+var commandFlagDescriptions = map[string]map[string]string{
+	"create": {
+		"to": "upload snapshots to REMOTE",
+	},
+	"configure": {
+		"to":                "upload future snapshots to REMOTE",
+		"catalog-to":        "where to keep the catalog",
+		"compression":       "compression: xz, gzip, or bzip2",
+		"compression-level": "compression level, 1 to 9",
+		"prefix":            "name prefix: glesha or encb",
+		"chunked":           "upload in chunks; --chunked=false turns it off",
+		"root":              "bind root NAME to directory PATH; repeatable",
+	},
+	"run": {
+		"to":            "upload to REMOTE (default: the set's remotes)",
+		"storage-class": "AWS storage class of this snapshot",
+		"chunked":       "upload in chunks using bounded local space",
+		"output":        "keep the archive at FILE, which must not exist",
+	},
+	"retry": {
+		"keep-archive": "keep the local archive after a successful upload",
+	},
+	"list": {
+		"from": "remotes to search with --remote",
+	},
+	"status": {
+		"format": "output format: plain, table, csv, or json (default: plain)",
+	},
+	"restore": {
+		"from": "read from REMOTE, in order (default: set's remotes)",
+		"into": "restore into DIR; with --cancel, limit to DIR",
+	},
+	"import": {
+		"from":     "remotes holding the archive, tried in order",
+		"baseline": "use as the next incremental's baseline",
+	},
+	"move": {
+		"to":   "the new remote",
+		"from": "the set's current remotes",
+	},
+	"archive": {
+		"output":        "write to FILE (default: PREFIX-TIME.tar.EXT.gpg in the current directory)",
+		"storage-class": "ignored",
+	},
+	"decrypt": {
+		"output": "write to FILE (default: NAME.tar.EXT next to the input)",
+	},
+	"upload": {
+		"to":            "upload to REMOTE",
+		"key":           "object key (default: the file name)",
+		"storage-class": "AWS storage class (default: STANDARD)",
+	},
+	"download": {
+		"from":   "remotes to download from, tried in order",
+		"output": "write to FILE (default: the last component of KEY)",
+	},
+	"catalog": {
+		"from": "search or access only REMOTE",
+		"all":  "same as sync without SET",
+	},
+	"cleanup": {
+		"all": "process every set",
+	},
+	"storage-class": {
+		"storage-class": "same as --class",
+	},
+	"check": {
+		"to": "test REMOTE",
+	},
+}
+
 func helpFlagDescription(command string, f *flag.Flag) string {
-	description := map[string]string{
-		"from":                    "Source or permitted remotes; comma-separated or repeated.",
-		"to":                      "Destination or permitted remotes; comma-separated or repeated.",
-		"catalog-to":              "Catalog location: a remote name or local.",
-		"passphrase-file":         "Archive passphrase file; '-' reads stdin.",
-		"catalog-passphrase-file": "Catalog passphrase file; '-' reads stdin.",
-		"archive-passphrase-file": "Archive passphrase override: SNAPSHOT=FILE.",
-		"state-dir":               "Local state directory; overrides catalog.directory.",
-		"config":                  "TOML settings file.",
-		"env":                     "Load credentials; existing process variables take priority.",
-		"log-level":               "Diagnostic verbosity: debug, info, warn, error, or silent.",
-		"help":                    "Show this command's help.",
-		"version":                 "Show version and build revision.",
-		"color":                   "Color mode: auto, yes, or no.",
-		"json":                    "Versioned JSON records, one per line.",
-		"format":                  "Result format: plain or json; status also supports table and csv.",
-		"progress":                "Progress on stderr: auto, plain, or off.",
-		"memory-max":              "Memory budget, e.g. 128MiB.",
-		"transfer-workers":        "Maximum parallel transfers; memory may lower this limit.",
-		"hash-workers":            "Maximum parallel file hashing workers.",
-		"remote":                  "Deprecated. Use catalog sync, then list.",
-		"deep-verify":             "Download associated remote bytes and verify them.",
-		"request-retrieval":       "Allow retrieval charges for cold cloud objects.",
-		"prefix":                  "Prefix for new archive names: glesha or encb.",
-		"full":                    "Create a full snapshot.",
-		"incremental":             "Create changes relative to an existing baseline.",
-		"compression":             "Archive compression: xz, gzip, or bzip2.",
-		"archive-mode":            "Archive memory mode: auto, memory, or stream.",
-		"recursive":               "Include entries below the selected path.",
-		"cancel":                  "Cancel local restore tasks; preserve restored and staged files.",
-		"assume-yes":              "Skip confirmation prompts for this command.",
-	}[f.Name]
-	if f.Name == "to" {
-		description = "Additional buckets this command may access."
-		if strings.Contains(" create configure run upload move ", " "+command+" ") {
-			description = "Destination remotes; comma-separated or repeated."
-		}
-		if command == "check" {
-			description = "Buckets to test; comma-separated or repeated."
-		}
+	if description, ok := commandFlagDescriptions[command][f.Name]; ok {
+		return description
 	}
-	if f.Name == "from" {
-		description = "Source or catalog buckets this command may access."
-		if strings.Contains(" restore import download ", " "+command+" ") {
-			description = "Archive source remotes, in fallback order."
+	if description, ok := flagDescriptions[f.Name]; ok {
+		return description
+	}
+	return f.Usage
+}
+
+// helpFlags returns the documented flags of a command or action, in display order.
+func helpFlags(command string, selected *helpAction) []*flag.Flag {
+	var ordered []*flag.Flag
+	flagSet(command, &AppCmdEnv{}).VisitAll(func(f *flag.Flag) {
+		switch f.Name {
+		case "L", "h", "v", "j", "jobs":
+			return
 		}
-		if command == "catalog" {
-			description = "Buckets to discover or access; comma-separated or repeated."
+		if selected != nil && !globalFlag(f.Name) && !strings.Contains(" "+selected.flags+" ", " "+f.Name+" ") {
+			return
+		}
+		ordered = append(ordered, f)
+	})
+	sort.SliceStable(ordered, func(i, j int) bool {
+		return helpFlagRank(command, ordered[i].Name) < helpFlagRank(command, ordered[j].Name)
+	})
+	return ordered
+}
+
+const (
+	helpWidth  = 79
+	helpColumn = 28
+)
+
+func helpEntry(label, description string) string {
+	first := "  " + label
+	if len(first)+2 > helpColumn {
+		return first + "\n" + wrapHelp(description, strings.Repeat(" ", helpColumn), helpWidth)
+	}
+	first += strings.Repeat(" ", helpColumn-len(first))
+	return wrapHanging(description, first, strings.Repeat(" ", helpColumn), helpWidth)
+}
+
+func selectedAction(command, action string) *helpAction {
+	for i := range helpActions[command] {
+		if helpActions[command][i].name == action {
+			return &helpActions[command][i]
 		}
 	}
-	if f.Name == "all" && command == "catalog" {
-		description = "Alias for bare sync; discover only the allowed buckets."
-	}
-	if description == "" {
-		description = f.Usage
-		if description != "" {
-			description = strings.ToUpper(description[:1]) + description[1:]
-		}
-	}
-	if f.Name == "into" && command == "restore" {
-		description = "Restore destination; with --cancel, select a task destination."
-	}
-	description = strings.TrimSuffix(description, ".")
-	if f.DefValue != "" && f.DefValue != "false" && f.DefValue != "0" {
-		description += " (default: " + f.DefValue + ")"
-	}
-	return description + "."
+	return nil
 }
 
 func CommandActionUsage(command, action string) string {
-	arguments, description := commandArguments[command], commandDescriptions[command]
-	notes := commandNotes[command]
-	var selected *helpAction
-	for i := range helpActions[command] {
-		candidate := &helpActions[command][i]
-		if candidate.name == action {
-			selected = candidate
-			break
-		}
-	}
+	h := commandHelps[command]
+	synopsis, description, examples := h.synopsis, h.description, h.examples
 	name := command
+	if command == "state" && action == "" {
+		action = "migrate"
+	}
+	selected := selectedAction(command, action)
 	if selected != nil {
 		name += " " + action
-		arguments = selected.arguments
+		synopsis = []string{selected.arguments}
 		description = selected.description
-		notes = selected.notes
+		examples = nil
+		for _, example := range h.examples {
+			if strings.HasPrefix(example, "glesha "+name) {
+				examples = append(examples, example)
+			}
+		}
+		if len(examples) == 0 {
+			example := "glesha " + name
+			if selected.arguments != "" {
+				example += " " + strings.Trim(selected.arguments, "[]")
+			}
+			examples = []string{example}
+		}
+	}
+	if len(synopsis) == 0 {
+		synopsis = []string{""}
 	}
 	var out strings.Builder
-	out.WriteString("Usage:\n")
-	out.WriteString(wrapHelp(strings.TrimSpace("glesha "+name+" "+arguments)+" [options]", "  ", 78) + "\n\n")
-	out.WriteString(wrapHelp(description, "", 78) + "\n")
-	for _, note := range notes {
-		out.WriteString("\n" + wrapHelp(note, "", 78) + "\n")
+	for i, line := range synopsis {
+		prefix := "usage: "
+		if i > 0 {
+			prefix = "       "
+		}
+		out.WriteString(wrapHanging(strings.TrimSpace("glesha "+name+" "+line)+" [options]", prefix, "         ", helpWidth) + "\n")
+	}
+	for _, paragraph := range description {
+		out.WriteString("\n" + wrapHelp(paragraph, "", helpWidth) + "\n")
 	}
 	if selected == nil && len(helpActions[command]) > 0 {
 		out.WriteString("\nActions:\n")
 		for _, entry := range helpActions[command] {
-			fmt.Fprintf(&out, "  %-24s %s\n", strings.TrimSpace(entry.name+" "+entry.arguments), entry.description)
+			out.WriteString(helpEntry(strings.TrimSpace(entry.name+" "+entry.arguments), entry.summary) + "\n")
 		}
 	}
-	flags := flagSet(command, &AppCmdEnv{})
-	if flags.Lookup("from") != nil && (selected == nil || strings.Contains(selected.flags, "from")) {
-		out.WriteString("\n" + wrapHelp("With --from or --to, only their combined bucket selection may be accessed.", "", 78) + "\n")
-	}
-	var ordered []*flag.Flag
-	flags.VisitAll(func(f *flag.Flag) { ordered = append(ordered, f) })
-	sort.SliceStable(ordered, func(i, j int) bool {
-		return helpFlagRank(command, ordered[i].Name) < helpFlagRank(command, ordered[j].Name)
-	})
+	flags := helpFlags(command, selected)
 	for _, group := range helpGroupOrder {
 		var lines strings.Builder
-		for _, f := range ordered {
-			if helpFlagGroup(f.Name) != group || f.Name == "L" || f.Name == "h" || f.Name == "v" || f.Name == "j" || f.Name == "jobs" {
-				continue
+		for _, f := range flags {
+			if helpFlagGroup(command, f.Name) == group {
+				lines.WriteString(helpEntry(helpFlagLabel(command, f), helpFlagDescription(command, f)) + "\n")
 			}
-			if selected != nil && !globalFlag(f.Name) && !strings.Contains(" "+selected.flags+" ", " "+f.Name+" ") {
-				continue
-			}
-			fmt.Fprintf(&lines, "  %s\n%s\n", helpFlagLabel(f), wrapHelp(helpFlagDescription(command, f), "    ", 78))
 		}
-		if lines.Len() > 0 {
-			fmt.Fprintf(&out, "\n%s:\n%s", group, lines.String())
+		if lines.Len() == 0 {
+			continue
+		}
+		fmt.Fprintf(&out, "\n%s:\n%s", group, lines.String())
+		if group == "Remote options" {
+			out.WriteString("\n" + wrapHelp(remoteSelectionNote, "  ", helpWidth) + "\n")
 		}
 	}
 	out.WriteString("\nExamples:\n")
-	if selected != nil {
-		example := "glesha " + name
-		if selected.arguments != "" {
-			example += " " + strings.Trim(selected.arguments, "[]")
-		}
+	for _, example := range examples {
 		out.WriteString(wrapExample(example) + "\n")
-	} else {
-		for _, example := range commandExamples[command] {
-			out.WriteString(wrapExample(example) + "\n")
-		}
 	}
 	return out.String()
 }
 
+const remoteSelectionNote = "REMOTE... takes a comma-separated list and may be repeated. If --from or --to is given, no other remote is accessed."
+
 func knownHelpAction(command, action string) bool {
-	for _, candidate := range helpActions[command] {
-		if candidate.name == action {
-			return true
-		}
-	}
-	return false
+	return selectedAction(command, action) != nil
 }
 
 func helpFlagRank(command, name string) int {
-	order := []string{"class", "file", "key", "into", "snapshot", "full", "incremental", "root", "baseline", "path", "recursive", "all", "cancel", "dry-run", "keep", "authority", "archive", "date", "output", "to", "from", "catalog-to", "prefix", "chunked", "spool-max", "compression", "compression-level", "archive-mode", "keep-archive", "catalog-passphrase-file", "passphrase-file", "archive-passphrase-file", "request-retrieval", "retrieval", "days", "storage-class", "incremental-storage-class", "memory-max", "transfer-workers", "hash-workers", "assume-yes", "force", "format", "json", "remote", "config", "state-dir", "env", "color", "log-level", "help", "version"}
+	order := []string{"class", "file", "key", "into", "snapshot", "full", "incremental", "root", "baseline", "path", "recursive", "refresh", "all", "cancel", "dry-run", "keep", "authority", "archive", "date", "deep-verify", "output", "force", "storage-class", "remote", "assume-yes", "to", "from", "catalog-to", "compression", "compression-level", "prefix", "archive-mode", "incremental-storage-class", "chunked", "spool-max", "keep-archive", "passphrase-file", "archive-passphrase-file", "catalog-passphrase-file", "request-retrieval", "retrieval", "days", "memory-max", "transfer-workers", "hash-workers", "config", "state-dir", "env", "format", "progress", "color", "log-level", "help", "version"}
 	if strings.Contains(" restore import download catalog list status ", " "+command+" ") {
 		switch name {
 		case "from":

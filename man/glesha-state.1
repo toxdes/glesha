@@ -1,54 +1,22 @@
 .TH "GLESHA-STATE" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-state \- move existing state out of the config directory
+glesha\-state \- move local state from the legacy location
 .SH SYNOPSIS
-.B glesha state migrate [options]
+\fBglesha state\fR migrate [options]
 .SH DESCRIPTION
-Move existing state out of the config directory.
-.SH ACTIONS
-.TP
-.B migrate
-Move legacy local state to the current location.
-.IP
-No cloud access is required. Archive files move without re\-encryption. Empty legacy registries need no migration. Existing destinations are not merged; use \-\-state\-dir to select a fresh destination.
+Move local state from the legacy location, USER_CONFIG/glesha/state\-v2, to the current one: the \-\-state\-dir directory, the [catalog] directory setting, or DATA/glesha/state.
+.PP
+Archives are moved without re\-encryption. A destination that already holds state is never merged into; choose an empty one with \-\-state\-dir. No cloud access is needed.
 .SH OPTIONS
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha state migrate
-glesha list \-\-state\-dir /path/to/state
+glesha state migrate \-\-state\-dir /srv/glesha
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-list (1)

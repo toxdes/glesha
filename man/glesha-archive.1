@@ -1,85 +1,56 @@
 .TH "GLESHA-ARCHIVE" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-archive \- create a standalone encrypted tar archive
+glesha\-archive \- create a standalone encrypted archive
 .SH SYNOPSIS
-.B glesha archive PATH... [options]
+\fBglesha archive\fR PATH... [options]
 .SH DESCRIPTION
-Create a standalone encrypted tar archive.
+Write an encrypted, compressed tar archive of PATH without registering a set. The output file must not exist.
 .PP
-Creates a standalone encrypted archive. Compression defaults to xz; \-\-output chooses its filename.
+The output is an OpenPGP message holding a compressed tar archive, so gpg and tar can also read it.
 .SH OPTIONS
-
 .TP
 .B \-\-output FILE
-New output file.
-.SS Buckets
-.TP
-.B \-\-prefix PREFIX
-Prefix for new archive names: glesha or encb.
-.SS Archive settings
-.TP
-.B \-\-compression FORMAT
-Archive compression: xz, gzip, or bzip2.
-.TP
-.B \-\-compression\-level LEVEL
-Compression level 1..9.
-.TP
-.B \-\-archive\-mode MODE
-Archive memory mode: auto, memory, or stream.
-.SS Passphrases
-.TP
-.B \-\-passphrase\-file FILE|\-
-Archive passphrase file; '\-' reads stdin.
-.SS Cloud retrieval
+Write to FILE (default: PREFIX\-TIME.tar.EXT.gpg in the current directory).
+.SS Archive options
 .TP
 .B \-\-storage\-class CLASS
-AWS storage class.
-.SS Performance
+Ignored.
+.TP
+.B \-\-compression FORMAT
+Compression: xz, gzip, or bzip2 (default: xz).
+.TP
+.B \-\-compression\-level N
+Compression level, 1 to 9 (default: 6).
+.TP
+.B \-\-prefix PREFIX
+Name prefix: glesha or encb (default: glesha).
+.TP
+.B \-\-archive\-mode MODE
+Buffering: auto, memory, or stream (default: auto). With memory, the encrypted archive is held in memory and the command fails if it does not fit. With stream, it is written to a temporary file. With auto, it starts in memory and moves to a file when needed.
+.SS Passphrase options
+.TP
+.B \-\-passphrase\-file FILE
+Read the archive passphrase from FILE ('\-': stdin). A trailing newline is ignored. Without this option, the passphrase is read from a hidden prompt.
+.SS Performance options
 .TP
 .B \-\-memory\-max SIZE
-Memory budget, e.g. 128MiB.
+Memory limit (default: half of available memory). SIZE takes a unit such as MiB or GiB and must be at least 48MiB. If available memory cannot be determined, 128MiB is used.
 .TP
 .B \-j, \-\-jobs, \-\-transfer\-workers N
-Maximum parallel transfers; memory may lower this limit.
+Run up to N transfers at once (default: 4). The memory limit may lower the effective number.
 .TP
 .B \-\-hash\-workers N
-Maximum parallel file hashing workers.
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+Hash up to N files at once (default: 4).
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
+glesha archive ~/Documents
 glesha archive ~/Documents \-\-output documents.tar.xz.gpg
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-decrypt (1),
+.BR glesha\-extract (1)

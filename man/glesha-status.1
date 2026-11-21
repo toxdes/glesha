@@ -1,63 +1,36 @@
 .TH "GLESHA-STATUS" "1" "" "glesha" "User Commands"
+.nh
+.ad l
 .SH NAME
-glesha-status \- show backup state, size, and estimated storage cost
+glesha\-status \- show the state, size, and cost of backup sets
 .SH SYNOPSIS
-.B glesha status [SET] [options]
+\fBglesha status\fR [SET] [options]
 .SH DESCRIPTION
-Show backup state, size, and estimated storage cost.
+Show the condition, snapshot count, stored size, and estimated yearly storage cost of every set, or of SET only.
 .PP
-Reads cached state by default. \-\-refresh checks remote archive availability. '\-' means unavailable, not zero. Locked catalogs need metadata or a catalog passphrase.
-.PP
-With \-\-from or \-\-to, only their combined bucket selection may be accessed.
+Values come from local state. Use \-\-refresh to query the remotes for archive availability; no retrieval is requested. A '\-' marks a value that is unknown, not zero.
 .SH OPTIONS
 .TP
 .B \-\-refresh
-Check live metadata without requesting retrieval.
-.SS Buckets
+Query the remotes for archive availability.
+.SS Remote options
 .TP
 .B \-\-from REMOTE...
-Source or catalog buckets this command may access.
+Limit bucket access to REMOTE.
 .TP
 .B \-\-to REMOTE...
-Additional buckets this command may access.
-.SS Global options
-.TP
-.B \-\-format FORMAT
-Result format: plain or json; status also supports table and csv (default: plain).
-.TP
-.B \-\-progress MODE
-Progress on stderr: auto, plain, or off (default: auto).
-.TP
-.B \-\-config FILE
-TOML settings file.
-.TP
-.B \-\-state\-dir DIR
-Local state directory; overrides catalog.directory.
-.TP
-.B \-\-env FILE
-Load credentials; existing process variables take priority.
-.TP
-.B \-\-color MODE
-Color mode: auto, yes, or no (default: auto).
-.TP
-.B \-L, \-\-log\-level LEVEL
-Diagnostic verbosity: debug, info, warn, error, or silent (default: info).
-.TP
-.B \-h, \-\-help
-Show this command's help.
-.TP
-.B \-v, \-\-version
-Show version and build revision.
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.PP
+The global options described in glesha(1) are also accepted.
 .SH EXAMPLES
 .nf
 glesha status
 glesha status docs \-\-refresh
+glesha status \-\-format csv
 .fi
-.SH OUTPUT
-Results and tables go to stdout. Activity, prompts, warnings, and errors go to stderr.
-Use \-\-format=json for version 2 result records, one per line.
-JSON diagnostics and progress use separate version 1 records on stderr; neither stream contains ANSI controls.
-Use \-\-progress=off to disable progress. In plain output, redirected stderr or TERM=dumb uses step lines.
-Use \-\-format=csv for a header and comma-separated rows. A dash means unavailable; totals cover readable catalogs.
 .SH SEE ALSO
-.BR glesha (1)
+.BR glesha (1),
+.BR glesha\-history (1),
+.BR glesha\-list (1)
