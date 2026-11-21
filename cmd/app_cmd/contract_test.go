@@ -226,7 +226,8 @@ func TestVersionFormsNeedNoConfigOrCredentials(t *testing.T) {
 	}
 }
 func TestManualDocumentsEverySupportedFlag(t *testing.T) {
-	for command := range commandHelps {
+	for _, spec := range commands {
+		command := spec.name
 		t.Run(command, func(t *testing.T) {
 			file := filepath.Join("..", "..", "man", "glesha-"+command+".1")
 			data, err := os.ReadFile(file)
@@ -241,7 +242,7 @@ func TestManualDocumentsEverySupportedFlag(t *testing.T) {
 				t.Fatal("manual has no examples")
 			}
 			flagSet(command, &AppCmdEnv{}).VisitAll(func(f *flag.Flag) {
-				if globalFlag(f.Name) {
+				if globalOption(f.Name) {
 					return
 				}
 				documented := false
@@ -270,7 +271,8 @@ func TestMainManualDocumentsGlobalFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := strings.ReplaceAll(string(data), `\-`, "-")
-	for command := range commandHelps {
+	for _, spec := range commands {
+		command := spec.name
 		if !strings.Contains(text, "glesha-"+command+" (1)") {
 			t.Errorf("glesha(1) does not reference glesha-%s(1)", command)
 		}
@@ -332,4 +334,10 @@ func TestCheckContinuesAfterProviderSetupFailure(t *testing.T) {
 	if strings.Count(text, "SKIPPED") != 10 {
 		t.Fatal("unattempted checks were not marked skipped", text)
 	}
+}
+
+// commandRunner returns the handler of a command that has one.
+func commandRunner(name string) handler {
+	c, _ := lookupCommand(name)
+	return c.run
 }

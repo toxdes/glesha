@@ -68,7 +68,8 @@ func decodeRecords(t *testing.T, text string) []map[string]any {
 	return rows
 }
 func TestEveryCommandAcceptsJSONFormat(t *testing.T) {
-	for command := range commandHelps {
+	for _, spec := range commands {
+		command := spec.name
 		t.Run(command, func(t *testing.T) {
 			out, diagnostic, err := captureOutput(t, func() error {
 				return Execute(context.Background(), []string{command, "--format=json", "--help", "--config", "/missing", "--env", "/missing"}, "1.2.3", "abc")
@@ -262,7 +263,8 @@ func TestJSONCatalogCleanupAndEmptyLists(t *testing.T) {
 }
 
 func TestRemovedJSONFlagIsRejected(t *testing.T) {
-	for command := range commandHelps {
+	for _, spec := range commands {
+		command := spec.name
 		t.Run(command, func(t *testing.T) {
 			err := Execute(context.Background(), []string{command, "--json", "--help", "--config", "/missing"}, "test", "sha")
 			if err == nil || !strings.Contains(err.Error(), "unsupported flag --json") {

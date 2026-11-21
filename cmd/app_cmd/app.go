@@ -100,164 +100,37 @@ type runtime struct {
 }
 type handler func(*runtime, []string) error
 
-var handlers = map[string]handler{
-	"create": create, "configure": configure, "run": run, "retry": retry, "list": list, "status": status, "cleanup": cleanup, "history": history, "browse": browse, "restore": restore, "import": importArchive, "move": move,
-	"archive": localArchive, "decrypt": decrypt, "extract": extract, "upload": upload, "download": download, "catalog": catalog, "storage-class": storageClass, "check": check, "state": migrateState,
-}
-
 func Usage() string {
 	var out strings.Builder
 	out.WriteString("usage: glesha [global options] COMMAND [ARGS] [options]\n\n")
 	out.WriteString("Encrypted archives and incremental cloud backups.\n")
-	for _, group := range commandOrder {
+	for _, group := range overview {
 		fmt.Fprintf(&out, "\n%s:\n", group.title)
-		for _, name := range group.commands {
-			entry := overviewEntries[name]
-			out.WriteString(helpEntry(entry[0], entry[1]) + "\n")
+		for _, entry := range group.entries {
+			out.WriteString(helpEntry(entry.usage, entry.summary) + "\n")
 		}
 	}
 	out.WriteString("\nGlobal options:\n")
-	for _, f := range helpFlags("", nil) {
-		out.WriteString(helpEntry(helpFlagLabel("", f), helpFlagDescription("", f)) + "\n")
+	for _, o := range helpOptions(&command{}, nil) {
+		out.WriteString(helpEntry(o.label, o.usage) + "\n")
 	}
 	out.WriteString("\nRun 'glesha help COMMAND' for the options of a command.\n")
 	return out.String()
 }
 
-func PrintUsage() { fmt.Print(Usage()) }
-func flagSet(command string, e *AppCmdEnv) *flag.FlagSet {
-	f := flag.NewFlagSet(command, flag.ContinueOnError)
+// flagSet registers the global options and the options of the named command.
+func flagSet(name string, e *AppCmdEnv) *flag.FlagSet {
+	f := flag.NewFlagSet(name, flag.ContinueOnError)
 	f.SetOutput(io.Discard)
-	f.StringVar(&e.Config, "config", "", "TOML configuration file")
-	f.StringVar(&e.StateDirectory, "state-dir", "", "local state directory; overrides catalog.directory")
-	f.StringVar(&e.Env, "env", "", "explicit credential environment file")
-	f.StringVar(&e.LogLevel, "log-level", "info", "debug, info, warn, error or silent")
-	f.StringVar(&e.LogLevel, "L", "info", "debug, info, warn, error or silent")
-	f.StringVar(&e.Color, "color", "auto", "yes, no or auto; always/never aliases accepted")
-	f.StringVar(&e.Format, "format", "plain", "plain or json; status also supports table/csv")
-	f.StringVar(&e.Progress, "progress", "auto", "auto, plain or off")
-	f.BoolVar(&e.Help, "help", false, "show help")
-	f.BoolVar(&e.Help, "h", false, "show help")
-	f.BoolVar(&e.Version, "version", false, "show version")
-	f.BoolVar(&e.Version, "v", false, "show version")
-	allowed := func(names string) bool { return strings.Contains(" "+names+" ", " "+command+" ") }
-	if allowed("create configure run retry restore import move storage-class history browse list status catalog upload download check cleanup") {
-		f.Var(&e.To, "to", "destination/allowed remotes; combined with --from limits all bucket access")
-		f.Var(&e.From, "from", "ordered source/allowed remotes; combined with --to limits all bucket access")
-	}
-	if allowed("create configure") {
-		f.StringVar(&e.CatalogTo, "catalog-to", "", "catalog remote or local")
-		f.StringVar(&e.IncrementalClass, "incremental-storage-class", "", "AWS incremental storage class")
-	}
-	if allowed("create configure run archive") {
-		f.StringVar(&e.Compression, "compression", "", "xz, gzip or bzip2")
-		f.IntVar(&e.Level, "compression-level", 0, "compression level 1..9")
-		f.StringVar(&e.Prefix, "prefix", "", "glesha or encb")
-	}
-	if allowed("run archive") {
-		f.StringVar(&e.Mode, "archive-mode", "", "auto, memory or stream")
-	}
-	if allowed("create configure run upload archive storage-class") {
-		f.StringVar(&e.Class, "storage-class", "", "AWS storage class")
-		if command == "storage-class" {
-			f.StringVar(&e.Class, "class", "", "AWS storage class")
+	for i := range options {
+		if options[i].group == groupGlobal {
+			options[i].register(f, e)
 		}
 	}
-	if allowed("run archive decrypt download") {
-		f.StringVar(&e.Output, "output", "", "new output file")
-	}
-	if command == "restore" {
-		f.BoolVar(&e.CancelRestore, "cancel", false, "cancel local restore tasks; preserve restored files and staging")
-	}
-	if allowed("restore extract") {
-		description := "new destination directory"
-		if command == "restore" {
-			description = "destination directory; existing files are never overwritten"
+	if c, ok := lookupCommand(name); ok {
+		for _, o := range c.options {
+			optionIndex[o].register(f, e)
 		}
-		f.StringVar(&e.Into, "into", "", description)
-	}
-	if allowed("configure import") {
-		e.Roots = mappings{}
-		f.Var(&e.Roots, "root", "archive root NAME=source PATH")
-		f.StringVar(&e.Baseline, "baseline", "", "explicit snapshot baseline")
-	}
-	if command == "import" {
-		f.StringVar(&e.File, "file", "", "local archive")
-		f.StringVar(&e.Key, "key", "", "exact remote object key")
-		f.StringVar(&e.Date, "date", "", "known backup date in RFC3339")
-		f.BoolVar(&e.Deep, "deep-verify", false, "verify associated object bytes")
-	}
-	if command == "upload" {
-		f.StringVar(&e.Key, "key", "", "remote key (default filename)")
-		f.BoolVar(&e.Force, "force", false, "explicitly replace an existing remote key")
-	}
-	if command == "retry" {
-		f.StringVar(&e.Archive, "archive", "", "relocated completed archive")
-	}
-	if allowed("create configure run") {
-		f.BoolVar(&e.Chunked, "chunked", false, "upload independent chunks using bounded temporary storage")
-		f.StringVar(&e.SpoolMax, "spool-max", "", "maximum temporary chunk payload storage (default 128MiB)")
-	}
-	if command == "run" {
-		f.BoolVar(&e.Incremental, "incremental", false, "require a baseline on one remote")
-		f.BoolVar(&e.Full, "full", false, "explicit full snapshot")
-	}
-	if allowed("run retry") {
-		f.BoolVar(&e.KeepArchive, "keep-archive", false, "retain the local archive after a successful backup")
-	}
-	if allowed("run move catalog cleanup") {
-		f.BoolVar(&e.AssumeYes, "assume-yes", false, "approve user-data removal confirmations")
-	}
-	if allowed("restore import move") {
-		f.StringVar(&e.Retrieval, "retrieval", "bulk", "bulk, standard or expedited")
-		f.IntVar(&e.Days, "days", 0, "readable-copy availability days (default 3; pending requests keep saved duration)")
-		f.BoolVar(&e.RequestRetrieval, "request-retrieval", false, "explicitly authorize retrieval charges")
-	}
-	if allowed("browse restore storage-class") {
-		f.StringVar(&e.Snapshot, "snapshot", "latest", "snapshot ID or latest")
-	}
-	if command == "browse" {
-		f.StringVar(&e.Filter, "path", "", "catalog path")
-		f.BoolVar(&e.Recursive, "recursive", false, "include descendants")
-	}
-	if allowed("status history") {
-		f.BoolVar(&e.Refresh, "refresh", false, "check live metadata without requesting retrieval")
-	}
-	if allowed("catalog cleanup") {
-		description := "process all locally registered sets"
-		if command == "catalog" {
-			description = "discover configured buckets and download catalog state"
-		}
-		f.BoolVar(&e.All, "all", false, description)
-		if command == "catalog" {
-			f.StringVar(&e.Keep, "keep", "", "resolve conflicts using local or remote values")
-			f.StringVar(&e.Authority, "authority", "", "select the catalog authority during explicit resolution")
-		}
-	}
-	if command == "cleanup" {
-		f.BoolVar(&e.DryRun, "dry-run", false, "preview archive cleanup")
-	}
-	if command == "list" {
-		f.BoolVar(&e.Remote, "remote", false, "discover remote set descriptors")
-	}
-	if allowed("run archive import restore extract decrypt") {
-		f.StringVar(&e.PasswordFile, "passphrase-file", "", "passphrase file; '-' reads stdin")
-	}
-	if command == "restore" {
-		e.Passwords = mappings{}
-		f.Var(&e.Passwords, "archive-passphrase-file", "snapshot ID=passphrase file")
-	}
-	if allowed("catalog run retry restore import move list storage-class create configure history browse") {
-		f.StringVar(&e.CatalogPasswordFile, "catalog-passphrase-file", "", "separate catalog passphrase file")
-	}
-	if allowed("run archive import restore upload download move check decrypt extract") {
-		f.StringVar(&e.Memory, "memory-max", "", "managed memory budget")
-	}
-	if allowed("run archive import restore upload download move check") {
-		f.IntVar(&e.HashWorkers, "hash-workers", 0, "hash workers")
-		f.IntVar(&e.TransferWorkers, "transfer-workers", 0, "maximum concurrent transfer workers")
-		f.IntVar(&e.TransferWorkers, "jobs", 0, "use up to N transfer workers; memory budget may lower the limit")
-		f.IntVar(&e.TransferWorkers, "j", 0, "alias for --jobs")
 	}
 	return f
 }
@@ -293,7 +166,7 @@ func reorder(f *flag.FlagSet, args []string) ([]string, error) {
 func resolveCommand(args []string) (string, []string, error) {
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		if _, ok := handlers[a]; ok || a == "help" || a == "version" {
+		if _, ok := lookupCommand(a); ok {
 			return a, append(append([]string{}, args[:i]...), args[i+1:]...), nil
 		}
 		if a == "--help" || a == "-h" || a == "--version" || a == "-version" || a == "-v" {
@@ -301,7 +174,7 @@ func resolveCommand(args []string) (string, []string, error) {
 		}
 		if strings.HasPrefix(a, "-") {
 			name := strings.TrimLeft(strings.SplitN(a, "=", 2)[0], "-")
-			if !globalFlag(name) {
+			if !globalOption(name) {
 				return "", nil, fmt.Errorf("cli: put operation options after the command")
 			}
 			if !strings.Contains(a, "=") {
@@ -318,6 +191,8 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if err != nil {
 		return err
 	}
+	// spec is nil only when no command was given, which shows the overview
+	spec, _ := lookupCommand(command)
 	e := &AppCmdEnv{present: map[string]bool{}}
 	f := flagSet(command, e)
 	rest, err = reorder(f, rest)
@@ -395,7 +270,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	}
 	if command == "state" {
 		early.config = c
-		return handlers[command](early, f.Args())
+		return spec.run(early, f.Args())
 	}
 	if err = config.Env(e.Env); err != nil {
 		return err
@@ -493,7 +368,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	if err := r.selectCommandRemotes(); err != nil {
 		return err
 	}
-	err = handlers[command](r, f.Args())
+	err = spec.run(r, f.Args())
 	if r.operationLocked && r.service != nil && r.service.Set.ID != "" && strings.Contains(" run retry import restore move storage-class ", " "+command+" ") && !e.All && !e.CancelRestore {
 		lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))
 		if free, lockErr := lock.TryLock(); lockErr == nil && free {
@@ -686,5 +561,3 @@ func ExitCode(err error) int {
 	}
 	return 1
 }
-
-func CommandUsage(name string) string { return CommandActionUsage(name, "") }

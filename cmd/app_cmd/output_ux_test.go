@@ -17,7 +17,7 @@ func TestEmptyInventoriesExplainNextStepWithoutPollutingJSON(t *testing.T) {
 		t.Run(command, func(t *testing.T) {
 			r.env = &AppCmdEnv{}
 			r.out.(*bytes.Buffer).Reset()
-			if err := handlers[command](r, nil); err != nil {
+			if err := commandRunner(command)(r, nil); err != nil {
 				t.Fatal(err)
 			}
 			output := r.out.(*bytes.Buffer).String()
@@ -26,7 +26,7 @@ func TestEmptyInventoriesExplainNextStepWithoutPollutingJSON(t *testing.T) {
 			}
 			r.env.Format = "json"
 			r.out.(*bytes.Buffer).Reset()
-			if err := handlers[command](r, nil); err != nil {
+			if err := commandRunner(command)(r, nil); err != nil {
 				t.Fatal(err)
 			}
 			if r.out.(*bytes.Buffer).Len() != 0 {

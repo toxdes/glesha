@@ -96,7 +96,8 @@ func manFlagDescription(command string, label, description string, details ...st
 }
 
 func manPage(command string) string {
-	h := commandHelps[command]
+	spec, _ := lookupCommand(command)
+	h := spec.help
 	name := "glesha-" + command
 	var out strings.Builder
 	out.WriteString(`.TH "` + strings.ToUpper(name) + `" "1" "" "glesha" "User Commands"` + "\n.nh\n.ad l\n")
@@ -117,7 +118,7 @@ func manPage(command string) string {
 	}
 	description := h.description
 	if command == "state" {
-		description = selectedAction("state", "migrate").description
+		description = spec.action("migrate").description
 	}
 	out.WriteString(".SH DESCRIPTION\n")
 	for i, paragraph := range description {
@@ -131,13 +132,13 @@ func manPage(command string) string {
 	}
 	if command == "catalog" {
 		out.WriteString(".SH ACTIONS\n")
-		for _, action := range helpActions[command] {
+		for _, action := range spec.actions {
 			out.WriteString(".TP\n.B " + roff(strings.TrimSpace(action.name+" "+action.arguments)) + "\n")
 			out.WriteString(roff(strings.Join(action.description, " ")))
 			var flags []string
-			for _, f := range helpFlags(command, &action) {
-				if !globalFlag(f.Name) {
-					flags = append(flags, "--"+f.Name)
+			for _, f := range helpOptions(spec, &action) {
+				if !globalOption(f.name) {
+					flags = append(flags, "--"+f.name)
 				}
 			}
 			if len(flags) > 0 {
@@ -146,7 +147,7 @@ func manPage(command string) string {
 			out.WriteString("\n")
 		}
 	}
-	flags := helpFlags(command, nil)
+	flags := helpOptions(spec, nil)
 	first := true
 	for _, group := range helpGroupOrder {
 		if group == "Global options" {
@@ -154,14 +155,14 @@ func manPage(command string) string {
 		}
 		var lines strings.Builder
 		for _, f := range flags {
-			if helpFlagGroup(command, f.Name) != group {
+			if f.group != group {
 				continue
 			}
-			label := helpFlagLabel(command, f)
-			if f.Name == "transfer-workers" {
+			label := f.label
+			if f.name == "transfer-workers" {
 				label = "-j, --jobs, --transfer-workers N"
 			}
-			lines.WriteString(manFlagDescription(command, label, helpFlagDescription(command, f), manFlagDetails[""][f.Name], manFlagDetails[command][f.Name]))
+			lines.WriteString(manFlagDescription(command, label, f.usage, manFlagDetails[""][f.name], manFlagDetails[command][f.name]))
 		}
 		if lines.Len() == 0 {
 			continue
@@ -201,7 +202,8 @@ func manPage(command string) string {
 
 func TestManualsMatchHelp(t *testing.T) {
 	update := os.Getenv("GLESHA_UPDATE_MAN") == "1"
-	for command := range commandHelps {
+	for _, spec := range commands {
+		command := spec.name
 		t.Run(command, func(t *testing.T) {
 			file := filepath.Join("..", "..", "man", "glesha-"+command+".1")
 			want := manPage(command)

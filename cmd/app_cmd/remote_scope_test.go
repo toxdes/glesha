@@ -58,7 +58,7 @@ func TestCommandsRespectRemoteBoundary(t *testing.T) {
 			if command == "catalog" {
 				err = catalogSync(r, []string{"other"})
 			} else {
-				err = handlers[command](r, []string{"other"})
+				err = commandRunner(command)(r, []string{"other"})
 			}
 			if !errors.Is(err, ErrRemoteExcluded) {
 				t.Fatalf("expected boundary error, got %v", err)

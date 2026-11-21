@@ -6,7 +6,9 @@
 - Inline comments should be lowercase (e.g., `// parse cli args`), not sentence case
 
 ## Package Structure
-- CLI subcommands go in `cmd/<name>_cmd/`: a `<name>.go` with `Execute()` and a `usage.go` with `Usage()` / `PrintUsage()`
+- A CLI command is one entry in `commands` (`cmd/app_cmd/commands.go`): handler, help, actions and accepted options.
+- A flag is one entry in `options` (`cmd/app_cmd/options.go`): spellings, help placeholder, group, description and binding.
+- Per-command help wording goes in the command's `overrides`, not in the option.
 - Database layers: `database/model/` (data structs + CREATE TABLE consts), `database/repository/` (interface + impl + `New*`)
 - Repository triad: exported interface → unexported struct → exported `New*` constructor that returns the interface
 - Catalog repositories initialized with `repository.NewCatalogRepository(ctx, path)`
@@ -14,7 +16,6 @@
 
 ## Code Style
 - Always use `logger` package with `L` import alias (`L "glesha/logger"`)
-- Follow the context-aware flag parsing patterns in `cmd/app_cmd/`.
 - Follow existing project directory structure
 - Use flag parsing with `flag.NewFlagSet()`
 - Use `file_io` package wherever possible, if new file io operations are needed that aren't supported by current `file_io`, extend `file_io` package to include that functionality.
