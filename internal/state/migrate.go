@@ -81,16 +81,8 @@ func Migrate(ctx context.Context, source, target string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if !filepath.IsAbs(source) || !filepath.IsAbs(target) || filepath.Clean(source) != source || filepath.Clean(target) != target {
-		return fmt.Errorf("state: migration requires clean absolute paths")
-	}
-	if source == target {
-		return fmt.Errorf("state: source and destination are identical")
-	}
-	for _, pair := range [][2]string{{source, target}, {target, source}} {
-		if rel, err := filepath.Rel(pair[0], pair[1]); err == nil && filepath.IsLocal(rel) {
-			return fmt.Errorf("state: source and destination must not overlap")
-		}
+	if err := checkMigrationPaths(source, target); err != nil {
+		return err
 	}
 	lock, err := Lock(target, true)
 	if err != nil {
@@ -131,14 +123,76 @@ func Migrate(ctx context.Context, source, target string) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	// older binaries only hold per-set locks
-	var locks []fsutil.Unlocker
+	files, locks, err := inventoryState(ctx, source)
 	defer func() {
 		for _, lock := range locks {
 			lock.Unlock()
 		}
 	}()
-	m := migration{Version: 1, Source: source, Target: target}
+	if err != nil {
+		return err
+	}
+	m := migration{Version: 1, Source: source, Target: target, Files: files}
+	if _, err = os.Stat(filepath.Join(source, "registry.db")); err != nil {
+		return fmt.Errorf("state: no supported registry: %w", err)
+	}
+	if _, err = os.Lstat(backup); err == nil {
+		return fmt.Errorf("state: migration backup already exists: %s", backup)
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if err = os.Mkdir(backup, 0700); err != nil {
+		return err
+	}
+	prepared := false
+	defer func() {
+		if !prepared {
+			os.RemoveAll(backup)
+		}
+	}()
+	if err = writeMigrationBackup(ctx, source, backup, m); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = os.Rename(source, stage); err != nil {
+		return fmt.Errorf("state: cannot move directory (same filesystem required); catalog.directory can retain the existing location: %w", err)
+	}
+	prepared = true
+	err = relocateState(ctx, stage, source, target, m.Files)
+	if err == nil {
+		err = os.Rename(stage, target)
+	}
+	if err != nil {
+		if rollbackErr := recoverMigration(context.WithoutCancel(ctx), stage, source, target); rollbackErr != nil {
+			return fmt.Errorf("state: migration failed: %v; rollback failed: %w; repeat glesha state migrate", err, rollbackErr)
+		}
+		return fmt.Errorf("state: migration rolled back: %w", err)
+	}
+	return nil
+}
+
+// checkMigrationPaths requires distinct, clean, absolute, non-overlapping paths.
+func checkMigrationPaths(source, target string) error {
+	if !filepath.IsAbs(source) || !filepath.IsAbs(target) || filepath.Clean(source) != source || filepath.Clean(target) != target {
+		return fmt.Errorf("state: migration requires clean absolute paths")
+	}
+	if source == target {
+		return fmt.Errorf("state: source and destination are identical")
+	}
+	for _, pair := range [][2]string{{source, target}, {target, source}} {
+		if rel, err := filepath.Rel(pair[0], pair[1]); err == nil && filepath.IsLocal(rel) {
+			return fmt.Errorf("state: source and destination must not overlap")
+		}
+	}
+	return nil
+}
+
+// inventoryState validates every file under source and lists its databases. It
+// takes each set's writer lock, because older binaries hold only those; the caller
+// releases the returned locks, also on error.
+func inventoryState(ctx context.Context, source string) (files []string, locks []fsutil.Unlocker, err error) {
 	err = fsutil.Walk(ctx, source, func(path string, info fs.FileInfo) error {
 		if path == filepath.Join(source, backupDirectory) {
 			return fs.SkipDir
@@ -167,30 +221,15 @@ func Migrate(ctx context.Context, source, target string) error {
 			if err != nil {
 				return err
 			}
-			m.Files = append(m.Files, rel)
+			files = append(files, rel)
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
-	if _, err = os.Stat(filepath.Join(source, "registry.db")); err != nil {
-		return fmt.Errorf("state: no supported registry: %w", err)
-	}
-	if _, err = os.Lstat(backup); err == nil {
-		return fmt.Errorf("state: migration backup already exists: %s", backup)
-	} else if !os.IsNotExist(err) {
-		return err
-	}
-	if err = os.Mkdir(backup, 0700); err != nil {
-		return err
-	}
-	prepared := false
-	defer func() {
-		if !prepared {
-			os.RemoveAll(backup)
-		}
-	}()
+	return files, locks, err
+}
+
+// writeMigrationBackup records m in backup and copies every database there.
+func writeMigrationBackup(ctx context.Context, source, backup string, m migration) error {
 	data, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -221,34 +260,20 @@ func Migrate(ctx context.Context, source, target string) error {
 			return err
 		}
 	}
-	if err = ctx.Err(); err != nil {
-		return err
-	}
-	if err = os.Rename(source, stage); err != nil {
-		return fmt.Errorf("state: cannot move directory (same filesystem required); catalog.directory can retain the existing location: %w", err)
-	}
-	prepared = true
-	for _, rel := range m.Files {
-		if rel != "registry.db" {
-			err = repository.RelocateStateDatabase(ctx, filepath.Join(stage, rel), source, target)
-		}
-		if err != nil {
-			break
-		}
-	}
-	if err == nil {
-		err = ctx.Err()
-	}
-	if err == nil {
-		err = os.Rename(stage, target)
-	}
-	if err != nil {
-		if rollbackErr := recoverMigration(context.WithoutCancel(ctx), stage, source, target); rollbackErr != nil {
-			return fmt.Errorf("state: migration failed: %v; rollback failed: %w; repeat glesha state migrate", err, rollbackErr)
-		}
-		return fmt.Errorf("state: migration rolled back: %w", err)
-	}
 	return nil
+}
+
+// relocateState rewrites the paths stored in the moved set databases.
+func relocateState(ctx context.Context, stage, source, target string, files []string) error {
+	for _, rel := range files {
+		if rel == "registry.db" {
+			continue
+		}
+		if err := repository.RelocateStateDatabase(ctx, filepath.Join(stage, rel), source, target); err != nil {
+			return err
+		}
+	}
+	return ctx.Err()
 }
 
 func recoverMigration(ctx context.Context, stage, source, target string) error {
