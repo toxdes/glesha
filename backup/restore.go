@@ -99,108 +99,13 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 			}
 			file := v.File
 			if v.Layout != "chunked" {
-				hash, size, he := archive.Hash(ctx, file)
-				if he != nil || hash != v.Hash || size != v.Size {
-					locations, e := c.Locations(ctx, v.ID)
-					if e != nil {
-						return e
-					}
-					file = filepath.Join(s.Directory, "payload-"+v.Hash+".gpg")
-					cachedHash, cachedSize, cacheErr := archive.Hash(ctx, file)
-					if cacheErr != nil || cachedHash != v.Hash || cachedSize != v.Size {
-						if _, err := os.Stat(file); err == nil {
-							return fmt.Errorf("backup: cached archive checksum mismatch; preserve and remove the cache before retrying")
-						}
-						found := false
-						order := o.From
-						if len(order) == 0 {
-							order = s.Set.To
-						}
-						var last error
-						for _, provider := range order {
-							for _, l := range locations {
-								if l.Provider != provider || l.Status != "COMPLETED" {
-									continue
-								}
-								store := s.Stores[provider]
-								if store == nil {
-									continue
-								}
-								r, _, e := store.Get(ctx, l.Key, l.Version)
-								if e != nil {
-									last = e
-									continue
-								}
-								out, e := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
-								if e != nil {
-									r.Close()
-									return e
-								}
-								progress := L.StartWorkerProgress(ctx, "Downloading for restore", v.Size, 1)
-								_, e = copyContext(ctx, out, progress.Reader(r))
-								progress.Finish()
-								r.Close()
-								ce := out.Close()
-								if e == nil {
-									e = ce
-								}
-								if e != nil {
-									os.Remove(file)
-									last = e
-									continue
-								}
-								hash, size, e = archive.Hash(ctx, file)
-								if e != nil || hash != v.Hash || size != v.Size {
-									os.Remove(file)
-									last = fmt.Errorf("backup: archive checksum mismatch")
-									continue
-								}
-								found = true
-								break
-							}
-							if found {
-								break
-							}
-						}
-						if !found {
-							if last != nil {
-								return last
-							}
-							return fmt.Errorf("backup: no readable copy of %s", v.ID)
-						}
-					}
+				if file, err = s.archiveFile(ctx, c, v, o.From); err != nil {
+					return err
 				}
 			}
 			if !v.Full {
-				if e = c.EachEntry(ctx, v.Parent, func(entry model.Entry) error {
-					_, e := c.Entry(ctx, v.ID, entry.Path)
-					if errors.Is(e, sql.ErrNoRows) {
-						if _, e = archive.SafeName(entry.Path); e != nil {
-							return e
-						}
-						return root.RemoveAll(entry.Path)
-					}
-					return e
-				}); e != nil {
-					return e
-				}
-				if e = c.EachEntry(ctx, v.ID, func(entry model.Entry) error {
-					if entry.Archive != v.ID {
-						return nil
-					}
-					info, e := root.Lstat(entry.Path)
-					if os.IsNotExist(e) {
-						return nil
-					}
-					if e != nil {
-						return e
-					}
-					if entry.Type == "directory" && info.IsDir() {
-						return nil
-					}
-					return root.RemoveAll(entry.Path)
-				}); e != nil {
-					return e
+				if err = pruneOverlay(ctx, c, root, v); err != nil {
+					return err
 				}
 			}
 			if v.Layout == "chunked" {
@@ -211,58 +116,11 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 			return e
 		}
 	}
-	if e = c.EachDirectory(ctx, target.ID, func(entry model.Entry) error {
-		if e := file_io.SetOwner(root, entry.Path, entry.UID, entry.GID, false); e != nil {
-			return e
-		}
-		if e := root.Chmod(entry.Path, file_io.Permissions(entry.Mode)); e != nil {
-			return e
-		}
-		t := time.Unix(0, entry.ModTime)
-		return root.Chtimes(entry.Path, t, t)
-	}); e != nil {
+	if e = applyDirectoryMetadata(ctx, c, root, target.ID); e != nil {
 		return e
 	}
-	// inventory the reconstructed tree and compare every path to the historical catalog
-	temp, e := os.CreateTemp(s.Directory, ".glesha-verify-*")
-	if e != nil {
+	if e = s.verifyRestore(ctx, c, target, stage); e != nil {
 		return e
-	}
-	temp.Close()
-	defer os.Remove(temp.Name())
-	actual, e := repository.NewCatalogRepository(ctx, temp.Name())
-	if e != nil {
-		return e
-	}
-	defer actual.Close()
-	for _, r := range target.Roots {
-		if r.Name == "" || filepath.Base(r.Name) != r.Name || r.Name == "." || r.Name == ".." {
-			return fmt.Errorf("backup: unsafe source-root mapping")
-		}
-	}
-	roots := []model.Root{{Path: stage}}
-	if e = archive.Inventory(ctx, actual, "verify", roots, nil, s.Budget.HashWorkers); e != nil {
-		return e
-	}
-	count, want := 0, 0
-	if e = actual.EachEntry(ctx, "verify", func(entry model.Entry) error {
-		count++
-		expected, e := c.Entry(ctx, target.ID, entry.Path)
-		if e != nil {
-			return e
-		}
-		if entry.Type != expected.Type || !file_io.SamePortableMetadata(entry.Mode, entry.ModTime, expected.Mode, expected.ModTime) || entry.Hash != expected.Hash || entry.Link != expected.Link {
-			return fmt.Errorf("backup: restored metadata or content differs at %s", entry.Path)
-		}
-		return nil
-	}); e != nil {
-		return e
-	}
-	if e = c.EachEntry(ctx, target.ID, func(model.Entry) error { want++; return nil }); e != nil {
-		return e
-	}
-	if count != want {
-		return fmt.Errorf("backup: restored inventory differs")
 	}
 	if _, e = os.Lstat(o.Output); os.IsNotExist(e) {
 		return file_io.PublishDir(stage, o.Output)
@@ -285,6 +143,172 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 		return e
 	}
 	preserve = false
+	return nil
+}
+
+// archiveFile returns a local file holding v's verified archive: the original
+// output, the payload cache, or a fresh download into the cache.
+func (s *Service) archiveFile(ctx context.Context, c repository.Cataloger, v model.Snapshot, from []string) (string, error) {
+	if hash, size, err := archive.Hash(ctx, v.File); err == nil && hash == v.Hash && size == v.Size {
+		return v.File, nil
+	}
+	locations, err := c.Locations(ctx, v.ID)
+	if err != nil {
+		return "", err
+	}
+	file := filepath.Join(s.Directory, "payload-"+v.Hash+".gpg")
+	if hash, size, err := archive.Hash(ctx, file); err == nil && hash == v.Hash && size == v.Size {
+		return file, nil
+	}
+	if _, err := os.Stat(file); err == nil {
+		return "", fmt.Errorf("backup: cached archive checksum mismatch; preserve and remove the cache before retrying")
+	}
+	order := from
+	if len(order) == 0 {
+		order = s.Set.To
+	}
+	return file, s.downloadArchive(ctx, v, locations, order, file)
+}
+
+// downloadArchive copies v's archive to file from the first remote in order that
+// has a completed, matching copy.
+func (s *Service) downloadArchive(ctx context.Context, v model.Snapshot, locations []model.Location, order []string, file string) error {
+	var last error
+	for _, provider := range order {
+		for _, l := range locations {
+			if l.Provider != provider || l.Status != "COMPLETED" {
+				continue
+			}
+			store := s.Stores[provider]
+			if store == nil {
+				continue
+			}
+			r, _, err := store.Get(ctx, l.Key, l.Version)
+			if err != nil {
+				last = err
+				continue
+			}
+			out, err := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+			if err != nil {
+				r.Close()
+				return err
+			}
+			progress := L.StartWorkerProgress(ctx, "Downloading for restore", v.Size, 1)
+			_, err = copyContext(ctx, out, progress.Reader(r))
+			progress.Finish()
+			r.Close()
+			if closeErr := out.Close(); err == nil {
+				err = closeErr
+			}
+			if err != nil {
+				os.Remove(file)
+				last = err
+				continue
+			}
+			hash, size, err := archive.Hash(ctx, file)
+			if err != nil || hash != v.Hash || size != v.Size {
+				os.Remove(file)
+				last = fmt.Errorf("backup: archive checksum mismatch")
+				continue
+			}
+			return nil
+		}
+	}
+	if last != nil {
+		return last
+	}
+	return fmt.Errorf("backup: no readable copy of %s", v.ID)
+}
+
+// pruneOverlay removes paths an incremental snapshot deleted or replaced, before
+// its archive is extracted over the staging tree.
+func pruneOverlay(ctx context.Context, c repository.Cataloger, root *os.Root, v model.Snapshot) error {
+	if err := c.EachEntry(ctx, v.Parent, func(entry model.Entry) error {
+		_, err := c.Entry(ctx, v.ID, entry.Path)
+		if errors.Is(err, sql.ErrNoRows) {
+			if _, err = archive.SafeName(entry.Path); err != nil {
+				return err
+			}
+			return root.RemoveAll(entry.Path)
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	return c.EachEntry(ctx, v.ID, func(entry model.Entry) error {
+		if entry.Archive != v.ID {
+			return nil
+		}
+		info, err := root.Lstat(entry.Path)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if entry.Type == "directory" && info.IsDir() {
+			return nil
+		}
+		return root.RemoveAll(entry.Path)
+	})
+}
+
+// applyDirectoryMetadata sets ownership, permissions and times on restored
+// directories, after their contents are in place.
+func applyDirectoryMetadata(ctx context.Context, c repository.Cataloger, root *os.Root, snapshot string) error {
+	return c.EachDirectory(ctx, snapshot, func(entry model.Entry) error {
+		if err := file_io.SetOwner(root, entry.Path, entry.UID, entry.GID, false); err != nil {
+			return err
+		}
+		if err := root.Chmod(entry.Path, file_io.Permissions(entry.Mode)); err != nil {
+			return err
+		}
+		t := time.Unix(0, entry.ModTime)
+		return root.Chtimes(entry.Path, t, t)
+	})
+}
+
+// verifyRestore inventories the staging tree and compares every path with the catalog.
+func (s *Service) verifyRestore(ctx context.Context, c repository.Cataloger, target model.Snapshot, stage string) error {
+	temp, err := os.CreateTemp(s.Directory, ".glesha-verify-*")
+	if err != nil {
+		return err
+	}
+	temp.Close()
+	defer os.Remove(temp.Name())
+	actual, err := repository.NewCatalogRepository(ctx, temp.Name())
+	if err != nil {
+		return err
+	}
+	defer actual.Close()
+	for _, r := range target.Roots {
+		if r.Name == "" || filepath.Base(r.Name) != r.Name || r.Name == "." || r.Name == ".." {
+			return fmt.Errorf("backup: unsafe source-root mapping")
+		}
+	}
+	if err = archive.Inventory(ctx, actual, "verify", []model.Root{{Path: stage}}, nil, s.Budget.HashWorkers); err != nil {
+		return err
+	}
+	count, want := 0, 0
+	if err = actual.EachEntry(ctx, "verify", func(entry model.Entry) error {
+		count++
+		expected, err := c.Entry(ctx, target.ID, entry.Path)
+		if err != nil {
+			return err
+		}
+		if entry.Type != expected.Type || !file_io.SamePortableMetadata(entry.Mode, entry.ModTime, expected.Mode, expected.ModTime) || entry.Hash != expected.Hash || entry.Link != expected.Link {
+			return fmt.Errorf("backup: restored metadata or content differs at %s", entry.Path)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err = c.EachEntry(ctx, target.ID, func(model.Entry) error { want++; return nil }); err != nil {
+		return err
+	}
+	if count != want {
+		return fmt.Errorf("backup: restored inventory differs")
+	}
 	return nil
 }
 
