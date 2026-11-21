@@ -394,7 +394,7 @@ mode = 0o644
 
 [hosting]
 public_base_url = "https://packages.toxdes.com"
-release_prefix = "glesha/releases"
+release_prefix = "releases"
 apt_prefix = "apt"
 rpm_prefix = "rpm"
 
@@ -514,12 +514,12 @@ destination = "man1"
 [[homebrew.archives]]
 artifact = "glesha_{version}_macos_amd64.tar.gz"
 architecture = "x86_64"
-url = "https://packages.toxdes.com/glesha/releases/glesha_{version}_macos_amd64.tar.gz"
+url = "https://packages.toxdes.com/releases/glesha_{version}_macos_amd64.tar.gz"
 
 [[homebrew.archives]]
 artifact = "glesha_{version}_macos_arm64.tar.gz"
 architecture = "arm64"
-url = "https://packages.toxdes.com/glesha/releases/glesha_{version}_macos_arm64.tar.gz"
+url = "https://packages.toxdes.com/releases/glesha_{version}_macos_arm64.tar.gz"
 
 [[release.artifacts]]
 name = "glesha_{version}_amd64.tar.gz"
