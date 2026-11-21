@@ -574,22 +574,9 @@ func (s *Service) pull(ctx context.Context, mode authorityMode, hops int) error 
 	if current == rs[len(rs)-1].ID {
 		return nil
 	}
-	start := 0
-	found := current == ""
-	for i, r := range rs {
-		if r.ID == current {
-			start = i + 1
-			found = true
-		}
-	}
-	if !found {
-		return fmt.Errorf("%w: local revision not found remotely", ErrConflict)
-	}
-	checkpoint := start
-	for i := start; i < len(rs); i++ {
-		if rs[i].Checkpoint {
-			checkpoint = i
-		}
+	start, checkpoint, err := revisionRange(rs, current)
+	if err != nil {
+		return err
 	}
 	temp, err := file_io.Temp(s.Directory)
 	if err != nil {
@@ -612,95 +599,13 @@ func (s *Service) pull(ctx context.Context, mode authorityMode, hops int) error 
 	progress := L.StartProgress(ctx, "Applying catalog updates", -1)
 	defer progress.Finish()
 	ctx = L.WithProgress(ctx, nil)
-	for i := checkpoint; i < len(rs); i++ {
-		rev := rs[i]
-		cached, err := s.cachedMetadata(ctx, store, rev.Key, rev.Hash)
-		if err != nil {
-			return err
-		}
-		r, err := os.Open(cached)
-		if err != nil {
-			return err
-		}
-		info, err := r.Stat()
-		if err != nil {
-			r.Close()
-			return err
-		}
-		downloaded, err := file_io.Temp(s.Directory)
-		if err != nil {
-			r.Close()
-			return err
-		}
-		progress := L.StartProgress(ctx, "Loading catalog", info.Size())
-		_, err = copyContext(ctx, downloaded, progress.Reader(r))
-		progress.Finish()
-		r.Close()
-		downloaded.Close()
-		if err != nil {
-			os.Remove(downloaded.Name())
-			return err
-		}
-		hash, _, err := archive.Hash(L.WithProgressLabel(ctx, "Checking downloaded catalog"), downloaded.Name())
-		if err != nil || hash != rev.Hash {
-			os.Remove(downloaded.Name())
-			return fmt.Errorf("backup: metadata checksum mismatch")
-		}
-		encrypted, err := os.Open(downloaded.Name())
-		if err != nil {
-			return err
-		}
-		body, err := s.metadataReader(ctx, encrypted, rev.Key)
-		if err != nil {
-			encrypted.Close()
-			os.Remove(downloaded.Name())
-			return err
-		}
-		plain, err := file_io.Temp(s.Directory)
-		if err != nil {
-			body.Close()
-			encrypted.Close()
-			return err
-		}
-		_, err = copyContext(ctx, plain, body)
-		body.Close()
-		encrypted.Close()
-		plain.Close()
-		os.Remove(downloaded.Name())
-		if err != nil {
-			os.Remove(plain.Name())
-			return err
-		}
-		identity, identityErr := repository.ReadCatalogMeta(ctx, plain.Name(), "publication")
-		var published revision
-		if identityErr != nil || json.Unmarshal([]byte(identity), &published) != nil || published.Version != rev.Version || published.ID != rev.ID || published.Set != rev.Set || published.Parent != rev.Parent || published.Number != rev.Number || published.Key != rev.Key || published.Checkpoint != rev.Checkpoint {
-			os.Remove(plain.Name())
-			return fmt.Errorf("backup: authenticated metadata revision identity differs")
-		}
-		err = staged.Apply(ctx, plain.Name())
-		os.Remove(plain.Name())
-		if err != nil {
-			return err
-		}
-		setID, err := staged.GetMeta(ctx, "set_id")
-		if err != nil {
-			return err
-		}
-		if setID != s.Set.ID {
-			return fmt.Errorf("backup: remote catalog belongs to another set")
-		}
-		if err = s.markPublished(ctx, staged, rev); err != nil {
+	for _, rev := range rs[checkpoint:] {
+		if err = s.applyRevision(ctx, store, staged, rev); err != nil {
 			return err
 		}
 	}
 	if authorityChanged {
-		if err = c.EachSnapshot(ctx, func(previous model.Snapshot) error {
-			incoming, err := staged.Snapshot(ctx, previous.ID)
-			if err != nil || incoming.Hash != previous.Hash || !sameManifest(incoming.Manifest, previous.Manifest) {
-				return fmt.Errorf("%w: new authority does not preserve snapshot %s", ErrConflict, previous.ID)
-			}
-			return nil
-		}); err != nil {
+		if err = preservesSnapshots(ctx, c, staged); err != nil {
 			return err
 		}
 	}
@@ -717,6 +622,126 @@ func (s *Service) pull(ctx context.Context, mode authorityMode, hops int) error 
 		return err
 	}
 	return os.Rename(name, s.path())
+}
+
+// revisionRange finds the revisions after current and the last checkpoint among
+// them, from which applying starts.
+func revisionRange(rs []revision, current string) (start, checkpoint int, err error) {
+	found := current == ""
+	for i, r := range rs {
+		if r.ID == current {
+			start = i + 1
+			found = true
+		}
+	}
+	if !found {
+		return 0, 0, fmt.Errorf("%w: local revision not found remotely", ErrConflict)
+	}
+	checkpoint = start
+	for i := start; i < len(rs); i++ {
+		if rs[i].Checkpoint {
+			checkpoint = i
+		}
+	}
+	return start, checkpoint, nil
+}
+
+// applyRevision merges one verified, decrypted revision into the staged catalog.
+func (s *Service) applyRevision(ctx context.Context, store cloud.Store, staged repository.Cataloger, rev revision) error {
+	plain, err := s.decryptRevision(ctx, store, rev)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(plain)
+	identity, identityErr := repository.ReadCatalogMeta(ctx, plain, "publication")
+	var published revision
+	if identityErr != nil || json.Unmarshal([]byte(identity), &published) != nil || !sameRevision(published, rev) {
+		return fmt.Errorf("backup: authenticated metadata revision identity differs")
+	}
+	if err = staged.Apply(ctx, plain); err != nil {
+		return err
+	}
+	setID, err := staged.GetMeta(ctx, "set_id")
+	if err != nil {
+		return err
+	}
+	if setID != s.Set.ID {
+		return fmt.Errorf("backup: remote catalog belongs to another set")
+	}
+	return s.markPublished(ctx, staged, rev)
+}
+
+// decryptRevision returns a temporary file holding rev's plain catalog batch,
+// checked against the hash its head recorded.
+func (s *Service) decryptRevision(ctx context.Context, store cloud.Store, rev revision) (string, error) {
+	cached, err := s.cachedMetadata(ctx, store, rev.Key, rev.Hash)
+	if err != nil {
+		return "", err
+	}
+	r, err := os.Open(cached)
+	if err != nil {
+		return "", err
+	}
+	info, err := r.Stat()
+	if err != nil {
+		r.Close()
+		return "", err
+	}
+	downloaded, err := file_io.Temp(s.Directory)
+	if err != nil {
+		r.Close()
+		return "", err
+	}
+	defer os.Remove(downloaded.Name())
+	progress := L.StartProgress(ctx, "Loading catalog", info.Size())
+	_, err = copyContext(ctx, downloaded, progress.Reader(r))
+	progress.Finish()
+	r.Close()
+	downloaded.Close()
+	if err != nil {
+		return "", err
+	}
+	hash, _, err := archive.Hash(L.WithProgressLabel(ctx, "Checking downloaded catalog"), downloaded.Name())
+	if err != nil || hash != rev.Hash {
+		return "", fmt.Errorf("backup: metadata checksum mismatch")
+	}
+	encrypted, err := os.Open(downloaded.Name())
+	if err != nil {
+		return "", err
+	}
+	defer encrypted.Close()
+	body, err := s.metadataReader(ctx, encrypted, rev.Key)
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+	plain, err := file_io.Temp(s.Directory)
+	if err != nil {
+		return "", err
+	}
+	_, err = copyContext(ctx, plain, body)
+	plain.Close()
+	if err != nil {
+		os.Remove(plain.Name())
+		return "", err
+	}
+	return plain.Name(), nil
+}
+
+// sameRevision reports whether the identity stored inside a batch matches its head.
+func sameRevision(a, b revision) bool {
+	return a.Version == b.Version && a.ID == b.ID && a.Set == b.Set && a.Parent == b.Parent && a.Number == b.Number && a.Key == b.Key && a.Checkpoint == b.Checkpoint
+}
+
+// preservesSnapshots checks that a catalog from a new authority keeps every local snapshot.
+func preservesSnapshots(ctx context.Context, c, staged repository.Cataloger) error {
+	return c.EachSnapshot(ctx, func(previous model.Snapshot) error {
+		incoming, err := staged.Snapshot(ctx, previous.ID)
+		if err != nil || incoming.Hash != previous.Hash || !sameManifest(incoming.Manifest, previous.Manifest) {
+			return fmt.Errorf("%w: new authority does not preserve snapshot %s", ErrConflict, previous.ID)
+		}
+		return nil
+	})
 }
 func (s *Service) Push(ctx context.Context) error {
 	if s.Pending() {
