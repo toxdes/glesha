@@ -17,7 +17,8 @@ import (
 func TestMetadataPublicationSizesAndRetry(t *testing.T) {
 	for _, kind := range []string{"aws", "b2"} {
 		t.Run(kind, func(t *testing.T) {
-			s := &Service{Directory: t.TempDir(), Set: model.Set{CatalogTo: "remote"}, Kinds: map[string]string{"remote": kind}}
+			s := &Service{Directory: t.TempDir(), Set: model.Set{CatalogTo: "remote"}, Stores: map[string]cloud.Store{"remote": newStore()}}
+			useProvider(t, s, "remote", cloud.Kind(kind))
 			v := revision{Version: 2, ID: "first", Number: 1}
 			file := filepath.Join(s.Directory, "publication-first")
 			if err := os.WriteFile(file, []byte("batch"), 0600); err != nil {
@@ -53,7 +54,7 @@ func TestMetadataStatusMatchesPublishedObjects(t *testing.T) {
 	for _, kind := range []string{"aws", "b2"} {
 		t.Run(kind, func(t *testing.T) {
 			s, store, source := setupService(t)
-			s.Kinds[s.Set.CatalogTo] = kind
+			useProvider(t, s, s.Set.CatalogTo, cloud.Kind(kind))
 			if err := os.WriteFile(filepath.Join(source, "A.txt"), []byte("content"), 0600); err != nil {
 				t.Fatal(err)
 			}

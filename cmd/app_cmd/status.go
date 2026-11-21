@@ -12,6 +12,7 @@ import (
 	"github.com/gofrs/flock"
 
 	"glesha/backup"
+	"glesha/cloud"
 	"glesha/database/model"
 	"glesha/database/repository"
 	"glesha/file_io"
@@ -254,8 +255,8 @@ func collectStatus(r *runtime, set model.Set) (statusData, error) {
 				}
 			}
 			displayClass := class
-			if remote.Kind == "b2" {
-				displayClass = "B2"
+			if !cloud.CapabilitiesOf(remote.Kind).StorageClasses {
+				displayClass = strings.ToUpper(remote.Kind)
 			}
 			if displayClass == "" {
 				displayClass = "-"

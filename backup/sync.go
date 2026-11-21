@@ -56,7 +56,7 @@ func (s *Service) metadataStore() (cloud.Store, error) {
 }
 func (s *Service) revisions(ctx context.Context, store cloud.Store) ([]revision, error) {
 	folder := "heads/"
-	conditional := s.Kinds[s.Set.CatalogTo] == "aws"
+	conditional := s.Capabilities(s.Set.CatalogTo).ConditionalWrites
 	if conditional {
 		folder = "commits/"
 	}
@@ -358,7 +358,7 @@ func (s *Service) publish(ctx context.Context, c repository.Cataloger) error {
 	if _, err = cloud.Create(ctx, store, s.prefix()+"heads/"+fmt.Sprintf("%020d-%s.json", v.Number, v.ID), manifestFile, "STANDARD"); err != nil {
 		return err
 	}
-	if s.Kinds[s.Set.CatalogTo] == "aws" {
+	if s.Capabilities(s.Set.CatalogTo).ConditionalWrites {
 		// this conditional commit is the publication point; earlier objects are proposals
 		key := s.prefix() + "commits/" + fmt.Sprintf("%020d.json", v.Number)
 		if _, err = cloud.Create(ctx, store, key, manifestFile, "STANDARD"); err != nil {

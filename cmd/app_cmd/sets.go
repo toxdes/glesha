@@ -540,7 +540,7 @@ func list(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}, Kinds: map[string]string{}, Directory: r.root}
+	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}, Directory: r.root}
 	if err = r.stores(ids); err != nil {
 		return err
 	}

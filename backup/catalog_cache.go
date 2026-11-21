@@ -156,7 +156,7 @@ func (s *Service) UnlockCached(ctx context.Context) (err error) {
 			os.Remove(s.path())
 		}
 	}()
-	peer.Stores = map[string]cloud.Store{s.Set.CatalogTo: &cachedCatalogStore{service: &peer, state: v}}
+	peer.Stores = map[string]cloud.Store{s.Set.CatalogTo: &cachedCatalogStore{service: &peer, state: v, provider: s.provider(s.Set.CatalogTo)}}
 	if err = peer.LoadDescriptor(ctx); err != nil {
 		return err
 	}
@@ -171,9 +171,12 @@ func (s *Service) UnlockCached(ctx context.Context) (err error) {
 }
 
 type cachedCatalogStore struct {
-	service *Service
-	state   downloadedState
+	service  *Service
+	state    downloadedState
+	provider cloud.Provider
 }
+
+func (c *cachedCatalogStore) Provider() cloud.Provider { return c.provider }
 
 func (c *cachedCatalogStore) Put(context.Context, string, string, string) (cloud.Object, error) {
 	return cloud.Object{}, fmt.Errorf("backup: downloaded state is read-only")
@@ -194,7 +197,7 @@ func (c *cachedCatalogStore) List(ctx context.Context, prefix, after string) ([]
 }
 
 func (c *cachedCatalogStore) revisionKey(rev revision) string {
-	if c.service.Kinds[c.service.Set.CatalogTo] == "aws" {
+	if c.service.Capabilities(c.service.Set.CatalogTo).ConditionalWrites {
 		return c.service.prefix() + "commits/" + fmt.Sprintf("%020d.json", rev.Number)
 	}
 	return c.service.prefix() + "heads/" + fmt.Sprintf("%020d-%s.json", rev.Number, rev.ID)

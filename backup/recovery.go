@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"glesha/archive"
+	"glesha/cloud"
 	"glesha/database/model"
 	"glesha/database/repository"
 )
@@ -364,7 +365,7 @@ func (s *Service) ClassRemotes(ctx context.Context, id string) ([]string, error)
 		if err != nil {
 			return nil, err
 		}
-		if remote.Kind == "aws" {
+		if cloud.CapabilitiesOf(remote.Kind).StorageClasses {
 			out = append(out, l.Provider)
 		}
 	}

@@ -45,7 +45,7 @@ func validateLocator(v model.Locator) error {
 	}
 	r := v.Authority
 	id := r.Identity()
-	if r.ID != id || r.Name != id || r.Bucket == "" || (r.Kind != "aws" && r.Kind != "b2") || v.Prefix == "" || strings.HasPrefix(v.Prefix, "/") || path.Clean(v.Prefix) != v.Prefix {
+	if r.ID != id || r.Name != id || r.Bucket == "" || !cloud.Supports(r.Kind) || v.Prefix == "" || strings.HasPrefix(v.Prefix, "/") || path.Clean(v.Prefix) != v.Prefix {
 		return fmt.Errorf("backup: invalid discovery authority or prefix")
 	}
 	parents := append([]string(nil), v.Supersedes...)
@@ -165,7 +165,7 @@ func (s *Service) DiscoverState(ctx context.Context, remote string) error {
 	sets := map[string]bool{}
 	setPrefix := strings.TrimSuffix(s.Config.Catalog.Prefix, "/") + "/sets/"
 	folder := "heads"
-	if s.Kinds[remote] == "aws" {
+	if s.Capabilities(remote).ConditionalWrites {
 		folder = "commits"
 	}
 	if err := cloud.List(ctx, store, setPrefix, func(object cloud.Object) error {

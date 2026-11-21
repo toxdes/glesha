@@ -25,16 +25,32 @@ import (
 )
 
 type memoryStore struct {
-	mu      sync.Mutex
-	files   map[string][]byte
-	objects map[string]cloud.Object
-	puts    map[string]int
-	fail    string
+	mu       sync.Mutex
+	files    map[string][]byte
+	objects  map[string]cloud.Object
+	puts     map[string]int
+	fail     string
+	provider cloud.Provider
 }
 
 func newStore() *memoryStore {
-	return &memoryStore{files: map[string][]byte{}, objects: map[string]cloud.Object{}, puts: map[string]int{}}
+	b2, _ := cloud.Lookup("b2")
+	return &memoryStore{files: map[string][]byte{}, objects: map[string]cloud.Object{}, puts: map[string]int{}, provider: b2}
 }
+
+func (m *memoryStore) Provider() cloud.Provider { return m.provider }
+
+// useProvider makes the fake store for remote report the given provider kind.
+func useProvider(t *testing.T, s *Service, remote string, kind cloud.Kind) {
+	t.Helper()
+	p, err := cloud.Lookup(string(kind))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Stores[remote].(interface{ setProvider(cloud.Provider) }).setProvider(p)
+}
+
+func (m *memoryStore) setProvider(p cloud.Provider) { m.provider = p }
 
 var errMissing = &smithy.GenericAPIError{Code: "NoSuchKey", Message: "missing object"}
 
@@ -144,7 +160,7 @@ func setupService(t *testing.T) (*Service, *memoryStore, string) {
 		t.Fatal(err)
 	}
 	store := newStore()
-	s := &Service{Config: cfg, Budget: budget, Registry: registry, Stores: map[string]cloud.Store{remote.ID: store}, Kinds: map[string]string{remote.ID: "b2"}}
+	s := &Service{Config: cfg, Budget: budget, Registry: registry, Stores: map[string]cloud.Store{remote.ID: store}}
 	if err = s.OpenSet(ctx, "docs", filepath.Join(root, "state")); err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +305,6 @@ func TestIncrementalAuthorityAndMove(t *testing.T) {
 	}
 	dest := newStore()
 	s.Stores[r.ID] = dest
-	s.Kinds[r.ID] = "b2"
 	_, err = s.Run(ctx, RunOptions{To: []string{r.ID}, Password: pw})
 	if err == nil {
 		t.Fatal("incremental authority switched silently")
@@ -359,7 +374,7 @@ func TestColdImportWaitsAndResumesPinnedObject(t *testing.T) {
 	ctx := context.Background()
 	s, store, _ := setupService(t)
 	remote := s.Set.To[0]
-	s.Kinds[remote] = "aws"
+	useProvider(t, s, remote, cloud.AWS)
 	key := "encb-existing.tar.gz.gpg"
 	fixture := filepath.Join("..", "archive", "testdata", "encb-fixture-stream-20260704120000.tar.gz.gpg")
 	object, err := store.Put(ctx, key, fixture, "DEEP_ARCHIVE")
@@ -432,8 +447,8 @@ func (m *memoryStore) CopyClass(_ context.Context, key, version, class string) (
 func TestColdConsentPinnedResumeAndExternalLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s, store, source := setupService(t)
-	for id := range s.Kinds {
-		s.Kinds[id] = "aws"
+	for id := range s.Stores {
+		useProvider(t, s, id, cloud.AWS)
 	}
 	pw := []byte("password")
 	os.WriteFile(filepath.Join(source, "f"), []byte("value"), 0600)
@@ -501,8 +516,8 @@ func TestColdConsentPinnedResumeAndExternalLifecycle(t *testing.T) {
 func TestStorageClassKeepsIdentityAndResumesPublication(t *testing.T) {
 	ctx := context.Background()
 	s, store, source := setupService(t)
-	for id := range s.Kinds {
-		s.Kinds[id] = "aws"
+	for id := range s.Stores {
+		useProvider(t, s, id, cloud.AWS)
 	}
 	os.WriteFile(filepath.Join(source, "f"), []byte("value"), 0600)
 	v, err := s.Run(ctx, RunOptions{Password: []byte("pw"), Output: filepath.Join(t.TempDir(), "full.gpg")})
@@ -721,7 +736,6 @@ func TestMoveBackToPreviouslyUsedProviderPreservesHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Stores[other.ID] = newStore()
-	s.Kinds[other.ID] = "b2"
 	if err = s.Move(ctx, other.ID, RetrievalOptions{Tier: "bulk", Days: 7}); err != nil {
 		t.Fatal(err)
 	}
@@ -754,7 +768,7 @@ func TestMoveBackToPreviouslyUsedProviderPreservesHistory(t *testing.T) {
 func TestAWSAbandonedProposalDoesNotConsumeRevision(t *testing.T) {
 	ctx := context.Background()
 	s, store, source := setupService(t)
-	s.Kinds[s.Set.CatalogTo] = "aws"
+	useProvider(t, s, s.Set.CatalogTo, cloud.AWS)
 	os.WriteFile(filepath.Join(source, "f"), []byte("first"), 0600)
 	store.fail = "commits/"
 	_, err := s.Run(ctx, RunOptions{Password: []byte("pw"), Output: filepath.Join(t.TempDir(), "abandoned.gpg")})

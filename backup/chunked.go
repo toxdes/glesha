@@ -207,7 +207,7 @@ func (s *Service) uploadChunk(ctx context.Context, c repository.Cataloger, v *mo
 			return fmt.Errorf("backup: chunk destination is unavailable")
 		}
 		class := v.InitialClass
-		if s.Kinds[remote] != "aws" {
+		if !s.Capabilities(remote).StorageClasses {
 			class = "STANDARD"
 		}
 		h, err := cloud.Create(cloud.WithTransferLabel(ctx, fmt.Sprintf("chunk %d", index+1)), store, ch.Key, ch.File, class)
@@ -380,7 +380,7 @@ func (s *Service) finishChunked(ctx context.Context, c repository.Cataloger, v *
 			continue
 		}
 		class := v.InitialClass
-		if s.Kinds[remote] != "aws" {
+		if !s.Capabilities(remote).StorageClasses {
 			class = "STANDARD"
 		}
 		if s.Stores[remote] == nil {

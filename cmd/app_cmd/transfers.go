@@ -337,7 +337,7 @@ func restore(r *runtime, args []string) error {
 	return err
 }
 func rawService(r *runtime) {
-	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Directory: r.root, Stores: map[string]cloud.Store{}, Kinds: map[string]string{}}
+	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Directory: r.root, Stores: map[string]cloud.Store{}}
 }
 func upload(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
@@ -368,7 +368,7 @@ func upload(r *runtime, args []string) error {
 	if class != "STANDARD" {
 		supported := false
 		for _, id := range to {
-			supported = supported || r.service.Kinds[id] == "aws"
+			supported = supported || r.service.Capabilities(id).StorageClasses
 		}
 		if !supported {
 			return fmt.Errorf("cli: storage class requires AWS")

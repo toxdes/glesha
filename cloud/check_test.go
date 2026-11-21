@@ -21,6 +21,7 @@ type checkStore struct {
 }
 
 func (s *checkStore) CheckTemporaryWrites(context.Context) error { return s.retention }
+func (s *checkStore) Provider() Provider                         { return Provider{Kind: AWS} }
 func (s *checkStore) Head(context.Context, string, string) (Object, error) {
 	if !s.exists {
 		return Object{}, &smithy.GenericAPIError{Code: "NoSuchKey"}

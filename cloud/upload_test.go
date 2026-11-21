@@ -54,7 +54,7 @@ func TestConditionalUploadAndVerifiedBytes(t *testing.T) {
 	defer server.Close()
 	file := filepath.Join(t.TempDir(), "archive")
 	os.WriteFile(file, []byte("complete archive"), 0600)
-	store, err := New(context.Background(), "aws", config.Provider{Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), config.Provider{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestFailedMultipartSessionIsAborted(t *testing.T) {
 		w.WriteHeader(400)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), "b2", config.Provider{Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), config.Provider{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -62,7 +62,7 @@ func freshStateService(t *testing.T, source *Service) *Service {
 			t.Fatal(err)
 		}
 	}
-	return &Service{Config: source.Config, Budget: source.Budget, Registry: registry, Directory: t.TempDir(), Stores: source.Stores, Kinds: source.Kinds}
+	return &Service{Config: source.Config, Budget: source.Budget, Registry: registry, Directory: t.TempDir(), Stores: source.Stores}
 }
 
 func TestEncryptedStateRecoveryWithoutPayloadTransfers(t *testing.T) {
@@ -167,7 +167,6 @@ func TestEncryptedStateRecoveryWithoutPayloadTransfers(t *testing.T) {
 	}
 	third := freshStateService(t, s)
 	third.Stores = map[string]cloud.Store{"replica": replica}
-	third.Kinds = map[string]string{"replica": "b2"}
 	// the replica identity is irrelevant when it contains only directory entries
 	if err = third.DiscoverState(ctx, "replica"); err != nil {
 		t.Fatal(err)
@@ -298,7 +297,6 @@ func TestAnotherComputerFollowsMovedCatalogAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Stores[target.ID] = newStore()
-	s.Kinds[target.ID] = "b2"
 	if err = s.Move(ctx, target.ID, RetrievalOptions{}); err != nil {
 		t.Fatal(err)
 	}

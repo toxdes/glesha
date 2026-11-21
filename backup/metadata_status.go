@@ -127,7 +127,7 @@ func (s *Service) recordMetadataPublication(v revision) error {
 		return err
 	}
 	headCopies := int64(1)
-	if s.Kinds[s.Set.CatalogTo] == "aws" {
+	if s.Capabilities(s.Set.CatalogTo).ConditionalWrites {
 		headCopies++
 	}
 	status.Bytes += info.Size() + descriptor.Size() + int64(len(b))*headCopies

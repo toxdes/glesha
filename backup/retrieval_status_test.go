@@ -37,7 +37,8 @@ func TestImportRetrievalStatusUsesMetadataAndCachesReadiness(t *testing.T) {
 	s, original, _ := setupService(t)
 	remote := s.Set.To[0]
 	store := &retrievalStore{memoryStore: original}
-	s.Stores[remote], s.Kinds[remote] = store, "aws"
+	s.Stores[remote] = store
+	useProvider(t, s, remote, cloud.AWS)
 	key := "encb-existing.tar.gz.gpg"
 	fixture := filepath.Join("..", "archive", "testdata", "encb-fixture-stream-20260704120000.tar.gz.gpg")
 	object, err := original.Put(ctx, key, fixture, "DEEP_ARCHIVE")
@@ -164,7 +165,7 @@ func TestRestoreRetrievalHistoryRetainsReadyArchives(t *testing.T) {
 func TestSavedImportDurationSurvivesDefaultChange(t *testing.T) {
 	s, store, _ := setupService(t)
 	remote := s.Set.To[0]
-	s.Kinds[remote] = "aws"
+	useProvider(t, s, remote, cloud.AWS)
 	store.objects["old"] = cloud.Object{Key: "old", Version: "pinned", Cold: true, Size: 1, Class: "DEEP_ARCHIVE"}
 	ctx := context.Background()
 	if _, _, _, err := s.PrepareImport(ctx, []string{remote}, "old", RetrievalOptions{Days: 7, Request: true}); !errors.Is(err, ErrPending) {

@@ -30,7 +30,6 @@ func (r *runtime) selectRemotes(names []string) error {
 		for id := range r.service.Stores {
 			if !scope.ids[id] {
 				delete(r.service.Stores, id)
-				delete(r.service.Kinds, id)
 			}
 		}
 	}

@@ -515,7 +515,7 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	return err
 }
 func (r *runtime) openSet(name string) error {
-	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}, Kinds: map[string]string{}}
+	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}}
 	return setError(name, r.service.OpenSet(r.ctx, name, r.root))
 }
 func (r *runtime) lock() (func(), error) {
@@ -535,7 +535,7 @@ func (r *runtime) remoteIDs(names []string) ([]string, error) {
 	profiles := r.config.RemotesByName()
 	for _, name := range names {
 		p, ok := profiles[name]
-		if !ok || p.Kind != "aws" && p.Kind != "b2" {
+		if !ok || !cloud.Supports(p.Kind) {
 			return nil, fmt.Errorf("cli: unknown or unsupported remote %q", name)
 		}
 		if p.Bucket == "" {
@@ -578,23 +578,21 @@ func (r *runtime) stores(ids []string) error {
 		}
 		if !found {
 			hint := "configure that location before syncing"
-			switch remote.Kind {
-			case "aws":
-				hint += " in [aws]/[remotes.NAME], or use AWS_BUCKET_NAME and AWS_REGION"
-			case "b2":
-				hint += " in [b2]/[remotes.NAME], or use B2_BUCKET_NAME and B2_BUCKET_ENDPOINT"
+			provider, err := cloud.Lookup(remote.Kind)
+			if err == nil {
+				hint += provider.SetupHint
+				err = provider.ValidateCredentials()
 			}
-			if err := cloud.ValidateCredentials(remote.Kind); err != nil {
+			if err != nil {
 				return fmt.Errorf("cli: catalog requires access to %s bucket %q; %w; %s", remote.Kind, remote.Bucket, err, hint)
 			}
 			return fmt.Errorf("cli: catalog requires access to %s bucket %q; %s", remote.Kind, remote.Bucket, hint)
 		}
-		store, err := cloud.New(r.ctx, p.Kind, p, r.budget.TransferWorkers, r.limit)
+		store, err := cloud.New(r.ctx, p, r.budget.TransferWorkers, r.limit)
 		if err != nil {
 			return err
 		}
 		r.service.Stores[id] = store
-		r.service.Kinds[id] = p.Kind
 	}
 	return nil
 }

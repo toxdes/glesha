@@ -265,7 +265,7 @@ func catalogDiscover(r *runtime) error {
 			return errors.Join(discoveryErr, err)
 		}
 	}
-	stores, kinds := r.service.Stores, r.service.Kinds
+	stores := r.service.Stores
 	var sets []model.Set
 	if err := r.registry.Each(r.ctx, func(set model.Set) error { sets = append(sets, set); return nil }); err != nil {
 		return errors.Join(discoveryErr, err)
@@ -294,7 +294,7 @@ func catalogDiscover(r *runtime) error {
 				}
 				return r.emit("catalog_state", catalogSyncResult{Set: set.ID, State: backup.CatalogStateSkipped, Reason: err.Error()}, fmt.Sprintf("%s  SKIPPED  %s", set.ID, L.ASCII(err.Error())))
 			}
-			r.service.Stores, r.service.Kinds = stores, kinds
+			r.service.Stores = stores
 			release, err := r.lock()
 			if err != nil {
 				return err
@@ -357,7 +357,7 @@ func catalogDiscover(r *runtime) error {
 		}
 	}
 	if r.service == nil {
-		r.service = &backup.Service{Config: r.config, Registry: r.registry, Directory: r.root, Stores: map[string]cloud.Store{}, Kinds: map[string]string{}}
+		r.service = &backup.Service{Config: r.config, Registry: r.registry, Directory: r.root, Stores: map[string]cloud.Store{}}
 	}
 	if err := r.replicateDirectory(); err != nil {
 		summary.Failed++

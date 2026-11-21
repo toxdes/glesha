@@ -79,7 +79,7 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 		}
 		found, matching := false, true
 		for _, l := range locations {
-			if s.Kinds[l.Provider] != "aws" {
+			if !s.Capabilities(l.Provider).StorageClasses {
 				continue
 			}
 			found = true
@@ -144,7 +144,7 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 	}
 	found := false
 	for _, l := range locations {
-		if s.Kinds[l.Provider] != "aws" {
+		if !s.Capabilities(l.Provider).StorageClasses {
 			continue
 		}
 		found = true

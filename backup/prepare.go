@@ -154,7 +154,7 @@ func (s *Service) PrepareRestore(ctx context.Context, id, output string, from []
 				if !h.Cold {
 					return nil
 				}
-				if s.Kinds[remote] != "aws" {
+				if !s.Capabilities(remote).ColdRetrieval {
 					last = fmt.Errorf("backup: remote cannot retrieve cold objects")
 					continue
 				}
@@ -380,7 +380,7 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		return "", "", h, err
 	}
 	if h.Cold {
-		if s.Kinds[job.Remote] != "aws" {
+		if !s.Capabilities(job.Remote).ColdRetrieval {
 			return "", "", h, fmt.Errorf("backup: remote does not support cold retrieval")
 		}
 		if job.Tier == "expedited" && (h.Class == "DEEP_ARCHIVE" || strings.Contains(h.ArchiveStatus, "DEEP")) {

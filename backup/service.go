@@ -35,7 +35,6 @@ type Service struct {
 	Set                   model.Set
 	Directory             string
 	Stores                map[string]cloud.Store
-	Kinds                 map[string]string
 	CatalogPassword       []byte
 	DiscoveryPrefix       string
 	localAuthority        string
@@ -65,6 +64,19 @@ func (s *Service) Catalog(ctx context.Context) (repository.Cataloger, error) {
 		}
 	}
 	return c, nil
+}
+
+// provider describes the store for remote; an unopened remote is the zero Provider.
+func (s *Service) provider(remote string) cloud.Provider {
+	if store := s.Stores[remote]; store != nil {
+		return store.Provider()
+	}
+	return cloud.Provider{}
+}
+
+// Capabilities reports what the store for remote supports.
+func (s *Service) Capabilities(remote string) cloud.Capabilities {
+	return s.provider(remote).Capabilities
 }
 func (s *Service) path() string    { return filepath.Join(s.Directory, "catalog.db") }
 func (s *Service) pending() string { return filepath.Join(s.Directory, "pending.db") }
@@ -260,7 +272,7 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	}
 	if v.InitialClass == "" {
 		for _, remote := range to {
-			if s.Kinds[remote] != "aws" {
+			if !s.Capabilities(remote).StorageClasses {
 				continue
 			}
 			if s.Registry != nil {
@@ -281,7 +293,7 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	if v.InitialClass != "STANDARD" {
 		supported := false
 		for _, id := range to {
-			supported = supported || s.Kinds[id] == "aws"
+			supported = supported || s.Capabilities(id).StorageClasses
 		}
 		if !supported {
 			return v, fmt.Errorf("backup: storage class requires an AWS destination")

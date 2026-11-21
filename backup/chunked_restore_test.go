@@ -127,7 +127,7 @@ func TestPrepareChunkedRestoreChecksEveryChunk(t *testing.T) {
 	v.Hash = strings.Repeat("0", 64)
 	v.Size = 123456789
 	remote := s.Set.To[0]
-	s.Kinds[remote] = "aws"
+	useProvider(t, s, remote, cloud.AWS)
 	for i := range v.Chunks {
 		chunk := &v.Chunks[i]
 		chunk.Locations[0].Provider = remote

@@ -27,7 +27,7 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 	numbers := map[string]int64{}
 	prefix := strings.TrimSuffix(s.Config.Catalog.Prefix, "/") + "/sets/"
 	folder := "heads"
-	conditional := s.Kinds[remote] == "aws"
+	conditional := s.Capabilities(remote).ConditionalWrites
 	if conditional {
 		folder = "commits"
 	}

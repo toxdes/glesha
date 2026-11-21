@@ -154,7 +154,7 @@ func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *mode
 		}
 		store := s.Stores[remote]
 		class := v.InitialClass
-		if s.Kinds[remote] != "aws" {
+		if !s.Capabilities(remote).StorageClasses {
 			class = "STANDARD"
 		}
 		wg.Add(1)

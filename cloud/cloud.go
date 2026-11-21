@@ -54,48 +54,48 @@ type VersionRestorer interface {
 type Store interface {
 	Uploader
 	Reader
+	// Provider describes the service behind the store.
+	Provider() Provider
 }
 
 type s3Store struct {
-	client  *s3.Client
-	bucket  string
-	workers int
-	name    string
-	limit   chan struct{}
+	client   *s3.Client
+	bucket   string
+	workers  int
+	provider Provider
+	limit    chan struct{}
 }
 
-func New(ctx context.Context, name string, p config.Provider, workers int, limit chan struct{}) (Store, error) {
+// New opens an S3-compatible store for the remote profile p.
+func New(ctx context.Context, p config.Provider, workers int, limit chan struct{}) (Store, error) {
 	if workers < 1 || limit != nil && cap(limit) == 0 {
 		return nil, fmt.Errorf("cloud: workers and transfer buffer capacity must be positive")
 	}
 	if p.Bucket == "" {
-		return nil, fmt.Errorf("cloud: %s bucket is not configured", name)
+		return nil, fmt.Errorf("cloud: %s bucket is not configured", p.Kind)
 	}
-	var key, secret, token string
-	if name == "b2" {
-		key, secret = config.FirstEnv("B2_KEY_ID"), config.FirstEnv("B2_APPLICATION_KEY")
-		token = ""
-		if p.Endpoint == "" {
-			return nil, fmt.Errorf("cloud: B2 endpoint is required")
-		}
-	} else if name == "aws" {
+	provider, err := Lookup(p.Kind)
+	if err != nil {
+		return nil, err
+	}
+	if provider.s3.requireEndpoint && p.Endpoint == "" {
+		return nil, fmt.Errorf("cloud: %s endpoint is required", strings.ToUpper(p.Kind))
+	}
+	if provider.s3.normalizeRegion {
 		p.Region = strings.ToLower(strings.TrimSpace(p.Region))
-		key, secret = config.FirstEnv("AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY"), config.FirstEnv("AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY")
-		token = config.FirstEnv("AWS_SESSION_TOKEN")
-	} else {
-		return nil, fmt.Errorf("cloud: unknown provider %q", name)
 	}
-	if err := ValidateCredentials(name); err != nil {
+	if err := provider.ValidateCredentials(); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	key, secret, token := provider.credentials()
 	cfg := aws.Config{Region: p.Region, HTTPClient: progressHTTPClient{client: awshttp.NewBuildableClient()}, Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(key, secret, token)), Retryer: func() aws.Retryer {
 		return retry.NewStandard(func(o *retry.StandardOptions) { o.MaxAttempts = 5 })
 	}}
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		if name == "b2" {
+		if provider.s3.relaxedChecksums {
 			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 			o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 		}
@@ -104,8 +104,10 @@ func New(ctx context.Context, name string, p config.Provider, workers int, limit
 			o.UsePathStyle = true
 		}
 	})
-	return &s3Store{client: client, bucket: p.Bucket, workers: workers, name: name, limit: limit}, nil
+	return &s3Store{client: client, bucket: p.Bucket, workers: workers, provider: provider, limit: limit}, nil
 }
+
+func (s *s3Store) Provider() Provider { return s.provider }
 func NotFound(e error) bool {
 	var api smithy.APIError
 	if errors.As(e, &api) {
@@ -173,7 +175,7 @@ func (s *s3Store) PutNew(ctx context.Context, key, file, class string) (Object, 
 }
 func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly bool) (Object, error) {
 	condition := ""
-	if createOnly && s.name == "aws" {
+	if createOnly && s.provider.Capabilities.ConditionalWrites {
 		condition = "*"
 	}
 	f, e := os.Open(file)
@@ -195,7 +197,7 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 	if _, e = f.Seek(0, io.SeekStart); e != nil {
 		return Object{}, e
 	}
-	if s.name == "b2" {
+	if !s.provider.Capabilities.StorageClasses {
 		class = ""
 	}
 	workers := 1
@@ -203,7 +205,7 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 		_, parts := multipartPlan(info.Size(), false)
 		workers = s.multipartWorkers(parts)
 	}
-	progress := L.StartWorkerProgress(ctx, "Uploading "+transferLabel(ctx)+" to "+s.name, info.Size(), workers)
+	progress := L.StartWorkerProgress(ctx, "Uploading "+transferLabel(ctx)+" to "+string(s.provider.Kind), info.Size(), workers)
 	defer progress.Finish()
 	var result Object
 	if info.Size() < 5<<20 {
