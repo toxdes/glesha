@@ -6,30 +6,31 @@
 - Inline comments should be lowercase (e.g., `// parse cli args`), not sentence case
 
 ## Package Structure
-- CLI subcommands go in `cmd/<name>_cmd/`: a `<name>.go` with `Execute()` and a `usage.go` with `Usage()` / `PrintUsage()`
-- Database layers: `database/model/` (data structs + CREATE TABLE consts), `database/repository/` (interface + impl + `New*`)
-- Repository triad: exported interface → unexported struct → exported `New*` constructor that returns the interface
-- Catalog repositories initialized with `repository.NewCatalogRepository(ctx, path)`
-- `Configurator` interface lives in `config/interface.go`.
+- `main.go` stays at the repository root; release builds run `go build .` with `-X main.VERSION`.
+- All other packages live under `internal/`; none is a public Go API.
+- `internal/cli`: the command line. A command is one entry in `commands` (`commands.go`): handler, help, actions and accepted options. A flag is one entry in `options` (`options.go`): spellings, help placeholder, group, description and binding. Per-command help wording goes in the command's `overrides`.
+- `internal/cloud`: storage providers. A provider is one entry in the table in `provider.go` with its `Capabilities`; behaviour that differs by provider reads a capability, never a provider name.
+- `internal/backup`: set operations (run, restore, import, move) and catalog publication.
+- `internal/database/model` (data structs + CREATE TABLE consts), `internal/database/repository` (interface + impl + `New*`).
+- Repository triad: exported interface → unexported struct → exported `New*` constructor that returns the interface.
+- Catalog repositories are opened with `repository.NewCatalogRepository(ctx, path)`.
 
 ## Code Style
-- Always use `logger` package with `L` import alias (`L "glesha/logger"`)
-- Follow the context-aware flag parsing patterns in `cmd/app_cmd/`.
-- Follow existing project directory structure
-- Use flag parsing with `flag.NewFlagSet()`
-- Use `file_io` package wherever possible, if new file io operations are needed that aren't supported by current `file_io`, extend `file_io` package to include that functionality.
-- Package-level reusable functions can go in `utils.go`, only if they have >=2 callers
-- Always prefer idiomatic golang.
-- Expand `~` in paths using `os.UserHomeDir()`
-- Validate file readability using `file_io.IsReadable()`
-- Import ordering: stdlib → external → internal groups, with blank lines separating each group
-- If a function might involve async work, accept `ctx context.Context` as its first parameter for future-proofing
-- Use `defer` for cleanup (closing db, files, etc.)
-- Command flags use `AppCmdEnv` in `cmd/app_cmd/app.go`, passed through the command runtime.
-- Interface names: `*er` / `*or` suffix (e.g., `Archiver`, `Configurator`, `StorageFactory`)
-- Enum constants: use custom types with `String()` / `Parse()` methods, not raw strings or ints
+- Always prefer idiomatic Go. Do not alias imports unless names collide.
+- Use `internal/fsutil` for file operations; extend it when a new one is needed.
+- Use `internal/logger` for logs and progress.
+- Package-level reusable functions can go in `utils.go`, only if they have >=2 callers.
+- Expand `~` in paths with `fsutil.Expand()`.
+- Validate file readability with `fsutil.IsReadable()`.
+- Import ordering: stdlib → external → internal groups, with blank lines separating each group.
+- If a function might involve async work, accept `ctx context.Context` as its first parameter.
+- Use `defer` for cleanup (closing db, files, etc.).
+- Parsed flags live in `AppCmdEnv` (`internal/cli/app.go`), one field per flag, named after the flag; read presence with `given`, never `present` directly.
+- Interfaces: name single-method interfaces with an `-er` suffix; name larger ones after what they are.
+- Enum constants: use custom types with `String()` / `Parse()` methods, not raw strings or ints.
 - Snapshot and transfer status constants use the `STATUS_*` prefix.
-- No builder pattern or functional options — use simple struct literal initialization
+- No builder pattern or functional options — use simple struct literal initialization.
+- Keep functions short enough to read in one screen; split long operations into named steps.
 
 ## Error Handling
 - Return descriptive errors
@@ -44,16 +45,16 @@
   - `config.DefaultPath()` - get the default TOML path
   - `config.Load()` - load and validate TOML
   - `config.Env()` - load credentials without overwriting process variables
-  - `file_io.Expand()` - expand home-directory paths
-  - `file_io.WriteToFile()` - write files
-  - `file_io.IsReadable()` - check readability
-  - `L.SetColorModeFromString()` - set color mode
-  - `L.SetLevelFromString()` - set log level
+  - `fsutil.Expand()` - expand home-directory paths
+  - `fsutil.WriteToFile()` - write files
+  - `fsutil.IsReadable()` - check readability
+  - `logger.SetColorModeFromString()` - set color mode
+  - `logger.SetLevelFromString()` - set log level
 
 ## Conventions
 - Catalog init sequence: `repository.NewCatalogRepository(ctx, path)` → `defer catalog.Close()`
-- Flag parsing: parse `--log-level`/`-L` and `--color` first in every command using `flag.NewFlagSet()`
-- Expand `~` in all path flags using `os.UserHomeDir()`
+- `Execute` applies `--log-level` and `--color` once, before any command runs.
+- Expand `~` in all path flags; `AppCmdEnv.expandPaths` does this for the shared ones.
 - Use UTC `time.Time` values for catalog timestamps.
 - Concurrency: channel semaphore + `sync.WaitGroup` + `ctx.Done()` select for worker pools
 - Use `sync.Map` for cross-goroutine progress tracking, `sync/atomic` for counters

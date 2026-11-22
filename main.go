@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"glesha/cmd"
+	"glesha/internal/cli"
 )
 
 var VERSION = "dev"
@@ -15,8 +15,8 @@ var GIT_SHA = "unknown"
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	if e := cmd.Execute(ctx, os.Args[1:], VERSION, GIT_SHA); e != nil {
-		cmd.PrintError(os.Args[1:], e)
-		os.Exit(cmd.ExitCode(e))
+	if e := cli.Execute(ctx, os.Args[1:], VERSION, GIT_SHA); e != nil {
+		cli.PrintError(os.Args[1:], e)
+		os.Exit(cli.ExitCode(e))
 	}
 }
