@@ -9,7 +9,7 @@ import (
 )
 
 // NOTE: man/glesha-*.1 are generated from the help data by this file.
-// Regenerate them with: GLESHA_UPDATE_MAN=1 go test ./cmd/app_cmd -run TestManualsMatchHelp
+// Regenerate them with: GLESHA_UPDATE_MAN=1 go test ./internal/cli -run TestManualsMatchHelp
 
 // manFlagDetails adds sentences that are too long for --help; key "" applies to every command.
 var manFlagDetails = map[string]map[string]string{
@@ -223,7 +223,7 @@ func TestManualsMatchHelp(t *testing.T) {
 				t.Fatal(err)
 			}
 			if string(got) != want {
-				t.Fatalf("%s is out of date; run GLESHA_UPDATE_MAN=1 go test ./cmd/app_cmd -run TestManualsMatchHelp", file)
+				t.Fatalf("%s is out of date; run GLESHA_UPDATE_MAN=1 go test ./internal/cli -run TestManualsMatchHelp", file)
 			}
 		})
 	}
