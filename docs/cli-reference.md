@@ -53,8 +53,6 @@ Every command accepts these options.
 
 ## Shared option groups
 
-Several commands accept these options.
-
 ### Performance options
 
 | Option | Description |

@@ -1,6 +1,6 @@
 # How-to guides
 
-Each guide solves one task. The examples omit `--env FILE`. Add it if your credentials are in a file. See [Credentials](configuration.md#credentials).
+The examples omit `--env FILE`. Add it if your credentials are in a file. See [Credentials](configuration.md#credentials).
 
 **Back up**
 
@@ -118,7 +118,7 @@ An incremental chain grows with each run. To start a new chain, schedule `glesha
 
 ### Keep copies on two remotes
 
-An incremental snapshot can go to only one remote. Choose a method by the kind of backup.
+An incremental snapshot can go to only one remote.
 
 To keep incremental backups on two remotes, create one set for each remote. Both sets can use the same directory:
 
