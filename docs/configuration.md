@@ -14,27 +14,147 @@ The configuration file uses TOML. Default location:
 | macOS | `~/Library/Application Support/glesha/config.toml` |
 | Windows | `%AppData%\glesha\config.toml` |
 
-`--config FILE` selects another file. A missing default file is not an error. A missing `--config` file is an error.
+`--config FILE` selects another file. A missing default file is not an error. A missing `--config` file is an error. glesha ignores keys that it does not recognize.
 
-Example:
+### Minimal configuration
+
+glesha runs without a configuration file. The bucket settings can come from [environment variables](#environment-variables). To keep them in the file instead, set one remote.
+
+For Backblaze B2:
 
 ```toml
 [b2]
 bucket = "my-backups"
 endpoint = "https://s3.us-west-004.backblazeb2.com"
-
-[memory]
-max = "512MiB"
 ```
 
-### [archive]
+For Amazon S3:
+
+```toml
+[aws]
+bucket = "my-backups"
+region = "eu-west-1"
+```
+
+Every other key is optional.
+
+### Sections
+
+| Section | Controls | Read |
+| --- | --- | --- |
+| [`[aws]`](#aws) | The `aws` remote. | By every command that accesses the remote. |
+| [`[b2]`](#b2) | The `b2` remote. | By every command that accesses the remote. |
+| [`[remotes.NAME]`](#remotesname) | Additional remotes. | By every command that accesses the remote. |
+| [`[backup]`](#backup) | Storage classes of new sets. | By `create`. |
+| [`[archive]`](#archive) | Archive name prefix, compression, and build mode. | `prefix`, `compression`, and `compression_level` by `create` and `archive`. `mode` by `run` and `archive`. |
+| [`[catalog]`](#catalog) | Catalog encryption, catalog keys, and the state directory. | By every command. |
+| [`[cold]`](#cold) | Retrievals from AWS cold storage. | By `restore`, `import`, and `move`. |
+| [`[memory]`](#memory) | Memory budget. | By every command. |
+| [`[workers]`](#workers) | Parallel hashing and transfers. | By every command. |
+
+[Complete file](#complete-file) lists every key with its default.
+
+## Remotes
+
+### [aws]
+
+The `aws` remote, for Amazon S3 or another S3-compatible service.
+
+```toml
+[aws]
+bucket = "my-backups"
+region = "us-east-1"
+storage_class = "STANDARD"
+```
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `bucket` | string | none | `AWS_BUCKET_NAME` | Bucket name. |
+| `region` | string | `"us-east-1"` | `AWS_REGION` | Bucket region. |
+| `storage_class` | string | `"STANDARD"` | `AWS_STORAGE_CLASS` | Storage class for uploads. See [Storage classes](#storage-classes). |
+| `endpoint` | string | none | none | Custom S3 endpoint URL. An endpoint also turns on path-style requests. |
+
+An environment variable applies only when the key is not set in the file. `kind` is ignored in this section.
+
+### [b2]
+
+The `b2` remote, for Backblaze B2 through its S3-compatible API.
+
+```toml
+[b2]
+bucket = "my-backups"
+endpoint = "https://s3.us-west-004.backblazeb2.com"
+```
+
+| Key | Type | Default | Environment variable | Description |
+| --- | --- | --- | --- | --- |
+| `bucket` | string | none | `B2_BUCKET_NAME` | Bucket name. |
+| `endpoint` | string | none | `B2_BUCKET_ENDPOINT` | Required. S3-compatible endpoint of the bucket. If the value has no scheme, glesha adds `https://`. |
+| `region` | string | Taken from the endpoint | none | Bucket region. For the endpoint `s3.us-west-004.backblazeb2.com`, the region is `us-west-004`. |
+
+An environment variable applies only when the key is not set in the file. `kind` and `storage_class` are ignored in this section. B2 has no storage classes.
+
+### [remotes.NAME]
+
+A remote named `NAME`. Use it for a second bucket of the same kind.
+
+```toml
+[remotes.offsite]
+kind = "b2"
+bucket = "offsite-backups"
+endpoint = "https://s3.eu-central-003.backblazeb2.com"
+region = "eu-central-003"
+```
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `prefix` | string | `"glesha"` | Prefix for new archive names and remote archive keys. Allowed values: `glesha`, `encb`. |
-| `compression` | string | `"xz"` | Compression for new archives. Allowed values: `xz`, `gzip`, `bzip2`. |
-| `compression_level` | integer | `6` | Compression level from `1` to `9`. Higher levels compress more and use more memory. |
+| `kind` | string | none | Required. `aws` or `b2`. |
+| `bucket` | string | none | Required. Bucket name. |
+| `region` | string | none | Bucket region. |
+| `endpoint` | string | none | Endpoint URL. Required for `b2`. |
+| `storage_class` | string | none | AWS storage class for uploads. |
+
+Environment variables do not set these keys. glesha does not take the region from the endpoint or add `https://` to it, so set both for a `b2` remote. All remotes of one kind use the same credentials. `[remotes.aws]` and `[remotes.b2]` replace the `[aws]` and `[b2]` sections.
+
+## Backups
+
+### [backup]
+
+The storage classes that `create` saves with a new set. Changing these keys does not change existing sets. To change a set, use `glesha configure`.
+
+```toml
+[backup]
+full_storage_class = "STANDARD_IA"
+incremental_storage_class = "STANDARD_IA"
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `full_storage_class` | string | none | AWS storage class for full snapshots. |
+| `incremental_storage_class` | string | none | AWS storage class for incremental snapshots. |
+
+`create --storage-class` and `create --incremental-storage-class` override these keys. Without a class, glesha uses the [order in Storage classes](#storage-classes).
+
+### [archive]
+
+The format of new archives. `create` saves `prefix`, `compression`, and `compression_level` with a new set, so changing them does not change existing sets. `glesha archive` reads all four keys. `run` reads `mode`.
+
+```toml
+[archive]
+prefix = "glesha"
+compression = "xz"
+compression_level = 6
+mode = "auto"
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `prefix` | string | `"glesha"` | Prefix for archive names and remote archive keys. Allowed values: `glesha`, `encb`. |
+| `compression` | string | `"xz"` | Allowed values: `xz`, `gzip`, `bzip2`. |
+| `compression_level` | integer | `6` | From `1` to `9`. Higher levels compress more and use more memory. |
 | `mode` | string | `"auto"` | Where glesha holds the encrypted archive while it builds it. See [Archive modes](#archive-modes). |
+
+`--prefix`, `--compression`, `--compression-level`, and `--archive-mode` override these keys.
 
 For xz, the dictionary size is 64 KiB at level 1 and doubles with each level, to 16 MiB at level 9. These levels differ from the presets of the `xz` tool. High levels can require a larger `[memory] max`.
 
@@ -46,90 +166,34 @@ For xz, the dictionary size is 64 KiB at level 1 and doubles with each level, to
 | `memory` | Keep the archive in memory. The command fails if the archive does not fit in the memory budget. |
 | `stream` | Write the archive to a temporary file from the start. |
 
-### [memory]
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `max` | string | Half of the available memory on Linux. 128 MiB on other systems. | Memory budget for one command. The minimum is 48 MiB. |
-
-A size is a whole number with an optional unit: `KiB`, `MiB`, or `GiB` for binary units, or `KB`, `MB`, or `GB` for decimal units. A number without a unit is bytes.
-
-A small budget reduces the number of parallel transfers below `[workers] transfer`.
-
-### [workers]
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `hash` | integer | `4` | Maximum number of files that glesha hashes at the same time. |
-| `transfer` | integer | `4` | Maximum number of parallel transfers, such as parts of a multipart upload. |
-
-Both values are upper limits and must be 1 or more. Archiving always uses one worker. Downloads transfer one object at a time.
-
-### [aws]
-
-Settings for the `aws` remote.
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `bucket` | string | `AWS_BUCKET_NAME` | Bucket name. |
-| `region` | string | `AWS_REGION`, or `"us-east-1"` | Bucket region. |
-| `storage_class` | string | `AWS_STORAGE_CLASS`, or `"STANDARD"` | Storage class for uploads. See [Storage classes](#storage-classes). |
-| `endpoint` | string | none | Custom S3 endpoint URL. Setting an endpoint also turns on path-style requests. |
-
-An environment variable in the Default column applies only when the key is not set in the file.
-
-### [b2]
-
-Settings for the `b2` remote.
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `bucket` | string | `B2_BUCKET_NAME` | Bucket name. |
-| `endpoint` | string | `B2_BUCKET_ENDPOINT` | S3-compatible endpoint of the bucket, for example `https://s3.us-west-004.backblazeb2.com`. Required. If the value has no scheme, glesha adds `https://`. |
-| `region` | string | Taken from the endpoint | Bucket region. For the endpoint `s3.us-west-004.backblazeb2.com`, the region is `us-west-004`. |
-
-### [remotes.NAME]
-
-Defines a remote named `NAME`.
-
-```toml
-[remotes.offsite]
-kind = "b2"
-bucket = "offsite-backups"
-endpoint = "https://s3.eu-central-003.backblazeb2.com"
-region = "eu-central-003"
-```
-
-| Key | Type | Description |
-| --- | --- | --- |
-| `kind` | string | Required. `aws` or `b2`. |
-| `bucket` | string | Required. Bucket name. |
-| `region` | string | Bucket region. |
-| `endpoint` | string | Endpoint URL. Required for `b2`. |
-| `storage_class` | string | AWS storage class for uploads. |
-
-Environment variables do not set these keys. All remotes of one kind use the same credentials. `[remotes.aws]` and `[remotes.b2]` replace the `[aws]` and `[b2]` sections.
-
-### [backup]
-
-Defaults for new sets. `create --storage-class` and `create --incremental-storage-class` override these keys.
-
-| Key | Type | Default | Description |
-| --- | --- | --- | --- |
-| `full_storage_class` | string | none | AWS storage class for full snapshots. |
-| `incremental_storage_class` | string | none | AWS storage class for incremental snapshots. |
-
 ### [catalog]
 
+Catalog encryption, the location of catalog objects in each bucket, and the local state directory.
+
+```toml
+[catalog]
+encrypted = true
+prefix = "glesha/v2"
+directory = "/path/to/state"
+```
+
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `encrypted` | boolean | `true` | Encrypt remote catalogs with the catalog passphrase. |
+| `encrypted` | boolean | `true` | Encrypt remote catalogs with the catalog passphrase. With `false`, glesha asks for no catalog passphrase. |
 | `prefix` | string | `"glesha/v2"` | Key prefix for catalog objects in each bucket. |
-| `directory` | string | Platform state directory | Local state directory. See [Local state](#local-state). `--state-dir` overrides it. |
+| `directory` | string | Platform state directory | Local state directory. See [Local state](#local-state). |
+
+`--state-dir` overrides `directory`.
 
 ### [cold]
 
-Defaults for retrievals from AWS cold storage.
+Retrievals from AWS cold storage.
+
+```toml
+[cold]
+days = 3
+tier = "Bulk"
+```
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
@@ -137,6 +201,94 @@ Defaults for retrievals from AWS cold storage.
 | `tier` | string | `"Bulk"` | Retrieval tier: `Bulk`, `Standard`, or `Expedited`. The value is not case-sensitive. |
 
 `--days` and `--retrieval` override these keys. A pending retrieval keeps its original duration.
+
+## Performance
+
+### [memory]
+
+The memory budget for one command.
+
+```toml
+[memory]
+max = "512MiB"
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `max` | string | Half of the available memory on Linux. 128 MiB on other systems. | Memory budget. The minimum is 48 MiB. |
+
+`--memory-max` overrides `max`.
+
+A size is a whole number with an optional unit: `KiB`, `MiB`, or `GiB` for binary units, or `KB`, `MB`, or `GB` for decimal units. A number without a unit is bytes. A small budget reduces the number of parallel transfers below `[workers] transfer`.
+
+### [workers]
+
+The number of parallel workers.
+
+```toml
+[workers]
+hash = 4
+transfer = 4
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `hash` | integer | `4` | Maximum number of files that glesha hashes at the same time. |
+| `transfer` | integer | `4` | Maximum number of parallel transfers, such as parts of a multipart upload. |
+
+`--hash-workers` overrides `hash`. `-j`, `--jobs`, and `--transfer-workers` override `transfer`.
+
+Both values are upper limits and must be 1 or more. Archiving always uses one worker. Downloads transfer one object at a time.
+
+## Complete file
+
+Every key with its default. Lines that start with `#` show keys without a default.
+
+```toml
+[aws]
+# bucket = "my-backups"
+region = "us-east-1"
+storage_class = "STANDARD"
+# endpoint = "https://s3.example.com"
+
+[b2]
+# bucket = "my-backups"
+# endpoint = "https://s3.us-west-004.backblazeb2.com"
+# region = "us-west-004"
+
+# [remotes.offsite]
+# kind = "b2"
+# bucket = "offsite-backups"
+# endpoint = "https://s3.eu-central-003.backblazeb2.com"
+# region = "eu-central-003"
+# storage_class = "STANDARD"
+
+[backup]
+# full_storage_class = "STANDARD_IA"
+# incremental_storage_class = "STANDARD_IA"
+
+[archive]
+prefix = "glesha"
+compression = "xz"
+compression_level = 6
+mode = "auto"
+
+[catalog]
+encrypted = true
+prefix = "glesha/v2"
+# directory = "/path/to/state"
+
+[cold]
+days = 3
+tier = "Bulk"
+
+[memory]
+# max = "512MiB"
+
+[workers]
+hash = 4
+transfer = 4
+```
 
 ## Storage classes
 

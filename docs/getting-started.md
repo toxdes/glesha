@@ -4,49 +4,9 @@ glesha is a single executable that creates encrypted archives and stores them in
 
 ## Installation
 
-### Linux and macOS
+### Linux
 
-Run the install script:
-
-```sh
-curl -fsSL https://glesha.toxdes.com/install | sh
-```
-
-The script detects amd64 or arm64 and installs these files:
-
-- `~/.local/bin/glesha`
-- the manual pages in `~/.local/share/man/man1`
-
-If `~/.local/bin` is not on your `PATH`, add it in your shell profile.
-
-To install a specific version, pass `--version`:
-
-```sh
-curl -fsSL https://glesha.toxdes.com/install | sh -s -- --version @@VERSION@@
-```
-
-To install into another prefix, pass `--prefix` or set `INSTALL_PREFIX`. `--prefix` takes precedence.
-
-```sh
-curl -fsSL https://glesha.toxdes.com/install | INSTALL_PREFIX="$HOME/opt" sh
-```
-
-To install for all users, download the script first and run it with `sudo`:
-
-```sh
-curl -fsSL https://glesha.toxdes.com/install -o /tmp/glesha-install
-sudo sh /tmp/glesha-install --prefix /usr/local
-```
-
-macOS builds and package-manager releases start at version 0.5.1.
-
-### Homebrew
-
-```sh
-brew install toxdes/tap/glesha
-```
-
-### Debian and Ubuntu
+#### Debian and Ubuntu
 
 Add the toxdes APT repository, then install the package:
 
@@ -59,7 +19,7 @@ sudo apt install glesha
 
 If the repository is already configured, run only `sudo apt install glesha`.
 
-### Fedora and RHEL
+#### Fedora and RHEL
 
 Add the toxdes RPM repository, then install the package:
 
@@ -76,21 +36,71 @@ EOF
 sudo dnf install glesha
 ```
 
-### Arch Linux
+#### Arch Linux
 
-The AUR has three packages:
-
-| Package | Contents |
-| --- | --- |
-| `glesha-bin` | The prebuilt release executable. |
-| `glesha` | The latest tagged release, built from source. |
-| `glesha-git` | The latest development source. |
+Install the prebuilt package from the AUR:
 
 ```sh
 yay -S glesha-bin
 ```
 
-### Windows and manual downloads
+#### Prebuilt binaries
+
+Each bundle contains the executable, the manual pages, and `install.txt`, which lists the installation steps.
+
+| Architecture | Bundle | Checksum |
+| --- | --- | --- |
+| x64 | [glesha_@@VERSION@@_amd64.tar.gz](@@RELEASE_URL@@/glesha_@@VERSION@@_amd64.tar.gz) | [SHA-256](@@RELEASE_URL@@/glesha_@@VERSION@@_amd64.tar.gz.sha256) |
+| arm64 | [glesha_@@VERSION@@_arm64.tar.gz](@@RELEASE_URL@@/glesha_@@VERSION@@_arm64.tar.gz) | [SHA-256](@@RELEASE_URL@@/glesha_@@VERSION@@_arm64.tar.gz.sha256) |
+
+#### Install script
+
+Alternatively, run the install script:
+
+```sh
+curl -fsSL https://glesha.toxdes.com/install | sh
+```
+
+The script installs `glesha` in `~/.local/bin`. If `~/.local/bin` is not on your `PATH`, add it in your shell profile. Check [script options](#install-script-options) if you want to modify the installation, or want to uninstall.
+
+### macOS
+
+Install with Homebrew:
+
+```sh
+brew install toxdes/tap/glesha
+```
+
+Without Homebrew, run the install script:
+
+```sh
+curl -fsSL https://glesha.toxdes.com/install | sh
+```
+
+The script installs `glesha` in `~/.local/bin`. If `~/.local/bin` is not on your `PATH`, add it in your shell profile. Check [script options](#install-script-options) if you want to modify the installation, or want to uninstall.
+
+
+### Windows
+
+1. Download [glesha_@@VERSION@@_windows_amd64.zip](@@RELEASE_URL@@/glesha_@@VERSION@@_windows_amd64.zip) and its [checksum](@@RELEASE_URL@@/glesha_@@VERSION@@_windows_amd64.zip.sha256).
+2. Compare the checksum. The two hashes must match:
+
+	```powershell
+	Get-FileHash .\glesha_@@VERSION@@_windows_amd64.zip -Algorithm SHA256
+	Get-Content .\glesha_@@VERSION@@_windows_amd64.zip.sha256
+	```
+
+3. Extract the bundle:
+
+	```powershell
+	Expand-Archive .\glesha_@@VERSION@@_windows_amd64.zip -DestinationPath .\glesha
+	```
+
+4. Add the directory that contains `bin\glesha.exe` to `PATH`.
+
+### Other systems
+
+#### Manual downloads
 
 Each bundle contains the executable, the manual pages, and `install.txt`. Each bundle has a `.sha256` checksum file at the same URL with `.sha256` appended.
 
@@ -102,17 +112,7 @@ Each bundle contains the executable, the manual pages, and `install.txt`. Each b
 | macOS Apple Silicon | [glesha_@@VERSION@@_macos_arm64.tar.gz](@@RELEASE_URL@@/glesha_@@VERSION@@_macos_arm64.tar.gz) |
 | Windows x64 | [glesha_@@VERSION@@_windows_amd64.zip](@@RELEASE_URL@@/glesha_@@VERSION@@_windows_amd64.zip) |
 
-On Windows, compare the checksum, extract the bundle, and add the directory that contains `bin\glesha.exe` to `PATH`:
-
-```powershell
-Get-FileHash .\glesha_@@VERSION@@_windows_amd64.zip -Algorithm SHA256
-Get-Content .\glesha_@@VERSION@@_windows_amd64.zip.sha256
-Expand-Archive .\glesha_@@VERSION@@_windows_amd64.zip -DestinationPath .\glesha
-```
-
-The two hashes must match.
-
-### Build from source
+#### Build from source
 
 You need Go 1.25 or newer.
 
@@ -121,6 +121,37 @@ git clone https://github.com/toxdes/glesha.git
 cd glesha
 CGO_ENABLED=0 go build -o build/glesha .
 ./build/glesha version
+```
+
+### Check the installation
+
+```sh
+glesha version
+```
+
+The output has the form `glesha @@VERSION@@ (1a2b3c4)`.
+
+### Install script options
+
+To install a specific version, pass `--version`:
+
+```sh
+curl -fsSL https://glesha.toxdes.com/install | sh -s -- --version @@VERSION@@
+```
+
+macOS builds and package-manager releases start at version 0.5.1.
+
+To install into another prefix, pass `--prefix` or set `INSTALL_PREFIX`. `--prefix` takes precedence.
+
+```sh
+curl -fsSL https://glesha.toxdes.com/install | INSTALL_PREFIX="$HOME/opt" sh
+```
+
+To install for all users, download the script first and run it with `sudo`:
+
+```sh
+curl -fsSL https://glesha.toxdes.com/install -o /tmp/glesha-install
+sudo sh /tmp/glesha-install --prefix /usr/local
 ```
 
 ### Uninstall
@@ -134,14 +165,6 @@ curl -fsSL https://glesha.toxdes.com/install | sh -s -- --uninstall
 The script asks for confirmation, then removes the executable and the manual pages. Configuration, local state, and cloud backups are not removed.
 
 For a package installation, use the package manager.
-
-### Check the installation
-
-```sh
-glesha version
-```
-
-The output has the form `glesha @@VERSION@@ (1a2b3c4)`.
 
 ## Back up your first directory
 
