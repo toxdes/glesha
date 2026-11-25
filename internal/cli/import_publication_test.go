@@ -32,70 +32,8 @@ func TestImportCommandPublishesWithoutReuploadingPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var mu sync.Mutex
-	objects := map[string][]byte{"legacy.gpg": data}
-	payloadWrites := 0
-	metadataWrites := 0
-	type objectXML struct {
-		Key  string
-		Size int
-	}
-	type listingXML struct {
-		XMLName     xml.Name `xml:"ListBucketResult"`
-		Contents    []objectXML
-		IsTruncated bool
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		defer mu.Unlock()
-		key := strings.TrimPrefix(r.URL.Path, "/bucket/")
-		if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
-			listing := listingXML{}
-			for key, data := range objects {
-				if strings.HasPrefix(key, r.URL.Query().Get("prefix")) {
-					listing.Contents = append(listing.Contents, objectXML{key, len(data)})
-				}
-			}
-			w.Header().Set("Content-Type", "application/xml")
-			xml.NewEncoder(w).Encode(listing)
-			return
-		}
-		switch r.Method {
-		case http.MethodPut:
-			body, err := io.ReadAll(r.Body)
-			if err != nil {
-				t.Error(err)
-				w.WriteHeader(500)
-				return
-			}
-			if key == "legacy.gpg" {
-				payloadWrites++
-			} else {
-				metadataWrites++
-			}
-			objects[key] = body
-			digest := sha256.Sum256(body)
-			w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
-			w.Header().Set("x-amz-version-id", "version")
-		case http.MethodHead, http.MethodGet:
-			body, ok := objects[key]
-			if !ok {
-				w.WriteHeader(404)
-				return
-			}
-			digest := sha256.Sum256(body)
-			w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
-			w.Header().Set("x-amz-version-id", "version")
-			w.Header().Set("Content-Length", fmt.Sprint(len(body)))
-			w.Header().Set("x-amz-meta-sha256", hex.EncodeToString(digest[:]))
-			if r.Method == http.MethodGet {
-				w.Write(body)
-			}
-		default:
-			t.Errorf("unexpected operation: %s", r.Method)
-			w.WriteHeader(400)
-		}
-	}))
+	f := newImportRemote(t, map[string][]byte{"legacy.gpg": data})
+	server := f.server
 	defer server.Close()
 	cfg := config.Defaults()
 	cfg.Catalog.Encrypted = false
@@ -121,8 +59,8 @@ func TestImportCommandPublishesWithoutReuploadingPayload(t *testing.T) {
 	if err = importArchive(r, []string{"old-docs"}); err != nil {
 		t.Fatal(err)
 	}
-	if payloadWrites != 0 || metadataWrites == 0 {
-		t.Fatal("wrong objects uploaded", payloadWrites, metadataWrites)
+	if f.payloadWrites != 0 || f.metadataWrites == 0 {
+		t.Fatal("wrong objects uploaded", f.payloadWrites, f.metadataWrites)
 	}
 	c, err := r.service.Catalog(ctx)
 	if err != nil {
@@ -170,9 +108,151 @@ func TestImportCommandPublishesWithoutReuploadingPayload(t *testing.T) {
 	if _, err = os.Stat(localFile); !os.IsNotExist(err) {
 		t.Fatal("archive not removed")
 	}
-	mu.Lock()
-	defer mu.Unlock()
-	if !bytes.Equal(objects["legacy.gpg"], data) || payloadWrites != 0 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !bytes.Equal(f.objects["legacy.gpg"], data) || f.payloadWrites != 0 {
 		t.Fatal("remote archive modified")
+	}
+}
+
+// importRemote is an S3 bucket in memory that counts payload and metadata writes.
+type importRemote struct {
+	mu             sync.Mutex
+	server         *httptest.Server
+	objects        map[string][]byte
+	payloadWrites  int
+	metadataWrites int
+}
+
+func newImportRemote(t *testing.T, objects map[string][]byte) *importRemote {
+	t.Helper()
+	f := &importRemote{objects: objects}
+	type objectXML struct {
+		Key  string
+		Size int
+	}
+	type listingXML struct {
+		XMLName     xml.Name `xml:"ListBucketResult"`
+		Contents    []objectXML
+		IsTruncated bool
+	}
+	f.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		key := strings.TrimPrefix(r.URL.Path, "/bucket/")
+		if r.Method == http.MethodGet && r.URL.Query().Get("list-type") == "2" {
+			listing := listingXML{}
+			for key, data := range f.objects {
+				if strings.HasPrefix(key, r.URL.Query().Get("prefix")) {
+					listing.Contents = append(listing.Contents, objectXML{key, len(data)})
+				}
+			}
+			w.Header().Set("Content-Type", "application/xml")
+			xml.NewEncoder(w).Encode(listing)
+			return
+		}
+		switch r.Method {
+		case http.MethodPut:
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			if key == "legacy.gpg" {
+				f.payloadWrites++
+			} else {
+				f.metadataWrites++
+			}
+			f.objects[key] = body
+			digest := sha256.Sum256(body)
+			w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
+			w.Header().Set("x-amz-version-id", "version")
+		case http.MethodHead, http.MethodGet:
+			body, ok := f.objects[key]
+			if !ok {
+				w.WriteHeader(404)
+				return
+			}
+			digest := sha256.Sum256(body)
+			w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
+			w.Header().Set("x-amz-version-id", "version")
+			w.Header().Set("Content-Length", fmt.Sprint(len(body)))
+			w.Header().Set("x-amz-meta-sha256", hex.EncodeToString(digest[:]))
+			if r.Method == http.MethodGet {
+				w.Write(body)
+			}
+		default:
+			t.Errorf("unexpected operation: %s", r.Method)
+			w.WriteHeader(400)
+		}
+	}))
+	return f
+}
+
+func TestImportPublishesCatalogWithCatalogPassphrase(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("AWS_ACCESS_KEY_ID", "test")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "test")
+	t.Setenv("GLESHA_CATALOG_PASSPHRASE", "catalog secret")
+	fixture, err := filepath.Abs(filepath.Join("..", "archive", "testdata", "encb-fixture-stream-20260704120000.tar.gz.gpg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newImportRemote(t, map[string][]byte{"legacy.gpg": data})
+	defer f.server.Close()
+	cfg := config.Defaults()
+	cfg.Catalog.Encrypted = true
+	cfg.AWS = config.Provider{Bucket: "bucket", Region: "us-east-1", Endpoint: f.server.URL}
+	registry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	root := t.TempDir()
+	password := filepath.Join(root, "password")
+	os.WriteFile(password, []byte("encb fixture password"), 0600)
+	budget, err := memory.Resolve("128MiB", 1, 1, func() (int64, error) { panic("unexpected memory probe") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &runtime{ctx: ctx, registry: registry, config: cfg, root: root, budget: budget, env: &AppCmdEnv{File: fixture, Key: "legacy.gpg", From: destinations{"aws"}, PassphraseFile: password}, out: io.Discard}
+	if err = importArchive(r, []string{"docs"}); err != nil {
+		t.Fatal(err)
+	}
+
+	// a second machine must open the published catalog with the catalog passphrase
+	peerRegistry, err := repository.NewRegistryRepository(ctx, ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peerRegistry.Close()
+	remote, err := registry.Remote(ctx, r.service.Set.CatalogTo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = peerRegistry.BindRemote(ctx, remote); err != nil {
+		t.Fatal(err)
+	}
+	peer := &backup.Service{Config: r.service.Config, Budget: budget, Registry: peerRegistry, Directory: t.TempDir(), Stores: r.service.Stores}
+	if err = peer.DiscoverState(ctx, r.service.Set.CatalogTo); err != nil {
+		t.Fatal(err)
+	}
+	if err = peer.OpenSet(ctx, r.service.Set.ID, peer.Directory); err != nil {
+		t.Fatal(err)
+	}
+	if err = peer.CacheCatalog(ctx); err != nil {
+		t.Fatal(err)
+	}
+	peer.CatalogPassword = []byte("catalog secret")
+	if err = peer.UnlockCached(ctx); err != nil {
+		t.Fatal("published catalog does not open with the catalog passphrase:", err)
+	}
+	if peer.Set.Name != "docs" {
+		t.Fatalf("unlocked set name %q, want docs", peer.Set.Name)
 	}
 }
