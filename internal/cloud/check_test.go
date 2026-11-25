@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/aws/smithy-go"
 )
 
 type checkStore struct {
@@ -24,7 +22,7 @@ func (s *checkStore) CheckTemporaryWrites(context.Context) error { return s.rete
 func (s *checkStore) Provider() Provider                         { return Provider{Kind: AWS} }
 func (s *checkStore) Head(context.Context, string, string) (Object, error) {
 	if !s.exists {
-		return Object{}, &smithy.GenericAPIError{Code: "NoSuchKey"}
+		return Object{}, ErrNotFound
 	}
 	return s.object, nil
 }

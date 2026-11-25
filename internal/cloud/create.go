@@ -15,7 +15,7 @@ type Creator interface {
 func Create(ctx context.Context, store Store, key, file, class string) (Object, error) {
 	h, err := store.Head(ctx, key, "")
 	if err == nil {
-		hash, size, err := hashFile(ctx, file)
+		hash, size, err := HashFile(ctx, file)
 		if err != nil {
 			return Object{}, err
 		}

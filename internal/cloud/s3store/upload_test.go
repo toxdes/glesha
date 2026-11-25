@@ -1,4 +1,4 @@
-package cloud
+package s3store
 
 import (
 	"context"
@@ -13,6 +13,8 @@ import (
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"glesha/internal/cloud"
 )
 
 func TestConditionalUploadAndVerifiedBytes(t *testing.T) {
@@ -52,25 +54,25 @@ func TestConditionalUploadAndVerifiedBytes(t *testing.T) {
 	defer server.Close()
 	file := filepath.Join(t.TempDir(), "archive")
 	os.WriteFile(file, []byte("complete archive"), 0600)
-	store, err := New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), cloud.Remote{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	h, err := Create(context.Background(), store, "archive", file, "STANDARD")
+	h, err := cloud.Create(context.Background(), store, "archive", file, "STANDARD")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if h.Size != 16 || h.Hash == "" {
 		t.Fatal("upload not verified", h)
 	}
-	if _, err = Create(context.Background(), store, "archive", file, "STANDARD"); err != nil {
+	if _, err = cloud.Create(context.Background(), store, "archive", file, "STANDARD"); err != nil {
 		t.Fatal("recorded bytes not idempotent", err)
 	}
 	if puts != 1 {
 		t.Fatal("retry uploaded bytes again")
 	}
 	os.WriteFile(file, []byte("different bytes"), 0600)
-	if _, err = Create(context.Background(), store, "archive", file, "STANDARD"); err == nil || !strings.Contains(err.Error(), "already exists") {
+	if _, err = cloud.Create(context.Background(), store, "archive", file, "STANDARD"); err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatal("existing key overwritten", err)
 	}
 }
@@ -93,7 +95,7 @@ func TestFailedMultipartSessionIsAborted(t *testing.T) {
 		w.WriteHeader(400)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), cloud.Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

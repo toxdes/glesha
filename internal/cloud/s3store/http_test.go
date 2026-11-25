@@ -1,4 +1,4 @@
-package cloud
+package s3store
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"glesha/internal/cloud"
 )
 
 func TestAWSRegionSigningUsesCanonicalCase(t *testing.T) {
@@ -25,7 +27,7 @@ func TestAWSRegionSigningUsesCanonicalCase(t *testing.T) {
 				w.Header().Set("Content-Length", "0")
 			}))
 			defer server.Close()
-			provider := Remote{Kind: "aws", Bucket: "test", Region: region, Endpoint: server.URL}
+			provider := cloud.Remote{Kind: "aws", Bucket: "test", Region: region, Endpoint: server.URL}
 			store, err := New(context.Background(), provider, 1, nil)
 			if err != nil {
 				t.Fatal(err)
@@ -72,7 +74,7 @@ func TestObservedLifecycleAndPinnedColdRequest(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "us-east-1", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), cloud.Remote{Kind: "aws", Bucket: "test", Region: "us-east-1", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +88,7 @@ func TestObservedLifecycleAndPinnedColdRequest(t *testing.T) {
 	if requested != 0 {
 		t.Fatal("GET implicitly requested charged retrieval")
 	}
-	if err = store.(VersionRestorer).RestoreVersion(context.Background(), "archive", "original-version", 7, "Bulk"); err != nil {
+	if err = store.(cloud.VersionRestorer).RestoreVersion(context.Background(), "archive", "original-version", 7, "Bulk"); err != nil {
 		t.Fatal(err)
 	}
 	if requested != 1 {
@@ -113,14 +115,14 @@ func TestIndependentAdaptersAndMissingCredentials(t *testing.T) {
 		w.Header().Set("ETag", `"empty"`)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), cloud.Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = store.Head(context.Background(), "object", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "test"}, 1, nil); err == nil {
+	if _, err = New(context.Background(), cloud.Remote{Kind: "aws", Bucket: "test", Region: "test"}, 1, nil); err == nil {
 		t.Fatal("missing AWS credentials accepted")
 	}
 }
@@ -142,12 +144,12 @@ func TestListingPagination(t *testing.T) {
 		fmt.Fprintf(w, `<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><IsTruncated>%s</IsTruncated><Contents><Key>%s</Key><Size>3</Size><ETag>etag</ETag></Contents></ListBucketResult>`, truncated, key)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), cloud.Remote{Kind: "b2", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	seen := 0
-	if err = List(context.Background(), store, "prefix/", func(Object) error { seen++; return nil }); err != nil {
+	if err = cloud.List(context.Background(), store, "prefix/", func(cloud.Object) error { seen++; return nil }); err != nil {
 		t.Fatal(err)
 	}
 	if seen != 2 || calls != 2 {
@@ -176,11 +178,11 @@ func TestClassChangeRejectsReplacingNewerVersion(t *testing.T) {
 		w.WriteHeader(500)
 	}))
 	defer server.Close()
-	store, err := New(context.Background(), Remote{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
+	store, err := New(context.Background(), cloud.Remote{Kind: "aws", Bucket: "test", Region: "test", Endpoint: server.URL}, 1, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = store.(ClassChanger).CopyClass(context.Background(), "archive", "old-version", "STANDARD_IA"); err == nil {
+	if _, err = store.(cloud.ClassChanger).CopyClass(context.Background(), "archive", "old-version", "STANDARD_IA"); err == nil {
 		t.Fatal("newer current object overwritten")
 	}
 	if copies != 0 {

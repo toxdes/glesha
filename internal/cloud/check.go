@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"io"
 	"time"
-
-	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/smithy-go"
 )
 
 type VersionDeleter interface {
@@ -19,30 +16,6 @@ type VersionDeleter interface {
 
 type TemporaryWriteChecker interface {
 	CheckTemporaryWrites(context.Context) error
-}
-
-func (s *s3Store) CheckTemporaryWrites(ctx context.Context) error {
-	configuration, err := s.client.GetObjectLockConfiguration(ctx, &s3.GetObjectLockConfigurationInput{Bucket: &s.bucket})
-	if err != nil {
-		var api smithy.APIError
-		if errors.As(err, &api) && (api.ErrorCode() == "ObjectLockConfigurationNotFoundError" || api.ErrorCode() == "NoSuchObjectLockConfiguration") {
-			return nil
-		}
-		return fmt.Errorf("cloud: cannot verify temporary objects can be deleted before check: %w", err)
-	}
-	c := configuration.ObjectLockConfiguration
-	if c != nil && c.Rule != nil && c.Rule.DefaultRetention != nil {
-		r := c.Rule.DefaultRetention
-		if r.Days != nil && *r.Days > 0 || r.Years != nil && *r.Years > 0 {
-			return fmt.Errorf("cloud: check refused temporary upload: bucket has default %s Object Lock retention", r.Mode)
-		}
-	}
-	return nil
-}
-
-func (s *s3Store) DeleteVersion(ctx context.Context, key, version string) error {
-	_, err := s.client.DeleteObject(ctx, &s3.DeleteObjectInput{Bucket: &s.bucket, Key: &key, VersionId: optional(version)})
-	return err
 }
 
 type CheckStatus string
@@ -90,7 +63,7 @@ func Check(ctx context.Context, store Store, key, file string) error {
 
 func CheckAccess(ctx context.Context, store Store, key, file string) (report CheckReport, err error) {
 	report = NewCheckReport()
-	expected, size, err := hashFile(ctx, file)
+	expected, size, err := HashFile(ctx, file)
 	if err != nil {
 		return report, err
 	}

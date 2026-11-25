@@ -16,6 +16,7 @@ import (
 
 	"glesha/internal/backup"
 	"glesha/internal/cloud"
+	"glesha/internal/cloud/s3store"
 	"glesha/internal/config"
 	"glesha/internal/database/model"
 	"glesha/internal/database/repository"
@@ -590,7 +591,7 @@ func (r *runtime) stores(ids []string) error {
 			}
 			return fmt.Errorf("cli: catalog requires access to %s bucket %q; %s", remote.Kind, remote.Bucket, hint)
 		}
-		store, err := cloud.New(r.ctx, cloud.Remote{Kind: p.Kind, Bucket: p.Bucket, Region: p.Region, Endpoint: p.Endpoint}, r.budget.TransferWorkers, r.limit)
+		store, err := s3store.New(r.ctx, cloud.Remote{Kind: p.Kind, Bucket: p.Bucket, Region: p.Region, Endpoint: p.Endpoint}, r.budget.TransferWorkers, r.limit)
 		if err != nil {
 			return err
 		}

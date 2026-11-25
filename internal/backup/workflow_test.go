@@ -14,8 +14,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/aws/smithy-go"
-
 	"glesha/internal/archive"
 	"glesha/internal/cloud"
 	"glesha/internal/config"
@@ -52,7 +50,7 @@ func useProvider(t *testing.T, s *Service, remote string, kind cloud.Kind) {
 
 func (m *memoryStore) setProvider(p cloud.Provider) { m.provider = p }
 
-var errMissing = &smithy.GenericAPIError{Code: "NoSuchKey", Message: "missing object"}
+var errMissing = fmt.Errorf("missing object: %w", cloud.ErrNotFound)
 
 func (m *memoryStore) Head(_ context.Context, key, version string) (cloud.Object, error) {
 	m.mu.Lock()

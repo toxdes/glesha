@@ -10,6 +10,7 @@
 - All other packages live under `internal/`; none is a public Go API.
 - `internal/cli`: the command line. A command is one entry in `commands` (`commands.go`): handler, help, actions and accepted options. A flag is one entry in `options` (`options.go`): spellings, help placeholder, group, description and binding. Per-command help wording goes in the command's `overrides`.
 - `internal/cloud`: storage providers. A provider is one entry in the table in `provider.go` with its `Capabilities`; behaviour that differs by provider reads a capability, never a provider name.
+- `internal/cloud/s3store`: the `cloud.Store` for S3-compatible providers and the only package that imports the AWS SDK. It reports missing objects and lost conditional writes as `cloud.ErrNotFound` and `cloud.ErrConflict`; code outside it never inspects S3 error codes.
 - `internal/backup`: set operations (run, restore, import, move) and catalog publication.
 - `internal/database/model` (data structs + CREATE TABLE consts), `internal/database/repository` (interface + impl + `New*`).
 - Repository triad: exported interface → unexported struct → exported `New*` constructor that returns the interface.
