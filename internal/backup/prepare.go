@@ -344,59 +344,17 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		return "", "", job.Object, fmt.Errorf("backup: retrieval options conflict with pending import")
 	}
 	if job.Remote == "" {
-		var cold *importJob
-		var last error
-		for _, remote := range from {
-			store := s.Stores[remote]
-			if store == nil {
-				continue
-			}
-			h, err := store.Head(ctx, key, "")
-			if err != nil {
-				last = err
-				continue
-			}
-			checked := now()
-			candidate := importJob{Remote: remote, Object: h, Tier: o.Tier, Days: o.Days, CheckedAt: &checked}
-			if candidate.Tier == "" {
-				candidate.Tier = "bulk"
-			}
-			if h.Cold {
-				if cold == nil {
-					cold = &candidate
-				}
-				continue
-			}
-			job = candidate
-			break
-		}
-		if job.Remote == "" {
-			if cold == nil {
-				if last == nil {
-					last = fmt.Errorf("backup: no import source available")
-				}
-				return "", "", cloud.Object{}, last
-			}
-			job = *cold
-		}
-		if err = s.saveJob(sidecar, job); err != nil {
+		job, err = s.selectImportSource(ctx, from, key, sidecar, o)
+		if err != nil {
 			return "", "", job.Object, err
 		}
 	}
-	if _, err = os.Stat(file); err == nil {
-		hash, size, err := archive.Hash(ctx, file)
-		if err != nil || size != job.Object.Size || job.Hash != "" && hash != job.Hash {
-			return "", "", job.Object, fmt.Errorf("backup: import download changed")
-		}
-		if job.Hash == "" {
-			job.Hash = hash
-			if err = s.saveJob(sidecar, job); err != nil {
-				return "", "", job.Object, err
-			}
-		}
-		return file, job.Remote, job.Object, nil
-	} else if !os.IsNotExist(err) {
+	cached, err := s.importCached(ctx, file, sidecar, job)
+	if err != nil {
 		return "", "", job.Object, err
+	}
+	if cached {
+		return file, job.Remote, job.Object, nil
 	}
 	store := s.Stores[job.Remote]
 	if store == nil {
@@ -427,24 +385,8 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 			return "", "", h, fmt.Errorf("backup: expedited unavailable for Deep Archive")
 		}
 		if !job.Requested && !strings.Contains(h.Restore, `ongoing-request="true"`) {
-			if !o.Request {
-				if o.Confirm == nil {
-					return "", "", h, ErrConfirmationRequired
-				}
-				if err = o.Confirm(ctx, fmt.Sprintf("Import requires retrieval of %s using %s. Charges apply. Request?", logger.Bytes(h.Size), job.Tier)); err != nil {
-					return "", "", h, err
-				}
-			}
-			restorer, ok := store.(cloud.VersionRestorer)
-			if !ok {
-				return "", "", h, fmt.Errorf("backup: remote cannot retrieve pinned objects")
-			}
-			tier := strings.ToUpper(job.Tier[:1]) + job.Tier[1:]
-			if err = restorer.RestoreVersion(ctx, key, job.Object.Version, o.Days, tier); err != nil {
-				return "", "", h, err
-			}
-			job.Requested = true
-			if err = s.saveJob(sidecar, job); err != nil {
+			job, err = s.requestImportRetrieval(ctx, key, sidecar, job, o)
+			if err != nil {
 				return "", "", h, err
 			}
 		}
@@ -464,4 +406,93 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		return "", "", object, err
 	}
 	return file, job.Remote, object, nil
+}
+
+func (s *Service) selectImportSource(ctx context.Context, from []string, key, sidecar string, o RetrievalOptions) (importJob, error) {
+	var job importJob
+	var cold *importJob
+	var last error
+	for _, remote := range from {
+		store := s.Stores[remote]
+		if store == nil {
+			continue
+		}
+		h, err := store.Head(ctx, key, "")
+		if err != nil {
+			last = err
+			continue
+		}
+		checked := now()
+		candidate := importJob{Remote: remote, Object: h, Tier: o.Tier, Days: o.Days, CheckedAt: &checked}
+		if candidate.Tier == "" {
+			candidate.Tier = "bulk"
+		}
+		if h.Cold {
+			if cold == nil {
+				cold = &candidate
+			}
+			continue
+		}
+		job = candidate
+		break
+	}
+	if job.Remote == "" {
+		if cold == nil {
+			if last == nil {
+				last = fmt.Errorf("backup: no import source available")
+			}
+			return importJob{}, last
+		}
+		job = *cold
+	}
+	if err := s.saveJob(sidecar, job); err != nil {
+		return job, err
+	}
+	return job, nil
+}
+
+func (s *Service) importCached(ctx context.Context, file, sidecar string, job importJob) (bool, error) {
+	_, err := os.Stat(file)
+	if err == nil {
+		hash, size, err := archive.Hash(ctx, file)
+		if err != nil || size != job.Object.Size || job.Hash != "" && hash != job.Hash {
+			return false, fmt.Errorf("backup: import download changed")
+		}
+		if job.Hash == "" {
+			job.Hash = hash
+			if err = s.saveJob(sidecar, job); err != nil {
+				return false, err
+			}
+		}
+		return true, nil
+	} else if !os.IsNotExist(err) {
+		return false, err
+	}
+	return false, nil
+}
+
+// requestImportRetrieval asks the pinned remote to retrieve job's cold object
+// and records the request in sidecar.
+func (s *Service) requestImportRetrieval(ctx context.Context, key, sidecar string, job importJob, o RetrievalOptions) (importJob, error) {
+	if !o.Request {
+		if o.Confirm == nil {
+			return job, ErrConfirmationRequired
+		}
+		if err := o.Confirm(ctx, fmt.Sprintf("Import requires retrieval of %s using %s. Charges apply. Request?", logger.Bytes(job.Object.Size), job.Tier)); err != nil {
+			return job, err
+		}
+	}
+	restorer, ok := s.Stores[job.Remote].(cloud.VersionRestorer)
+	if !ok {
+		return job, fmt.Errorf("backup: remote cannot retrieve pinned objects")
+	}
+	tier := strings.ToUpper(job.Tier[:1]) + job.Tier[1:]
+	if err := restorer.RestoreVersion(ctx, key, job.Object.Version, job.Days, tier); err != nil {
+		return job, err
+	}
+	job.Requested = true
+	if err := s.saveJob(sidecar, job); err != nil {
+		return job, err
+	}
+	return job, nil
 }

@@ -57,29 +57,25 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 		return e
 	}
 	defer chain.Close()
-	stage := ""
-	resume := false
-	if publication, err := s.readRestorePublication(o.Output); err == nil {
-		stage, resume = publication.Stage, true
-		target, e = Resolve(ctx, c, publication.Snapshot)
-		if e != nil {
+	publication, err := s.readRestorePublication(o.Output)
+	resume := err == nil
+	switch {
+	case resume:
+		if target, e = Resolve(ctx, c, publication.Snapshot); e != nil {
 			return e
 		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	case !errors.Is(err, os.ErrNotExist):
 		return err
-	} else {
-		parent := filepath.Dir(o.Output)
-		if _, err = os.Stat(o.Output); err == nil {
-			parent = o.Output
-		}
-		stage, e = os.MkdirTemp(parent, ".glesha-restore-*")
-		if e != nil {
+	default:
+		if publication.Stage, e = newRestoreStage(o.Output); e != nil {
 			return e
 		}
 	}
-	preserve := resume
+	stage := publication.Stage
+	journal := s.restorePublicationPath(o.Output)
 	defer func() {
-		if !preserve {
+		// while a publication journal exists, the verified stage is what resumes it
+		if _, err := os.Lstat(journal); errors.Is(err, os.ErrNotExist) {
 			os.RemoveAll(stage)
 		}
 	}()
@@ -89,30 +85,7 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 	}
 	defer root.Close()
 	if !resume {
-		if e = chain.EachReverse(ctx, func(v model.Snapshot) error {
-			if v.Layout != "" && v.Layout != "single" && v.Layout != "chunked" {
-				return fmt.Errorf("backup: unsupported archive layout %q", v.Layout)
-			}
-			decodedHash, err := hex.DecodeString(v.Hash)
-			if err != nil || len(decodedHash) != 32 {
-				return fmt.Errorf("backup: invalid archive checksum")
-			}
-			file := v.File
-			if v.Layout != "chunked" {
-				if file, err = s.archiveFile(ctx, c, v, o.From); err != nil {
-					return err
-				}
-			}
-			if !v.Full {
-				if err = pruneOverlay(ctx, c, root, v); err != nil {
-					return err
-				}
-			}
-			if v.Layout == "chunked" {
-				return s.restoreChunks(ctx, v, stage, o)
-			}
-			return s.restoreArchive(ctx, v, file, stage, o.Password)
-		}); e != nil {
+		if e = s.extractChain(ctx, c, chain, root, stage, o); e != nil {
 			return e
 		}
 	}
@@ -122,28 +95,65 @@ func (s *Service) Restore(ctx context.Context, o RestoreOptions) error {
 	if e = s.verifyRestore(ctx, c, target, stage); e != nil {
 		return e
 	}
-	if _, e = os.Lstat(o.Output); os.IsNotExist(e) {
-		return fsutil.PublishDir(stage, o.Output)
-	} else if e != nil {
-		return e
+	return s.publishRestore(ctx, target, stage, o.Output, journal)
+}
+
+// newRestoreStage creates the staging directory beside output, or inside it when
+// output exists and the restore merges into it.
+func newRestoreStage(output string) (string, error) {
+	parent := filepath.Dir(output)
+	if _, err := os.Stat(output); err == nil {
+		parent = output
 	}
-	if filepath.Dir(stage) != o.Output {
+	return os.MkdirTemp(parent, ".glesha-restore-*")
+}
+
+func (s *Service) extractChain(ctx context.Context, c repository.Cataloger, chain repository.SnapshotSequencer, root *os.Root, stage string, o RestoreOptions) error {
+	return chain.EachReverse(ctx, func(v model.Snapshot) error {
+		if v.Layout != "" && v.Layout != "single" && v.Layout != "chunked" {
+			return fmt.Errorf("backup: unsupported archive layout %q", v.Layout)
+		}
+		decodedHash, err := hex.DecodeString(v.Hash)
+		if err != nil || len(decodedHash) != 32 {
+			return fmt.Errorf("backup: invalid archive checksum")
+		}
+		file := v.File
+		if v.Layout != "chunked" {
+			if file, err = s.archiveFile(ctx, c, v, o.From); err != nil {
+				return err
+			}
+		}
+		if !v.Full {
+			if err = pruneOverlay(ctx, c, root, v); err != nil {
+				return err
+			}
+		}
+		if v.Layout == "chunked" {
+			return s.restoreChunks(ctx, v, stage, o)
+		}
+		return s.restoreArchive(ctx, v, file, stage, o.Password)
+	})
+}
+
+// publishRestore moves the verified stage to output. Merging into an existing
+// output is journaled, so an interrupted merge resumes on the next restore.
+func (s *Service) publishRestore(ctx context.Context, target model.Snapshot, stage, output, journal string) error {
+	if _, err := os.Lstat(output); os.IsNotExist(err) {
+		return fsutil.PublishDir(stage, output)
+	} else if err != nil {
+		return err
+	}
+	if filepath.Dir(stage) != output {
 		return fmt.Errorf("backup: restore destination appeared during reconstruction")
 	}
-	publication := restorePublication{Version: restorePublicationVersion, Snapshot: target.ID, Output: o.Output, Stage: stage}
-	journal := s.restorePublicationPath(o.Output)
-	if e = s.saveJob(journal, publication); e != nil {
-		return e
+	publication := restorePublication{Version: restorePublicationVersion, Snapshot: target.ID, Output: output, Stage: stage}
+	if err := s.saveJob(journal, publication); err != nil {
+		return err
 	}
-	preserve = true
-	if e = fsutil.MergeDir(ctx, stage, o.Output, journal+".merge"); e != nil {
-		return fmt.Errorf("backup: restore publication incomplete; repeat restore to resume; verified staging at %s: %w", stage, e)
+	if err := fsutil.MergeDir(ctx, stage, output, journal+".merge"); err != nil {
+		return fmt.Errorf("backup: restore publication incomplete; repeat restore to resume; verified staging at %s: %w", stage, err)
 	}
-	if e = os.Remove(journal); e != nil {
-		return e
-	}
-	preserve = false
-	return nil
+	return os.Remove(journal)
 }
 
 // archiveFile returns a local file holding v's verified archive: the original

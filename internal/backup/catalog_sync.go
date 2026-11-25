@@ -40,85 +40,13 @@ func (s *Service) SyncCatalog(ctx context.Context) error {
 		return nil
 	}
 
-	dirty := ""
-	publish := s.Pending()
-	if publish {
-		p, err := repository.NewCatalogRepository(ctx, s.pending())
-		if err != nil {
-			return err
-		}
-		op, readErr := p.GetMeta(ctx, "operation")
-		var dirtyErr error
-		dirty, dirtyErr = p.GetMeta(ctx, "dirty")
-		selected, selectionErr := p.GetMeta(ctx, "baseline_changed")
-		if selected == "true" {
-			dirty = "baseline"
-		}
-		p.Close()
-		if selectionErr != nil {
-			return selectionErr
-		}
-		if readErr != nil {
-			return readErr
-		}
-		if dirtyErr != nil {
-			return dirtyErr
-		}
-		if op != "push" {
-			return fmt.Errorf("%w: finish %s before sync", ErrPending, op)
-		}
-	} else {
-		c, err := s.Catalog(ctx)
-		if err != nil {
-			return err
-		}
-		dirty, err = c.GetMeta(ctx, "dirty")
-		selected, selectionErr := c.GetMeta(ctx, "baseline_changed")
-		if selected == "true" {
-			dirty = "baseline"
-		}
-		c.Close()
-		if selectionErr != nil {
-			return selectionErr
-		}
-		if err != nil {
-			return err
-		}
-		publish = dirty != ""
+	dirty, publish, err := s.unpublishedChanges(ctx)
+	if err != nil {
+		return err
 	}
 	if publish {
-		file := s.path()
-		if s.Pending() {
-			file = s.pending()
-		}
-		local, err := repository.NewCatalogRepository(ctx, file)
-		if err != nil {
+		if err = s.publishChanges(ctx, dirty); err != nil {
 			return err
-		}
-		authority, err := local.GetMeta(ctx, model.StateAuthorityKey)
-		local.Close()
-		if err != nil {
-			return err
-		}
-		if authority == "" {
-			authority = s.localAuthority
-		}
-		if authority != "" && authority != s.Set.CatalogTo {
-			return fmt.Errorf("%w: catalog authority changed with unpublished work; use catalog resolve --keep local or remote", ErrConflict)
-		}
-		if err := s.Push(ctx); err != nil {
-			if !errors.Is(err, ErrConflict) {
-				return err
-			}
-			if dirty == "baseline" {
-				return fmt.Errorf("%w: incremental starting snapshot changed on both sides", ErrConflict)
-			}
-			if dirty == "configuration" {
-				return fmt.Errorf("%w: unpublished configuration conflicts with remote state; use catalog resolve", ErrConflict)
-			}
-			if err = s.Reconcile(ctx); err != nil {
-				return err
-			}
 		}
 	} else if err := s.Pull(ctx); err != nil {
 		return err
@@ -141,6 +69,93 @@ func (s *Service) SyncCatalog(ctx context.Context) error {
 	}
 	defer c.Close()
 	return c.SetMeta(ctx, "last_sync", now().Format(time.RFC3339Nano))
+}
+
+func (s *Service) unpublishedChanges(ctx context.Context) (string, bool, error) {
+	dirty := ""
+	publish := s.Pending()
+	if publish {
+		p, err := repository.NewCatalogRepository(ctx, s.pending())
+		if err != nil {
+			return "", false, err
+		}
+		op, readErr := p.GetMeta(ctx, "operation")
+		var dirtyErr error
+		dirty, dirtyErr = p.GetMeta(ctx, "dirty")
+		selected, selectionErr := p.GetMeta(ctx, "baseline_changed")
+		if selected == "true" {
+			dirty = "baseline"
+		}
+		p.Close()
+		if selectionErr != nil {
+			return "", false, selectionErr
+		}
+		if readErr != nil {
+			return "", false, readErr
+		}
+		if dirtyErr != nil {
+			return "", false, dirtyErr
+		}
+		if op != "push" {
+			return "", false, fmt.Errorf("%w: finish %s before sync", ErrPending, op)
+		}
+	} else {
+		c, err := s.Catalog(ctx)
+		if err != nil {
+			return "", false, err
+		}
+		dirty, err = c.GetMeta(ctx, "dirty")
+		selected, selectionErr := c.GetMeta(ctx, "baseline_changed")
+		if selected == "true" {
+			dirty = "baseline"
+		}
+		c.Close()
+		if selectionErr != nil {
+			return "", false, selectionErr
+		}
+		if err != nil {
+			return "", false, err
+		}
+		publish = dirty != ""
+	}
+	return dirty, publish, nil
+}
+
+func (s *Service) publishChanges(ctx context.Context, dirty string) error {
+	file := s.path()
+	if s.Pending() {
+		file = s.pending()
+	}
+	local, err := repository.NewCatalogRepository(ctx, file)
+	if err != nil {
+		return err
+	}
+	authority, err := local.GetMeta(ctx, model.StateAuthorityKey)
+	local.Close()
+	if err != nil {
+		return err
+	}
+	if authority == "" {
+		authority = s.localAuthority
+	}
+	if authority != "" && authority != s.Set.CatalogTo {
+		return fmt.Errorf("%w: catalog authority changed with unpublished work; use catalog resolve --keep local or remote", ErrConflict)
+	}
+	if err := s.Push(ctx); err != nil {
+		if !errors.Is(err, ErrConflict) {
+			return err
+		}
+		if dirty == "baseline" {
+			return fmt.Errorf("%w: incremental starting snapshot changed on both sides", ErrConflict)
+		}
+		if dirty == "configuration" {
+			return fmt.Errorf("%w: unpublished configuration conflicts with remote state; use catalog resolve", ErrConflict)
+		}
+		if err = s.Reconcile(ctx); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) prepareStateMigration(ctx context.Context) (bool, error) {

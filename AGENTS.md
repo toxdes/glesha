@@ -37,7 +37,7 @@
 - Use `fmt.Errorf` with context
 - Validate inputs before processing
 - Use exported `Err*` variables for package-level sentinel errors (e.g., `var ErrNoExistingTask = errors.New("no existing task")`)
-- Error message format: `"package: descriptive message: %w"` (e.g., `"aws: could not create storage bucket: %w"`)
+- Error message format: `"package: descriptive message: %w"` (e.g., `"cloud: could not create storage bucket: %w"`). Errors about a catalog database use `catalog:`, the term users see, rather than `repository:`.
 
 ## Avoid Duplication
 - Leverage existing functions:

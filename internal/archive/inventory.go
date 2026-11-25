@@ -191,12 +191,8 @@ func InventorySources(ctx context.Context, sources fsutil.SourceReader, c reposi
 	if workers < 1 {
 		return fmt.Errorf("archive: hashing workers must be positive")
 	}
-	for _, root := range roots {
-		for _, artifact := range exclude {
-			if excluded(root.Path, artifact) {
-				return fmt.Errorf("archive: source root %s is excluded application state or output", root.Path)
-			}
-		}
+	if err := checkRoots(roots, exclude); err != nil {
+		return err
 	}
 	progress := logger.StartWorkerProgress(ctx, "Scanning", -1, workers)
 	defer progress.Finish()
@@ -212,84 +208,17 @@ func InventorySources(ctx context.Context, sources fsutil.SourceReader, c reposi
 	writer.Add(1)
 	go func() {
 		defer writer.Done()
-		batch := make([]model.Entry, 0, 128)
-		flush := func() {
-			if len(batch) > 0 && ctx.Err() == nil {
-				if err := c.PutEntries(ctx, id, batch); err != nil {
-					fail(err)
-				}
-			}
-			batch = batch[:0]
-		}
-		for entry := range results {
-			if ctx.Err() != nil {
-				continue
-			}
-			batch = append(batch, entry)
-			if len(batch) == cap(batch) {
-				flush()
-			}
-		}
-		flush()
+		writeEntries(ctx, c, id, results, fail)
 	}()
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for v := range jobs {
-				if ctx.Err() != nil {
-					continue
-				}
-				if v.Type == "file" {
-					h, n, e := hashSource(ctx, sources, v.Source, progress)
-					if e != nil {
-						fail(e)
-						continue
-					}
-					info, e := sources.Lstat(ctx, v.Source)
-					if e != nil || !unchanged(v, info) || n != v.Size {
-						fail(fmt.Errorf("archive: source changed while hashing %s", v.Source))
-						continue
-					}
-					v.Hash = h
-				}
-				select {
-				case results <- v:
-				case <-ctx.Done():
-				}
-			}
+			hashEntries(ctx, sources, progress, jobs, results, fail)
 		}()
 	}
 	for _, r := range roots {
-		e := sources.Walk(ctx, r.Path, func(p string, info fs.FileInfo) error {
-			for _, x := range exclude {
-				if excluded(p, x) {
-					if info.IsDir() {
-						return fs.SkipDir
-					}
-					return nil
-				}
-			}
-			rel, e := filepath.Rel(r.Path, p)
-			if e != nil {
-				return e
-			}
-			if r.Name == "" && rel == "." {
-				return nil
-			}
-			rel = path.Join(r.Name, filepath.ToSlash(rel))
-			v, e := metadata(ctx, sources, p, rel, info)
-			if e != nil {
-				return e
-			}
-			select {
-			case jobs <- v:
-				return nil
-			case <-ctx.Done():
-				return ctx.Err()
-			}
-		})
-		if e != nil {
+		if e := walkRoot(ctx, sources, r, exclude, jobs); e != nil {
 			fail(e)
 			break
 		}
@@ -304,6 +233,99 @@ func InventorySources(ctx context.Context, sources fsutil.SourceReader, c reposi
 	if e := ctx.Err(); e != nil {
 		return e
 	}
+	return linkInventoryHardlinks(ctx, c, id)
+}
+
+func checkRoots(roots []model.Root, exclude []string) error {
+	for _, root := range roots {
+		for _, artifact := range exclude {
+			if excluded(root.Path, artifact) {
+				return fmt.Errorf("archive: source root %s is excluded application state or output", root.Path)
+			}
+		}
+	}
+	return nil
+}
+
+func writeEntries(ctx context.Context, c repository.Cataloger, id string, results <-chan model.Entry, fail func(error)) {
+	batch := make([]model.Entry, 0, 128)
+	flush := func() {
+		if len(batch) > 0 && ctx.Err() == nil {
+			if err := c.PutEntries(ctx, id, batch); err != nil {
+				fail(err)
+			}
+		}
+		batch = batch[:0]
+	}
+	for entry := range results {
+		if ctx.Err() != nil {
+			continue
+		}
+		batch = append(batch, entry)
+		if len(batch) == cap(batch) {
+			flush()
+		}
+	}
+	flush()
+}
+
+func hashEntries(ctx context.Context, sources fsutil.SourceReader, progress *logger.Progress, jobs <-chan model.Entry, results chan<- model.Entry, fail func(error)) {
+	for v := range jobs {
+		if ctx.Err() != nil {
+			continue
+		}
+		if v.Type == "file" {
+			h, n, e := hashSource(ctx, sources, v.Source, progress)
+			if e != nil {
+				fail(e)
+				continue
+			}
+			info, e := sources.Lstat(ctx, v.Source)
+			if e != nil || !unchanged(v, info) || n != v.Size {
+				fail(fmt.Errorf("archive: source changed while hashing %s", v.Source))
+				continue
+			}
+			v.Hash = h
+		}
+		select {
+		case results <- v:
+		case <-ctx.Done():
+		}
+	}
+}
+
+func walkRoot(ctx context.Context, sources fsutil.SourceReader, r model.Root, exclude []string, jobs chan<- model.Entry) error {
+	return sources.Walk(ctx, r.Path, func(p string, info fs.FileInfo) error {
+		for _, x := range exclude {
+			if excluded(p, x) {
+				if info.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			}
+		}
+		rel, e := filepath.Rel(r.Path, p)
+		if e != nil {
+			return e
+		}
+		if r.Name == "" && rel == "." {
+			return nil
+		}
+		rel = path.Join(r.Name, filepath.ToSlash(rel))
+		v, e := metadata(ctx, sources, p, rel, info)
+		if e != nil {
+			return e
+		}
+		select {
+		case jobs <- v:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+}
+
+func linkInventoryHardlinks(ctx context.Context, c repository.Cataloger, id string) error {
 	return c.EachEntry(ctx, id, func(v model.Entry) error {
 		if v.Type != "file" || v.Identity == "" {
 			return nil

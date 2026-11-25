@@ -105,18 +105,31 @@ func (s *Service) Condition(ctx context.Context) (Condition, error) {
 	if err := ctx.Err(); err != nil {
 		return Condition{}, err
 	}
+	if cond, done, err := s.blockedCondition(ctx); done {
+		return cond, err
+	}
+	if cond, done, err := s.savedCondition(); done {
+		return cond, err
+	}
+	if s.Pending() {
+		return s.pendingCondition(ctx)
+	}
+	return s.catalogCondition(ctx)
+}
+
+func (s *Service) blockedCondition(ctx context.Context) (Condition, bool, error) {
 	if pending, err := s.DirectoryRepairPending(ctx); err != nil {
-		return Condition{}, err
+		return Condition{}, true, err
 	} else if pending && !s.Pending() {
-		return Condition{State: STATE_STALE, Reason: "Catalog committed; registry replica repair pending", Action: "glesha retry " + s.Set.ID}, nil
+		return Condition{State: STATE_STALE, Reason: "Catalog committed; registry replica repair pending", Action: "glesha retry " + s.Set.ID}, true, nil
 	}
 	if _, err := s.Locator(ctx, s.Set.ID); errors.Is(err, ErrConflict) {
-		return Condition{State: STATE_CONFLICT, Reason: err.Error(), Action: "glesha catalog resolve " + s.Set.ID + " --authority REMOTE"}, nil
+		return Condition{State: STATE_CONFLICT, Reason: err.Error(), Action: "glesha catalog resolve " + s.Set.ID + " --authority REMOTE"}, true, nil
 	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return Condition{}, err
+		return Condition{}, true, err
 	}
 	if locked, err := s.CatalogLocked(ctx); err != nil {
-		return Condition{}, err
+		return Condition{}, true, err
 	} else if locked {
 		action := "glesha catalog unlock " + s.Set.ID
 		reason := "Catalog passphrase required"
@@ -124,47 +137,56 @@ func (s *Service) Condition(ctx context.Context) (Condition, error) {
 			action = "glesha catalog sync " + s.Set.ID
 			reason = "Catalog metadata has not been downloaded"
 		} else if err != nil {
-			return Condition{}, err
+			return Condition{}, true, err
 		}
-		return Condition{State: STATE_LOCKED, Reason: reason, Action: action}, nil
+		return Condition{State: STATE_LOCKED, Reason: reason, Action: action}, true, nil
 	}
+	return Condition{}, false, nil
+}
+
+func (s *Service) savedCondition() (Condition, bool, error) {
 	var result operationResult
 	b, err := os.ReadFile(filepath.Join(s.Directory, "operation-result.json"))
 	if err == nil {
 		if err = json.Unmarshal(b, &result); err != nil {
-			return Condition{}, err
+			return Condition{}, true, err
 		}
 		if result.Version != 1 {
-			return Condition{}, fmt.Errorf("backup: unsupported operation-result version")
+			return Condition{}, true, fmt.Errorf("backup: unsupported operation-result version")
 		}
 		if _, err = ParseSetState(result.State.String()); err != nil {
-			return Condition{}, err
+			return Condition{}, true, err
 		}
 		if result.State != STATE_NEW {
-			return result.Condition, nil
+			return result.Condition, true, nil
 		}
 		_, catalogErr := os.Stat(s.path())
 		_, metadataErr := os.Stat(filepath.Join(s.Directory, "metadata-status.json"))
 		if os.IsNotExist(catalogErr) && os.IsNotExist(metadataErr) {
-			return result.Condition, nil
+			return result.Condition, true, nil
 		}
 		err = os.ErrNotExist
 	}
 	if !os.IsNotExist(err) {
+		return Condition{}, true, err
+	}
+	return Condition{}, false, nil
+}
+
+func (s *Service) pendingCondition(ctx context.Context) (Condition, error) {
+	p, err := repository.NewCatalogRepository(ctx, s.pending())
+	if err != nil {
 		return Condition{}, err
 	}
-	if s.Pending() {
-		p, err := repository.NewCatalogRepository(ctx, s.pending())
-		if err != nil {
-			return Condition{}, err
-		}
-		defer p.Close()
-		op, err := p.GetMeta(ctx, "operation")
-		if err != nil {
-			return Condition{}, err
-		}
-		return Condition{State: STATE_PAUSED, Operation: op, Reason: op + " unfinished", Action: "glesha retry " + s.Set.Name}, nil
+	defer p.Close()
+	op, err := p.GetMeta(ctx, "operation")
+	if err != nil {
+		return Condition{}, err
 	}
+	return Condition{State: STATE_PAUSED, Operation: op, Reason: op + " unfinished", Action: "glesha retry " + s.Set.Name}, nil
+}
+
+func (s *Service) catalogCondition(ctx context.Context) (Condition, error) {
 	if _, err := os.Stat(s.path()); os.IsNotExist(err) {
 		if s.Set.CatalogTo != "" && s.Set.CatalogTo != "local" {
 			return Condition{State: STATE_STALE, Reason: "Catalog unavailable locally", Action: "glesha catalog sync " + s.Set.Name}, nil
@@ -277,7 +299,7 @@ func (s *Service) pendingJobCondition(ctx context.Context, c repository.Cataloge
 				condition.Action = "Repeat the import command."
 				if _, err = os.Stat(file); os.IsNotExist(err) && (job.Requested || strings.Contains(job.Object.Restore, `ongoing-request="true"`)) {
 					condition.State = STATE_WAITING
-					condition.Reason = "Import awaiting AWS retrieval"
+					condition.Reason = "Import awaiting cold retrieval"
 				}
 			} else {
 				var job restoreJob
@@ -298,7 +320,7 @@ func (s *Service) pendingJobCondition(ctx context.Context, c repository.Cataloge
 					}
 					if l.Cold && (request.Requested || strings.Contains(l.Restore, `ongoing-request="true"`)) {
 						condition.State = STATE_WAITING
-						condition.Reason = "Restore awaiting AWS retrieval"
+						condition.Reason = "Restore awaiting cold retrieval"
 					}
 				}
 			}

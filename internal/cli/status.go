@@ -194,7 +194,7 @@ func applyRetrievalCondition(d *statusData) {
 	for _, retrieval := range d.Retrievals {
 		if retrieval.Waiting > 0 {
 			d.Condition.State = backup.STATE_WAITING
-			d.Condition.Reason = "AWS retrieval pending"
+			d.Condition.Reason = "Cold retrieval pending"
 			break
 		}
 	}

@@ -79,7 +79,7 @@ func (r ContextReader) Read(p []byte) (int, error) {
 func Publish(temp, dest string) error {
 	// hard-link publication cannot overwrite an existing output
 	if e := os.Link(temp, dest); e != nil {
-		return fmt.Errorf("file_io: publish %s: %w", dest, e)
+		return fmt.Errorf("fsutil: publish %s: %w", dest, e)
 	}
 	return os.Remove(temp)
 }

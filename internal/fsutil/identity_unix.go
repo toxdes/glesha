@@ -15,7 +15,7 @@ func fileIdentity(root *os.Root, name string) (string, error) {
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
-		return "", fmt.Errorf("file_io: filesystem identity unavailable for %s", name)
+		return "", fmt.Errorf("fsutil: filesystem identity unavailable for %s", name)
 	}
 	return fmt.Sprintf("%d:%d", stat.Dev, stat.Ino), nil
 }

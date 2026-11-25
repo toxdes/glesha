@@ -264,31 +264,7 @@ func absolutePath(p string) (string, error) {
 
 func restore(r *runtime, args []string) error {
 	if r.env.Cancel {
-		if r.env.given("snapshot") || r.env.RequestRetrieval {
-			return fmt.Errorf("cli: --cancel selects restore tasks by --into, not snapshot or retrieval flags")
-		}
-		unlock, err := requireSet(r, args)
-		if err != nil {
-			return err
-		}
-		defer unlock()
-		output, err := fsutil.Expand(r.env.Into)
-		if err != nil {
-			return err
-		}
-		result, err := r.service.CancelRestore(r.ctx, output)
-		if err != nil {
-			return err
-		}
-		text := "No unfinished restore tasks found."
-		if result.Tasks > 0 {
-			noun := "restore tasks"
-			if result.Tasks == 1 {
-				noun = "restore task"
-			}
-			text = fmt.Sprintf("Cancelled %d %s. Restored and downloaded files were kept.", result.Tasks, noun)
-		}
-		return r.emit("restore_cancelled", result, text)
+		return cancelRestore(r, args)
 	}
 	if r.env.Into == "" {
 		return fmt.Errorf("cli: restore requires --into DIR, or --cancel to clear unfinished tasks")
@@ -302,49 +278,22 @@ func restore(r *runtime, args []string) error {
 	if err = r.readableCatalog(); err != nil {
 		return err
 	}
-	into, err := fsutil.Expand(r.env.Into)
+	o, err := restoreTarget(r)
 	if err != nil {
 		return err
 	}
-	into, err = filepath.Abs(into)
-	if err != nil {
-		return err
-	}
-	snapshot, err := r.service.RestoreSelection(r.ctx, r.env.Snapshot, into)
-	if err != nil {
-		return err
-	}
-	if err = r.service.CheckRestoreDestination(r.ctx, snapshot, into); err != nil {
-		return err
-	}
-	from, err := r.remoteIDs(r.env.From)
-	if err != nil {
-		return err
-	}
-	if len(from) == 0 {
-		from = r.service.Set.To
-	}
-	needsRemote, err := r.service.RestoreNeedsDownload(r.ctx, snapshot, into)
-	if err != nil {
-		return err
-	}
-	if needsRemote {
-		if err = r.stores(from); err != nil {
-			return err
-		}
-	}
-
 	retrieval, err := r.retrieval()
 	if err != nil {
 		return err
 	}
-	id, job, err := r.service.PrepareRestore(r.ctx, snapshot, into, from, retrieval)
+	var job string
+	o.ID, job, err = r.service.PrepareRestore(r.ctx, o.ID, o.Output, o.From, retrieval)
 	if err != nil {
 		return err
 	}
 	var stdin []byte
 	defer func() { wipe(stdin) }()
-	err = r.service.Restore(r.ctx, backup.RestoreOptions{ID: id, Output: into, From: from, Password: func(v model.Snapshot) ([]byte, error) {
+	o.Password = func(v model.Snapshot) ([]byte, error) {
 		file := r.env.PassphraseFile
 		if specific, ok := r.env.ArchivePassphraseFiles[v.ID]; ok {
 			file = specific
@@ -360,15 +309,70 @@ func restore(r *runtime, args []string) error {
 			return append([]byte(nil), stdin...), nil
 		}
 		return password(r.ctx, file, "Archive "+v.ID+" passphrase", false)
-	}})
-	if err == nil {
-		os.Remove(job)
-		return r.emit("restore", struct {
-			Snapshot string `json:"snapshot"`
-			Path     string `json:"path"`
-		}{id, into}, fmt.Sprintf("Restored %q to %q.", r.service.Set.Name, into))
 	}
-	return err
+	if err = r.service.Restore(r.ctx, o); err != nil {
+		return err
+	}
+	os.Remove(job)
+	return r.emit("restore", struct {
+		Snapshot string `json:"snapshot"`
+		Path     string `json:"path"`
+	}{o.ID, o.Output}, fmt.Sprintf("Restored %q to %q.", r.service.Set.Name, o.Output))
+}
+
+func cancelRestore(r *runtime, args []string) error {
+	if r.env.given("snapshot") || r.env.RequestRetrieval {
+		return fmt.Errorf("cli: --cancel selects restore tasks by --into, not snapshot or retrieval flags")
+	}
+	unlock, err := requireSet(r, args)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	output, err := fsutil.Expand(r.env.Into)
+	if err != nil {
+		return err
+	}
+	result, err := r.service.CancelRestore(r.ctx, output)
+	if err != nil {
+		return err
+	}
+	text := "No unfinished restore tasks found."
+	if result.Tasks > 0 {
+		noun := "restore tasks"
+		if result.Tasks == 1 {
+			noun = "restore task"
+		}
+		text = fmt.Sprintf("Cancelled %d %s. Restored and downloaded files were kept.", result.Tasks, noun)
+	}
+	return r.emit("restore_cancelled", result, text)
+}
+
+// restoreTarget resolves the snapshot, destination and remotes of a restore and
+// opens the remotes when the archive must be downloaded.
+func restoreTarget(r *runtime) (backup.RestoreOptions, error) {
+	var o backup.RestoreOptions
+	var err error
+	if o.Output, err = absolutePath(r.env.Into); err != nil {
+		return o, err
+	}
+	if o.ID, err = r.service.RestoreSelection(r.ctx, r.env.Snapshot, o.Output); err != nil {
+		return o, err
+	}
+	if err = r.service.CheckRestoreDestination(r.ctx, o.ID, o.Output); err != nil {
+		return o, err
+	}
+	if o.From, err = r.remoteIDs(r.env.From); err != nil {
+		return o, err
+	}
+	if len(o.From) == 0 {
+		o.From = r.service.Set.To
+	}
+	download, err := r.service.RestoreNeedsDownload(r.ctx, o.ID, o.Output)
+	if err != nil || !download {
+		return o, err
+	}
+	return o, r.stores(o.From)
 }
 func rawService(r *runtime) {
 	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Directory: r.root, Stores: map[string]cloud.Store{}}
@@ -405,7 +409,7 @@ func upload(r *runtime, args []string) error {
 			supported = supported || r.service.Capabilities(id).StorageClasses
 		}
 		if !supported {
-			return fmt.Errorf("cli: storage class requires AWS")
+			return fmt.Errorf("cli: storage class requires a destination with storage classes")
 		}
 	}
 	file, err := fsutil.Expand(args[0])
@@ -467,62 +471,15 @@ func check(r *runtime, args []string) error {
 		if err != nil {
 			return err
 		}
-		report := cloud.NewCheckReport()
-		setupErr := r.stores([]string{id})
-		var checkErr error
-		if setupErr == nil {
-			temp, err := fsutil.Temp(r.root)
-			if err != nil {
-				return err
-			}
-			_, err = temp.WriteString("glesha provider check\n")
-			closeErr := temp.Close()
-			if err == nil {
-				err = closeErr
-			}
-			if err == nil {
-				report, checkErr = cloud.CheckAccess(r.ctx, r.service.Stores[id], "glesha/check/"+filepath.Base(temp.Name()), temp.Name())
-			} else {
-				checkErr = err
-			}
-			os.Remove(temp.Name())
-		} else {
-			checkErr = setupErr
+		result, err := checkProvider(r, remote)
+		if err != nil {
+			return err
 		}
-		ok := checkErr == nil
-		if ok {
+		level := logger.INFO
+		if result.passed() {
 			passed++
 		} else {
 			failed++
-		}
-		var text strings.Builder
-		fmt.Fprintf(&text, "Provider %q (%s)\n", remote.Name, remote.Kind)
-		if setupErr != nil {
-			fmt.Fprintf(&text, "  Connection  FAILED: %s\n", setupErr)
-		}
-		errorShown := setupErr != nil
-		for _, step := range report.Steps {
-			fmt.Fprintf(&text, "  %-10s %-7s", step.Name, step.Status)
-			if step.Status == cloud.CHECK_FAILED {
-				errorShown = true
-			}
-			if step.Detail != "" && step.Status == cloud.CHECK_FAILED {
-				fmt.Fprintf(&text, "  %s", step.Detail)
-			}
-			text.WriteByte('\n')
-		}
-		if ok {
-			text.WriteString("  Result      PASS\n")
-		} else if !errorShown {
-			fmt.Fprintf(&text, "  Result      FAIL: %s\n", checkErr)
-		} else {
-			text.WriteString("  Result      FAIL\n")
-		}
-		if report.Key != "" && report.Steps[4].Status != cloud.CHECK_PASSED {
-			fmt.Fprintf(&text, "  Remaining object: %s (version %s)\n", report.Key, report.Version)
-		}
-		level := logger.INFO
-		if !ok {
 			level = logger.ERROR
 		}
 		if err := r.emitAtLevel("provider_check", struct {
@@ -530,7 +487,7 @@ func check(r *runtime, args []string) error {
 			Passed     bool              `json:"passed"`
 			SetupError string            `json:"setup_error,omitempty"`
 			Report     cloud.CheckReport `json:"report"`
-		}{remote.Name, ok, errorText(setupErr), report}, text.String(), level); err != nil {
+		}{remote.Name, result.passed(), errorText(result.setup), result.report}, result.text(), level); err != nil {
 			return err
 		}
 		if r.ctx.Err() != nil {
@@ -552,6 +509,73 @@ func check(r *runtime, args []string) error {
 	}
 	return nil
 }
+
+// providerCheck is the outcome of checking one remote. setup is the error from
+// opening its store; failure is the first error of the whole check.
+type providerCheck struct {
+	remote  model.Remote
+	report  cloud.CheckReport
+	setup   error
+	failure error
+}
+
+func (c providerCheck) passed() bool { return c.failure == nil }
+
+// checkProvider returns an error only when the probe file cannot be created.
+func checkProvider(r *runtime, remote model.Remote) (providerCheck, error) {
+	c := providerCheck{remote: remote, report: cloud.NewCheckReport()}
+	if c.setup = r.stores([]string{remote.ID}); c.setup != nil {
+		c.failure = c.setup
+		return c, nil
+	}
+	temp, err := fsutil.Temp(r.root)
+	if err != nil {
+		return c, err
+	}
+	defer os.Remove(temp.Name())
+	_, err = temp.WriteString("glesha provider check\n")
+	if closeErr := temp.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		c.failure = err
+		return c, nil
+	}
+	c.report, c.failure = cloud.CheckAccess(r.ctx, r.service.Stores[remote.ID], "glesha/check/"+filepath.Base(temp.Name()), temp.Name())
+	return c, nil
+}
+
+func (c providerCheck) text() string {
+	var text strings.Builder
+	fmt.Fprintf(&text, "Provider %q (%s)\n", c.remote.Name, c.remote.Kind)
+	if c.setup != nil {
+		fmt.Fprintf(&text, "  Connection  FAILED: %s\n", c.setup)
+	}
+	errorShown := c.setup != nil
+	for _, step := range c.report.Steps {
+		fmt.Fprintf(&text, "  %-10s %-7s", step.Name, step.Status)
+		if step.Status == cloud.CHECK_FAILED {
+			errorShown = true
+			if step.Detail != "" {
+				fmt.Fprintf(&text, "  %s", step.Detail)
+			}
+		}
+		text.WriteByte('\n')
+	}
+	switch {
+	case c.passed():
+		text.WriteString("  Result      PASS\n")
+	case !errorShown:
+		fmt.Fprintf(&text, "  Result      FAIL: %s\n", c.failure)
+	default:
+		text.WriteString("  Result      FAIL\n")
+	}
+	if c.report.Key != "" && c.report.Steps[4].Status != cloud.CHECK_PASSED {
+		fmt.Fprintf(&text, "  Remaining object: %s (version %s)\n", c.report.Key, c.report.Version)
+	}
+	return text.String()
+}
+
 func errorText(err error) string {
 	if err != nil {
 		return err.Error()

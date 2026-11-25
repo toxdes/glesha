@@ -23,14 +23,42 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 	if store == nil {
 		return fmt.Errorf("backup: discovery remote unavailable")
 	}
-	latest := map[string]cloud.Object{}
-	numbers := map[string]int64{}
 	prefix := strings.TrimSuffix(s.Config.Catalog.Prefix, "/") + "/sets/"
 	folder := "heads"
 	conditional := s.Capabilities(remote).ConditionalWrites
 	if conditional {
 		folder = "commits"
 	}
+	latest, numbers, err := latestCommits(ctx, store, prefix, folder, conditional)
+	if err != nil {
+		return err
+	}
+	for setID, h := range latest {
+		stem := strings.TrimSuffix(filepath.Base(h.Key), ".json")
+		if conditional {
+			stem, err = committedStem(ctx, store, h, setID, numbers[setID])
+			if err != nil {
+				return err
+			}
+		}
+
+		d, err := s.readDescriptor(ctx, store, prefix, setID, stem)
+		if err != nil {
+			return err
+		}
+		if err = s.registerDescriptor(ctx, d); err != nil {
+			return err
+		}
+		if err = fn(d); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func latestCommits(ctx context.Context, store cloud.Store, prefix, folder string, conditional bool) (map[string]cloud.Object, map[string]int64, error) {
+	latest := map[string]cloud.Object{}
+	numbers := map[string]int64{}
 	if err := cloud.List(ctx, store, prefix, func(h cloud.Object) error {
 		parts := strings.Split(strings.TrimPrefix(h.Key, prefix), "/")
 		if len(parts) != 3 || parts[1] != folder {
@@ -62,99 +90,101 @@ func (s *Service) Discover(ctx context.Context, remote string, fn func(Descripto
 		}
 		return nil
 	}); err != nil {
-		return err
+		return nil, nil, err
 	}
-	for setID, h := range latest {
-		stem := strings.TrimSuffix(filepath.Base(h.Key), ".json")
-		if conditional {
-			r, _, err := store.Get(ctx, h.Key, "")
-			if err != nil {
-				return err
-			}
-			b, err := io.ReadAll(io.LimitReader(r, (1<<20)+1))
-			r.Close()
-			if err != nil {
-				return err
-			}
-			var committed revision
-			if err = json.Unmarshal(b, &committed); err != nil {
-				return err
-			}
-			if err = committed.Version.Validate(); err != nil {
-				return fmt.Errorf("backup: discover committed revision: %w", err)
-			}
-			if committed.Set != setID || committed.Number != numbers[setID] {
-				return fmt.Errorf("backup: invalid committed discovery revision")
-			}
-			if _, err = uuid.Parse(committed.ID); err != nil {
-				return err
-			}
-			stem = fmt.Sprintf("%020d-%s", committed.Number, committed.ID)
-		}
+	return latest, numbers, nil
+}
 
-		descriptorKey := prefix + setID + "/descriptors/" + stem + ".json.gz"
-		descriptor, err := store.Head(ctx, descriptorKey+".gpg", "")
-		if err == nil {
-			descriptorKey += ".gpg"
-		} else if cloud.NotFound(err) {
-			descriptor, err = store.Head(ctx, descriptorKey, "")
-		}
-		if err != nil {
-			return err
-		}
-		h = descriptor
-		h.Key = descriptorKey
-		r, _, err := store.Get(ctx, h.Key, "")
-		if err != nil {
-			return err
-		}
-		body, err := s.metadataReader(ctx, r, h.Key)
-		if err != nil {
-			r.Close()
-			return err
-		}
-		var d Descriptor
-		payload, readErr := io.ReadAll(io.LimitReader(body, (4<<20)+1))
-		err = readErr
-		if err == nil && len(payload) > 4<<20 {
-			err = fmt.Errorf("backup: oversized descriptor")
-		}
-		if err == nil {
-			err = json.Unmarshal(payload, &d)
-		}
-		body.Close()
+func committedStem(ctx context.Context, store cloud.Store, h cloud.Object, setID string, number int64) (string, error) {
+	r, _, err := store.Get(ctx, h.Key, "")
+	if err != nil {
+		return "", err
+	}
+	b, err := io.ReadAll(io.LimitReader(r, (1<<20)+1))
+	r.Close()
+	if err != nil {
+		return "", err
+	}
+	var committed revision
+	if err = json.Unmarshal(b, &committed); err != nil {
+		return "", err
+	}
+	if err = committed.Version.Validate(); err != nil {
+		return "", fmt.Errorf("backup: discover committed revision: %w", err)
+	}
+	if committed.Set != setID || committed.Number != number {
+		return "", fmt.Errorf("backup: invalid committed discovery revision")
+	}
+	if _, err = uuid.Parse(committed.ID); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%020d-%s", committed.Number, committed.ID), nil
+}
+
+func (s *Service) readDescriptor(ctx context.Context, store cloud.Store, prefix, setID, stem string) (Descriptor, error) {
+	descriptorKey := prefix + setID + "/descriptors/" + stem + ".json.gz"
+	descriptor, err := store.Head(ctx, descriptorKey+".gpg", "")
+	if err == nil {
+		descriptorKey += ".gpg"
+	} else if cloud.NotFound(err) {
+		descriptor, err = store.Head(ctx, descriptorKey, "")
+	}
+	if err != nil {
+		return Descriptor{}, err
+	}
+	h := descriptor
+	h.Key = descriptorKey
+	r, _, err := store.Get(ctx, h.Key, "")
+	if err != nil {
+		return Descriptor{}, err
+	}
+	body, err := s.metadataReader(ctx, r, h.Key)
+	if err != nil {
 		r.Close()
+		return Descriptor{}, err
+	}
+	var d Descriptor
+	payload, readErr := io.ReadAll(io.LimitReader(body, (4<<20)+1))
+	err = readErr
+	if err == nil && len(payload) > 4<<20 {
+		err = fmt.Errorf("backup: oversized descriptor")
+	}
+	if err == nil {
+		err = json.Unmarshal(payload, &d)
+	}
+	body.Close()
+	r.Close()
+	if err != nil {
+		return Descriptor{}, err
+	}
+	if err = d.Version.Validate(); err != nil {
+		return Descriptor{}, fmt.Errorf("backup: discover descriptor: %w", err)
+	}
+	if d.Set.ID != setID || !validName.MatchString(d.Set.Name) {
+		return Descriptor{}, fmt.Errorf("backup: invalid set descriptor")
+	}
+	if _, err = uuid.Parse(d.Set.ID); err != nil {
+		return Descriptor{}, err
+	}
+	return d, nil
+}
+
+func (s *Service) registerDescriptor(ctx context.Context, d Descriptor) error {
+	for _, ref := range d.Remotes {
+		bound, err := s.Registry.BindRemote(ctx, ref)
 		if err != nil {
 			return err
 		}
-		if err = d.Version.Validate(); err != nil {
-			return fmt.Errorf("backup: discover descriptor: %w", err)
+		if bound.ID != ref.ID {
+			return fmt.Errorf("backup: descriptor remote identity differs")
 		}
-		if d.Set.ID != setID || !validName.MatchString(d.Set.Name) {
-			return fmt.Errorf("backup: invalid set descriptor")
+	}
+	if _, err := s.Registry.Set(ctx, d.Set.ID); err != nil {
+		for i := range d.Set.Roots {
+			d.Set.Roots[i].Path = ""
 		}
-		if _, err = uuid.Parse(d.Set.ID); err != nil {
-			return err
-		}
-		for _, ref := range d.Remotes {
-			bound, err := s.Registry.BindRemote(ctx, ref)
-			if err != nil {
-				return err
-			}
-			if bound.ID != ref.ID {
-				return fmt.Errorf("backup: descriptor remote identity differs")
-			}
-		}
-		if _, err = s.Registry.Set(ctx, d.Set.ID); err != nil {
-			for i := range d.Set.Roots {
-				d.Set.Roots[i].Path = ""
-			}
-			if err = s.Registry.Create(ctx, d.Set); err != nil {
-				return fmt.Errorf("backup: discovered set name conflicts; metadata is preserved remotely: %w", err)
-			}
-		}
-		if err = fn(d); err != nil {
-			return err
+		if err = s.Registry.Create(ctx, d.Set); err != nil {
+			return fmt.Errorf("backup: discovered set name conflicts; metadata is preserved remotely: %w", err)
 		}
 	}
 	return nil

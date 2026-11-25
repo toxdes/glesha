@@ -9,7 +9,7 @@ import (
 
 func PublishDir(temp, dest string) error {
 	if _, e := os.Lstat(dest); !os.IsNotExist(e) {
-		return fmt.Errorf("file_io: output exists")
+		return fmt.Errorf("fsutil: output exists")
 	}
 	return os.Rename(temp, dest)
 }

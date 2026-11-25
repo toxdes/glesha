@@ -49,12 +49,12 @@ func (r *runtime) configuredRemotes() []string {
 
 func (r *runtime) cacheCatalog() error {
 	result, err := r.cacheCatalogWithResult()
-	r.catalogCacheUpdated = r.catalogCacheUpdated || result.Updated
+	r.catalogSync.cacheUpdated = r.catalogSync.cacheUpdated || result.Updated
 	return err
 }
 
 func (r *runtime) cacheCatalogWithResult() (backup.CatalogCacheResult, error) {
-	if !r.catalogCheckActive {
+	if !r.catalogSync.checking {
 		progress, err := r.startActivity("Checking catalog metadata")
 		if err != nil {
 			return backup.CatalogCacheResult{}, err
@@ -246,7 +246,7 @@ func (r *runtime) replicateDirectory() error {
 		}
 	}
 	updated, err := r.service.PublishDirectoryWithResult(r.ctx)
-	r.catalogReplicasUpdated += updated
+	r.catalogSync.replicasUpdated += updated
 	if err != nil {
 		failures = append(failures, err)
 	}
@@ -255,7 +255,7 @@ func (r *runtime) replicateDirectory() error {
 }
 
 func catalogDiscover(r *runtime) error {
-	r.catalogReplicasUpdated = 0
+	r.catalogSync.replicasUpdated = 0
 	summary := catalogSyncSummary{}
 	failures := catalogFailures{}
 	discoveryErr := r.discoverState(r.env.From)
@@ -282,73 +282,7 @@ func catalogDiscover(r *runtime) error {
 			}
 			continue
 		}
-		err := func() error {
-			if err := r.openSet(set.ID); err != nil {
-				return err
-			}
-			if err := r.checkRemote(r.service.Set.CatalogTo); err != nil {
-				summary.Skipped++
-				summary.outOfScope++
-				if !r.env.jsonOutput() {
-					return nil
-				}
-				return r.emit("catalog_state", catalogSyncResult{Set: set.ID, State: backup.CatalogStateSkipped, Reason: err.Error()}, fmt.Sprintf("%s  SKIPPED  %s", set.ID, logger.ASCII(err.Error())))
-			}
-			r.service.Stores = stores
-			release, err := r.lock()
-			if err != nil {
-				return err
-			}
-			defer release()
-			if err = r.syncStores(); err != nil {
-				return err
-			}
-			before, err := r.localCatalogRevision()
-			if err != nil {
-				return err
-			}
-			cached, err := r.cacheCatalogWithResult()
-			if err != nil {
-				return err
-			}
-			state := backup.CatalogStateDownloaded
-			if set.Name == set.ID {
-				state = backup.CatalogStateLocked
-			}
-			if err = r.service.CachedEncryption(r.ctx); err != nil {
-				return err
-			}
-			locked, err := r.service.CatalogLocked(r.ctx)
-			if err != nil {
-				return err
-			}
-			ahead := false
-			if !locked {
-				ahead, err = r.service.DownloadedCatalogAhead(r.ctx)
-				if err != nil {
-					return err
-				}
-			}
-			if !r.service.Config.Catalog.Encrypted {
-				if locked || ahead {
-					if err = r.service.UnlockCached(r.ctx); err != nil {
-						return err
-					}
-				}
-				if err = r.service.SyncCatalog(r.ctx); err != nil {
-					return err
-				}
-				locked = false
-				state = backup.CatalogStateSynced
-			} else {
-				locked = locked || ahead
-			}
-			after, err := r.localCatalogRevision()
-			if err != nil {
-				return err
-			}
-			return r.emitCatalogResult(state, cached.Updated || before != after, locked, &summary)
-		}()
+		err := discoverSetCatalog(r, set, stores, &summary)
 		if err != nil {
 			summary.Failed++
 			if outputErr := failures.addSet(r, set, err); outputErr != nil {
@@ -366,4 +300,72 @@ func catalogDiscover(r *runtime) error {
 		}
 	}
 	return failures.finish(r, summary)
+}
+
+func discoverSetCatalog(r *runtime, set model.Set, stores map[string]cloud.Store, summary *catalogSyncSummary) error {
+	if err := r.openSet(set.ID); err != nil {
+		return err
+	}
+	if err := r.checkRemote(r.service.Set.CatalogTo); err != nil {
+		summary.Skipped++
+		summary.outOfScope++
+		if !r.env.jsonOutput() {
+			return nil
+		}
+		return r.emit("catalog_state", catalogSyncResult{Set: set.ID, State: backup.CatalogStateSkipped, Reason: err.Error()}, fmt.Sprintf("%s  SKIPPED  %s", set.ID, logger.ASCII(err.Error())))
+	}
+	r.service.Stores = stores
+	release, err := r.lock()
+	if err != nil {
+		return err
+	}
+	defer release()
+	if err = r.syncStores(); err != nil {
+		return err
+	}
+	before, err := r.localCatalogRevision()
+	if err != nil {
+		return err
+	}
+	cached, err := r.cacheCatalogWithResult()
+	if err != nil {
+		return err
+	}
+	state := backup.CatalogStateDownloaded
+	if set.Name == set.ID {
+		state = backup.CatalogStateLocked
+	}
+	if err = r.service.CachedEncryption(r.ctx); err != nil {
+		return err
+	}
+	locked, err := r.service.CatalogLocked(r.ctx)
+	if err != nil {
+		return err
+	}
+	ahead := false
+	if !locked {
+		ahead, err = r.service.DownloadedCatalogAhead(r.ctx)
+		if err != nil {
+			return err
+		}
+	}
+	if !r.service.Config.Catalog.Encrypted {
+		if locked || ahead {
+			if err = r.service.UnlockCached(r.ctx); err != nil {
+				return err
+			}
+		}
+		if err = r.service.SyncCatalog(r.ctx); err != nil {
+			return err
+		}
+		locked = false
+		state = backup.CatalogStateSynced
+	} else {
+		locked = locked || ahead
+	}
+	after, err := r.localCatalogRevision()
+	if err != nil {
+		return err
+	}
+	return r.emitCatalogResult(state, cached.Updated || before != after, locked, summary)
 }

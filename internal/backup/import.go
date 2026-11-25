@@ -73,38 +73,8 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	}
 	defer os.RemoveAll(extraction)
 	v = model.Snapshot{Manifest: model.Manifest{Version: 1, ID: uuid.NewString(), Set: s.Set.ID, Full: true}, Imported: true, BackupDate: o.Date, Created: now(), File: o.File, Hash: hash, Size: size, Status: model.STATUS_COMPLETED}
-	var manifest model.Manifest
 	scan := "scan-" + v.ID
-	v.Compression, err = archive.ExtractInto(ctx, archive.ExtractOptions{Input: o.File, Password: o.Password, StripWrapper: true, Catalog: staged, Snapshot: scan}, extraction, &manifest)
-	if err != nil {
-		return v, err
-	}
-	if manifest.Layout == "chunked" {
-		return v, fmt.Errorf("backup: individual chunked objects cannot be imported; pull the set catalog")
-	}
-	if manifest.ID != "" {
-		if !manifest.Full {
-			return v, fmt.Errorf("backup: only full archives may be imported")
-		}
-		v.PayloadID = manifest.ID
-		v.InitialClass = manifest.InitialClass
-	}
-	roots, err := readImportedRoots(extraction)
-	if err != nil {
-		return v, err
-	}
-	if err = mapImportedRoots(roots, s.Set.Roots, o.Roots); err != nil {
-		return v, err
-	}
-	v.Roots = roots
-	scanRoots := make([]model.Root, len(roots))
-	for i, r := range roots {
-		scanRoots[i] = model.Root{Name: r.Name, Path: filepath.Join(extraction, r.Name)}
-	}
-	if err = archive.Inventory(ctx, staged, v.ID, scanRoots, nil, s.Budget.HashWorkers); err != nil {
-		return v, err
-	}
-	wrapper, err := catalogImportedEntries(ctx, staged, v.ID, scan)
+	v, wrapper, err := s.extractImport(ctx, staged, extraction, o, v, scan)
 	if err != nil {
 		return v, err
 	}
@@ -112,24 +82,7 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	if err != nil || hash != afterHash || size != afterSize {
 		return v, fmt.Errorf("backup: archive changed during import")
 	}
-	if o.Remote != "" {
-		o.Object.Snapshot = v.ID
-		if err = staged.PutLocation(ctx, o.Object); err != nil {
-			return v, err
-		}
-	}
-	if o.Baseline {
-		if err = staged.SetMeta(ctx, "baseline_changed", "true"); err != nil {
-			return v, err
-		}
-	}
-	if err = staged.Commit(ctx, v, wrapper, o.Baseline); err != nil {
-		return v, err
-	}
-	if err = staged.DeleteEntries(ctx, scan); err != nil {
-		return v, err
-	}
-	if err = staged.SetMeta(ctx, "dirty", "import"); err != nil {
+	if err = commitImport(ctx, staged, o, v, wrapper, scan); err != nil {
 		return v, err
 	}
 	compact := temp.Name() + ".compact"
@@ -149,13 +102,73 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	if s.Set.CatalogTo == "" && o.Remote == "" {
 		s.Set.CatalogTo = "local"
 	}
-	s.Set.Roots = roots
+	s.Set.Roots = v.Roots
 	if len(s.Set.To) == 0 && o.Remote != "" {
 		s.Set.To = []string{o.Remote}
 		s.Set.CatalogTo = o.Remote
 	}
 	err = s.Registry.Save(ctx, s.Set)
 	return v, err
+}
+
+func (s *Service) extractImport(ctx context.Context, staged repository.Cataloger, extraction string, o ImportOptions, v model.Snapshot, scan string) (model.Snapshot, string, error) {
+	var err error
+	var manifest model.Manifest
+	v.Compression, err = archive.ExtractInto(ctx, archive.ExtractOptions{Input: o.File, Password: o.Password, StripWrapper: true, Catalog: staged, Snapshot: scan}, extraction, &manifest)
+	if err != nil {
+		return v, "", err
+	}
+	if manifest.Layout == "chunked" {
+		return v, "", fmt.Errorf("backup: individual chunked objects cannot be imported; pull the set catalog")
+	}
+	if manifest.ID != "" {
+		if !manifest.Full {
+			return v, "", fmt.Errorf("backup: only full archives may be imported")
+		}
+		v.PayloadID = manifest.ID
+		v.InitialClass = manifest.InitialClass
+	}
+	roots, err := readImportedRoots(extraction)
+	if err != nil {
+		return v, "", err
+	}
+	if err = mapImportedRoots(roots, s.Set.Roots, o.Roots); err != nil {
+		return v, "", err
+	}
+	v.Roots = roots
+	scanRoots := make([]model.Root, len(roots))
+	for i, r := range roots {
+		scanRoots[i] = model.Root{Name: r.Name, Path: filepath.Join(extraction, r.Name)}
+	}
+	if err = archive.Inventory(ctx, staged, v.ID, scanRoots, nil, s.Budget.HashWorkers); err != nil {
+		return v, "", err
+	}
+	wrapper, err := catalogImportedEntries(ctx, staged, v.ID, scan)
+	if err != nil {
+		return v, "", err
+	}
+	return v, wrapper, nil
+}
+
+func commitImport(ctx context.Context, staged repository.Cataloger, o ImportOptions, v model.Snapshot, wrapper, scan string) error {
+	if o.Remote != "" {
+		o.Object.Snapshot = v.ID
+		if err := staged.PutLocation(ctx, o.Object); err != nil {
+			return err
+		}
+	}
+	if o.Baseline {
+		if err := staged.SetMeta(ctx, "baseline_changed", "true"); err != nil {
+			return err
+		}
+	}
+	if err := staged.Commit(ctx, v, wrapper, o.Baseline); err != nil {
+		return err
+	}
+	if err := staged.DeleteEntries(ctx, scan); err != nil {
+		return err
+	}
+	return staged.SetMeta(ctx, "dirty", "import")
 }
 
 // findRegistered returns the snapshot already holding the archive with hash and size.

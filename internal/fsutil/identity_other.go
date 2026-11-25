@@ -8,5 +8,5 @@ import (
 )
 
 func fileIdentity(_ *os.Root, name string) (string, error) {
-	return "", fmt.Errorf("file_io: resumable directory publication is unsupported on this platform: %s", name)
+	return "", fmt.Errorf("fsutil: resumable directory publication is unsupported on this platform: %s", name)
 }

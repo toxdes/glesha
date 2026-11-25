@@ -30,7 +30,7 @@ func ReadPassword(ctx context.Context, input *os.File) (secret []byte, err error
 		if restoreErr := windows.SetConsoleMode(handle, original); restoreErr != nil {
 			clear(secret)
 			secret = nil
-			err = errors.Join(err, fmt.Errorf("file_io: restore console: %w", restoreErr))
+			err = errors.Join(err, fmt.Errorf("fsutil: restore console: %w", restoreErr))
 		}
 	}()
 	stop, stopped := make(chan struct{}), make(chan struct{})
@@ -88,7 +88,7 @@ func ReadPassword(ctx context.Context, input *os.File) (secret []byte, err error
 				return nil, context.Canceled
 			}
 			if len(units) >= 1<<20 {
-				return nil, fmt.Errorf("file_io: passphrase exceeds 1MiB")
+				return nil, fmt.Errorf("fsutil: passphrase exceeds 1MiB")
 			}
 			units = append(units, unit)
 		}
@@ -100,7 +100,7 @@ func ReadPassword(ctx context.Context, input *os.File) (secret []byte, err error
 		secret = utf8.AppendRune(secret, r)
 	}
 	if len(secret) >= 1<<20 {
-		return secret, fmt.Errorf("file_io: passphrase exceeds 1MiB")
+		return secret, fmt.Errorf("fsutil: passphrase exceeds 1MiB")
 	}
 	return secret, nil
 }

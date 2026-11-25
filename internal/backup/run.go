@@ -116,9 +116,37 @@ func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *mode
 	if err != nil {
 		return err
 	}
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var failures []error
+	verified, err := s.verifyUploads(ctx, v, locations)
+	if err != nil {
+		return err
+	}
+	if err = s.uploadSnapshot(ctx, c, v, locations); err != nil {
+		return err
+	}
+	wrapper, err := c.GetMeta(ctx, "archive_wrapper")
+	if err != nil {
+		return err
+	}
+	if wrapper == "" {
+		wrapper = archive.Stem(v.File)
+	}
+	if err = c.Commit(ctx, *v, wrapper, true); err != nil {
+		return err
+	}
+	v.Status = model.STATUS_COMPLETED
+	if err = s.publish(ctx, c, currentAuthority); err != nil {
+		return err
+	}
+	if err = s.finishPending(ctx, c); err != nil {
+		return err
+	}
+	if request.AutoCleanup && local != nil {
+		return removeLocalArchive(ctx, v, local, verified)
+	}
+	return nil
+}
+
+func (s *Service) verifyUploads(ctx context.Context, v *model.Snapshot, locations []model.Location) (bool, error) {
 	verified := false
 	for _, remote := range strings.Split(v.Destinations, ",") {
 		done := false
@@ -133,15 +161,22 @@ func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *mode
 		if !verified {
 			hash, size, err := archive.Hash(logger.WithProgressLabel(ctx, "Checking archive before upload"), v.File)
 			if err != nil || hash != v.Hash || size != v.Size {
-				return fmt.Errorf("backup: completed encrypted archive is unavailable or changed; pending work retained")
+				return false, fmt.Errorf("backup: completed encrypted archive is unavailable or changed; pending work retained")
 			}
 			verified = true
 		}
 		store := s.Stores[remote]
 		if store == nil {
-			return fmt.Errorf("backup: pending remote is unavailable")
+			return false, fmt.Errorf("backup: pending remote is unavailable")
 		}
 	}
+	return verified, nil
+}
+
+func (s *Service) uploadSnapshot(ctx context.Context, c repository.Cataloger, v *model.Snapshot, locations []model.Location) error {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var failures []error
 	for _, remote := range strings.Split(v.Destinations, ",") {
 		done := false
 		for _, l := range locations {
@@ -178,38 +213,24 @@ func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *mode
 	if len(failures) > 0 {
 		return fmt.Errorf("%w: upload failed; encrypted archive retained: %v", ErrPending, failures[0])
 	}
-	wrapper, err := c.GetMeta(ctx, "archive_wrapper")
-	if err != nil {
-		return err
-	}
-	if wrapper == "" {
-		wrapper = archive.Stem(v.File)
-	}
-	if err = c.Commit(ctx, *v, wrapper, true); err != nil {
-		return err
-	}
-	v.Status = model.STATUS_COMPLETED
-	if err = s.publish(ctx, c, currentAuthority); err != nil {
-		return err
-	}
-	if err = s.finishPending(ctx, c); err != nil {
-		return err
-	}
-	if request.AutoCleanup && local != nil {
-		// publication-only retries may not have checked local bytes
-		if !verified {
-			hash, size, err := archive.Hash(logger.WithProgress(ctx, nil), v.File)
-			if err != nil || hash != v.Hash || size != v.Size {
-				logger.Warn("Archive retained: local file changed or unavailable.")
-				return nil
-			}
+	return nil
+}
+
+func removeLocalArchive(ctx context.Context, v *model.Snapshot, local os.FileInfo, verified bool) error {
+	// publication-only retries may not have checked local bytes
+	if !verified {
+		hash, size, err := archive.Hash(logger.WithProgress(ctx, nil), v.File)
+		if err != nil || hash != v.Hash || size != v.Size {
+			logger.Warn("Archive retained: local file changed or unavailable.")
+			return nil
 		}
-		if err := fsutil.RemoveUnchanged(v.File, local); err != nil {
-			logger.Warn(fmt.Sprintf("Archive retained: %v", err))
-		}
+	}
+	if err := fsutil.RemoveUnchanged(v.File, local); err != nil {
+		logger.Warn(fmt.Sprintf("Archive retained: %v", err))
 	}
 	return nil
 }
+
 func (s *Service) payloadKey(v model.Snapshot) string {
 	return "glesha/archives/" + s.Set.ID + "/" + v.ID + archive.Extension(v.Compression) + ".gpg"
 }

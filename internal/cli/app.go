@@ -135,24 +135,21 @@ type AppCmdEnv struct {
 }
 
 type runtime struct {
-	emitted                int
-	command                string
-	catalogCheckProgress   *logger.Progress
-	catalogCheckActive     bool
-	catalogCacheUpdated    bool
-	catalogReplicasUpdated int
-	remoteScope            *remoteScope
-	operationLocked        bool
-	ctx                    context.Context
-	env                    *AppCmdEnv
-	config                 config.Config
-	budget                 memory.Budget
-	registry               repository.Registryor
-	root                   string
-	service                *backup.Service
-	out                    io.Writer
-	errOut                 io.Writer
-	limit                  chan struct{}
+	emitted         int
+	command         string
+	catalogSync     catalogSyncRun
+	remoteScope     *remoteScope
+	operationLocked bool
+	ctx             context.Context
+	env             *AppCmdEnv
+	config          config.Config
+	budget          memory.Budget
+	registry        repository.Registryor
+	root            string
+	service         *backup.Service
+	out             io.Writer
+	errOut          io.Writer
+	limit           chan struct{}
 }
 type handler func(*runtime, []string) error
 

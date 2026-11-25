@@ -15,7 +15,7 @@ func TryMoveLock(path string) (Unlocker, error) {
 		return nil, err
 	}
 	if !ok {
-		return nil, fmt.Errorf("file_io: lock is in use: %s", path)
+		return nil, fmt.Errorf("fsutil: lock is in use: %s", path)
 	}
 	return lock, nil
 }
