@@ -204,11 +204,11 @@ func (s *Service) inspect(ctx context.Context, plan *retrievalPlan, snapshot mod
 			}
 			h, err := store.Head(ctx, l.Key, l.Version)
 			if err != nil {
-				last = err
+				last = s.remoteError(ctx, remote, err)
 				continue
 			}
 			if h.Size != snapshot.Size || h.Hash != "" && h.Hash != snapshot.Hash {
-				last = fmt.Errorf("backup: registered object identity changed")
+				last = s.remoteError(ctx, remote, fmt.Errorf("backup: registered object identity changed"))
 				continue
 			}
 			l.Version, l.CurrentClass, l.Restore, l.Cold = h.Version, h.Class, h.Restore, h.Cold
@@ -221,7 +221,7 @@ func (s *Service) inspect(ctx context.Context, plan *retrievalPlan, snapshot mod
 				return nil
 			}
 			if !s.Capabilities(remote).ColdRetrieval {
-				last = fmt.Errorf("backup: remote cannot retrieve cold objects")
+				last = s.remoteError(ctx, remote, fmt.Errorf("backup: remote cannot retrieve cold objects"))
 				continue
 			}
 			tier := plan.tier
@@ -229,7 +229,7 @@ func (s *Service) inspect(ctx context.Context, plan *retrievalPlan, snapshot mod
 				tier = "bulk"
 			}
 			if tier == "expedited" && h.DeepArchive() {
-				last = fmt.Errorf("backup: expedited retrieval is unavailable for Deep Archive")
+				last = s.remoteError(ctx, remote, fmt.Errorf("backup: expedited retrieval is unavailable for Deep Archive"))
 				continue
 			}
 			if cold == nil {
@@ -392,7 +392,7 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 		}
 		return "", job.Remote, h, fmt.Errorf("%w: import retrieval in progress; repeat import when readable", ErrPending)
 	}
-	object, err := Download(ctx, s.Stores, []string{job.Remote}, key, job.Object.Version, file)
+	object, err := s.Download(ctx, []string{job.Remote}, key, job.Object.Version, file)
 	if err != nil {
 		return "", "", object, err
 	}
@@ -419,7 +419,7 @@ func (s *Service) selectImportSource(ctx context.Context, from []string, key, si
 		}
 		h, err := store.Head(ctx, key, "")
 		if err != nil {
-			last = err
+			last = s.remoteError(ctx, remote, err)
 			continue
 		}
 		checked := now()

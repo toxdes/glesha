@@ -13,7 +13,19 @@ import (
 	"glesha/internal/logger"
 )
 
-func Download(ctx context.Context, stores map[string]cloud.Store, from []string, key, version, output string) (cloud.Object, error) {
+// remoteError names the remote whose operation failed, by its configured name.
+func (s *Service) remoteError(ctx context.Context, id string, err error) error {
+	name := id
+	if s.Registry != nil {
+		if remote, lookupErr := s.Registry.Remote(context.WithoutCancel(ctx), id); lookupErr == nil && remote.Name != "" {
+			name = remote.Name
+		}
+	}
+	return fmt.Errorf("remote %q: %w", name, err)
+}
+
+// Download copies key from the first remote in from that serves it.
+func (s *Service) Download(ctx context.Context, from []string, key, version, output string) (cloud.Object, error) {
 	if len(from) == 0 {
 		return cloud.Object{}, fmt.Errorf("backup: --from is required")
 	}
@@ -22,14 +34,14 @@ func Download(ctx context.Context, stores map[string]cloud.Store, from []string,
 	}
 	var last error
 	for _, id := range from {
-		store := stores[id]
+		store := s.Stores[id]
 		if store == nil {
-			last = fmt.Errorf("backup: remote unavailable")
+			last = s.remoteError(ctx, id, fmt.Errorf("backup: remote unavailable"))
 			continue
 		}
 		r, h, err := store.Get(ctx, key, version)
 		if err != nil {
-			last = err
+			last = s.remoteError(ctx, id, err)
 			continue
 		}
 		temp, err := fsutil.Temp(filepath.Dir(output))
@@ -52,23 +64,26 @@ func Download(ctx context.Context, stores map[string]cloud.Store, from []string,
 		if err == nil {
 			return h, nil
 		}
-		last = err
+		last = s.remoteError(ctx, id, err)
 	}
 	return cloud.Object{}, last
 }
-func Upload(ctx context.Context, stores map[string]cloud.Store, to []string, key, file, class string, force bool) error {
+
+// Upload writes file to key on every remote in to. Without force, a key that
+// already exists on any of them is an error.
+func (s *Service) Upload(ctx context.Context, to []string, key, file, class string, force bool) error {
 	if len(to) == 0 {
 		return fmt.Errorf("backup: --to is required")
 	}
 	for _, id := range to {
-		if stores[id] == nil {
-			return fmt.Errorf("backup: remote unavailable")
+		if s.Stores[id] == nil {
+			return s.remoteError(ctx, id, fmt.Errorf("backup: remote unavailable"))
 		}
 		if !force {
-			if _, err := stores[id].Head(ctx, key, ""); err == nil {
-				return fmt.Errorf("backup: remote key exists; use --force for replacement")
+			if _, err := s.Stores[id].Head(ctx, key, ""); err == nil {
+				return s.remoteError(ctx, id, fmt.Errorf("backup: remote key exists; use --force for replacement"))
 			} else if !cloud.NotFound(err) {
-				return err
+				return s.remoteError(ctx, id, err)
 			}
 		}
 	}
@@ -80,12 +95,12 @@ func Upload(ctx context.Context, stores map[string]cloud.Store, to []string, key
 			defer wg.Done()
 			var err error
 			if force {
-				_, err = stores[id].Put(ctx, key, file, class)
+				_, err = s.Stores[id].Put(ctx, key, file, class)
 			} else {
-				_, err = cloud.Create(ctx, stores[id], key, file, class)
+				_, err = cloud.Create(ctx, s.Stores[id], key, file, class)
 			}
 			if err != nil {
-				failures <- fmt.Errorf("backup: upload to %s: %w", id, err)
+				failures <- s.remoteError(ctx, id, fmt.Errorf("backup: upload: %w", err))
 			}
 		}(id)
 	}

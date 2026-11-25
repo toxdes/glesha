@@ -225,7 +225,7 @@ func (r *runtime) sameRemoteContent(id, key, version, hash string) error {
 	temp.Close()
 	os.Remove(name)
 	defer os.Remove(name)
-	if _, err = backup.Download(r.ctx, r.service.Stores, []string{id}, key, version, name); err != nil {
+	if _, err = r.service.Download(r.ctx, []string{id}, key, version, name); err != nil {
 		return err
 	}
 	remoteHash, _, err := archive.Hash(r.ctx, name)
@@ -416,7 +416,7 @@ func upload(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err = backup.Upload(cloud.WithTransferLabel(r.ctx, "file"), r.service.Stores, to, key, file, class, r.env.Force); err != nil {
+	if err = r.service.Upload(cloud.WithTransferLabel(r.ctx, "file"), to, key, file, class, r.env.Force); err != nil {
 		return err
 	}
 	return r.completed(file, key, fmt.Sprintf("Uploaded %q to %s as %q.", file, strings.Join(r.env.To, ", "), key))
@@ -444,7 +444,7 @@ func download(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	object, err := backup.Download(r.ctx, r.service.Stores, from, args[0], "", output)
+	object, err := r.service.Download(r.ctx, from, args[0], "", output)
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -175,9 +176,9 @@ func (s *Service) verifyUploads(ctx context.Context, v *model.Snapshot, location
 
 func (s *Service) uploadSnapshot(ctx context.Context, c repository.Cataloger, v *model.Snapshot, locations []model.Location) error {
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var failures []error
-	for _, remote := range strings.Split(v.Destinations, ",") {
+	destinations := strings.Split(v.Destinations, ",")
+	failures := make([]error, len(destinations))
+	for i, remote := range destinations {
 		done := false
 		for _, l := range locations {
 			if l.Provider == remote && l.Status == model.STATUS_COMPLETED {
@@ -193,7 +194,7 @@ func (s *Service) uploadSnapshot(ctx context.Context, c repository.Cataloger, v 
 			class = "STANDARD"
 		}
 		wg.Add(1)
-		go func(remote, class string, store cloud.Store) {
+		go func(i int, remote, class string, store cloud.Store) {
 			defer wg.Done()
 			key := s.payloadKey(*v)
 			h, err := cloud.Create(ctx, store, key, v.File, class)
@@ -203,15 +204,13 @@ func (s *Service) uploadSnapshot(ctx context.Context, c repository.Cataloger, v 
 				err = c.PutLocation(ctx, l)
 			}
 			if err != nil {
-				mu.Lock()
-				failures = append(failures, err)
-				mu.Unlock()
+				failures[i] = s.remoteError(ctx, remote, err)
 			}
-		}(remote, class, store)
+		}(i, remote, class, store)
 	}
 	wg.Wait()
-	if len(failures) > 0 {
-		return fmt.Errorf("%w: upload failed; encrypted archive retained: %v", ErrPending, failures[0])
+	if err := errors.Join(failures...); err != nil {
+		return fmt.Errorf("%w: upload failed; encrypted archive retained: %v", ErrPending, err)
 	}
 	return nil
 }

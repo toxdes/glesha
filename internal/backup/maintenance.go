@@ -455,7 +455,7 @@ func (s *Service) downloadMoveSource(ctx context.Context, locations []model.Loca
 			if l.Provider != remote {
 				continue
 			}
-			if _, err := Download(ctx, s.Stores, []string{remote}, l.Key, l.Version, file); err == nil {
+			if _, err := s.Download(ctx, []string{remote}, l.Key, l.Version, file); err == nil {
 				return true
 			}
 		}

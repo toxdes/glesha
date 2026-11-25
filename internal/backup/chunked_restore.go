@@ -80,12 +80,12 @@ func (r *chunkStream) open() error {
 			}
 			remote, object, err := store.Get(r.ctx, l.Key, l.Version)
 			if err != nil {
-				last = err
+				last = r.service.remoteError(r.ctx, provider, err)
 				continue
 			}
 			if object.Size != c.Size || object.Hash != "" && object.Hash != c.Hash {
 				remote.Close()
-				last = fmt.Errorf("backup: chunk object identity changed")
+				last = r.service.remoteError(r.ctx, provider, fmt.Errorf("backup: chunk object identity changed"))
 				continue
 			}
 			r.remote = remote

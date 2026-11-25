@@ -204,7 +204,7 @@ func (s *Service) uploadChunk(ctx context.Context, c repository.Cataloger, v *mo
 		}
 		store := s.Stores[remote]
 		if store == nil {
-			return fmt.Errorf("backup: chunk destination is unavailable")
+			return s.remoteError(ctx, remote, fmt.Errorf("backup: chunk destination is unavailable"))
 		}
 		class := v.InitialClass
 		if !s.Capabilities(remote).StorageClasses {
@@ -212,7 +212,7 @@ func (s *Service) uploadChunk(ctx context.Context, c repository.Cataloger, v *mo
 		}
 		h, err := cloud.Create(cloud.WithTransferLabel(ctx, fmt.Sprintf("chunk %d", index+1)), store, ch.Key, ch.File, class)
 		if err != nil {
-			return fmt.Errorf("%w: chunk upload: %v", ErrPending, err)
+			return fmt.Errorf("%w: chunk upload: %v", ErrPending, s.remoteError(ctx, remote, err))
 		}
 		if h.Size != ch.Size || h.Hash != "" && h.Hash != ch.Hash {
 			return fmt.Errorf("backup: uploaded chunk identity differs")
@@ -384,11 +384,11 @@ func (s *Service) finishChunked(ctx context.Context, c repository.Cataloger, v *
 			class = "STANDARD"
 		}
 		if s.Stores[remote] == nil {
-			return fmt.Errorf("backup: pending chunk destination is unavailable")
+			return s.remoteError(ctx, remote, fmt.Errorf("backup: pending chunk destination is unavailable"))
 		}
 		h, err := cloud.Create(cloud.WithTransferLabel(ctx, "chunk manifest"), s.Stores[remote], "glesha/archives/"+s.Set.ID+"/"+v.ID+"/manifest.json.gpg", v.ReadyFile, class)
 		if err != nil {
-			return fmt.Errorf("%w: chunk manifest upload: %v", ErrPending, err)
+			return fmt.Errorf("%w: chunk manifest upload: %v", ErrPending, s.remoteError(ctx, remote, err))
 		}
 		expected := v.Size
 		for _, ch := range v.Chunks {

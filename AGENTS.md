@@ -39,6 +39,7 @@
 - Validate inputs before processing
 - Use exported `Err*` variables for package-level sentinel errors (e.g., `var ErrNoExistingTask = errors.New("no existing task")`)
 - Error message format: `"package: descriptive message: %w"` (e.g., `"cloud: could not create storage bucket: %w"`). Errors about a catalog database use `catalog:`, the term users see, rather than `repository:`.
+- An error from one of several remotes names the remote: wrap it with `Service.remoteError`, which uses the configured remote name.
 
 ## Avoid Duplication
 - Leverage existing functions:

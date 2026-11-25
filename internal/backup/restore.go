@@ -195,7 +195,7 @@ func (s *Service) downloadArchive(ctx context.Context, v model.Snapshot, locatio
 			}
 			r, _, err := store.Get(ctx, l.Key, l.Version)
 			if err != nil {
-				last = err
+				last = s.remoteError(ctx, provider, err)
 				continue
 			}
 			out, err := os.OpenFile(file, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
@@ -212,13 +212,13 @@ func (s *Service) downloadArchive(ctx context.Context, v model.Snapshot, locatio
 			}
 			if err != nil {
 				os.Remove(file)
-				last = err
+				last = s.remoteError(ctx, provider, err)
 				continue
 			}
 			hash, size, err := archive.Hash(ctx, file)
 			if err != nil || hash != v.Hash || size != v.Size {
 				os.Remove(file)
-				last = fmt.Errorf("backup: archive checksum mismatch")
+				last = s.remoteError(ctx, provider, fmt.Errorf("backup: archive checksum mismatch"))
 				continue
 			}
 			return nil
