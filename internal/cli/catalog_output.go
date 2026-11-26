@@ -42,17 +42,25 @@ type catalogSyncSummary struct {
 	outOfScope            int
 }
 
+// catalogSyncRun is the state of a running catalog sync; other commands leave it zero.
+type catalogSyncRun struct {
+	progress        *logger.Progress
+	checking        bool
+	cacheUpdated    bool
+	replicasUpdated int
+}
+
 func (r *runtime) beginCatalogCheck() error {
 	var err error
-	r.catalogCheckProgress, err = r.startActivity("Checking remote catalogs")
-	r.catalogCheckActive = err == nil
+	r.catalogSync.progress, err = r.startActivity("Checking remote catalogs")
+	r.catalogSync.checking = err == nil
 	return err
 }
 
 func (r *runtime) finishCatalogCheck() {
-	r.catalogCheckProgress.Stop()
-	r.catalogCheckProgress = nil
-	r.catalogCheckActive = false
+	r.catalogSync.progress.Stop()
+	r.catalogSync.progress = nil
+	r.catalogSync.checking = false
 }
 
 func (r *runtime) localCatalogRevision() (string, error) {
@@ -102,7 +110,7 @@ func (r *runtime) emitCatalogResult(state backup.CatalogState, updated, locked b
 
 func (r *runtime) emitCatalogSummary(summary catalogSyncSummary) error {
 	r.finishCatalogCheck()
-	summary.RegistryCopiesUpdated = r.catalogReplicasUpdated
+	summary.RegistryCopiesUpdated = r.catalogSync.replicasUpdated
 	var counts []string
 	if summary.Updated > 0 {
 		counts = append(counts, fmt.Sprintf("%d updated", summary.Updated))

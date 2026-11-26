@@ -39,7 +39,7 @@ func ReadPassword(ctx context.Context, input *os.File) (secret []byte, err error
 		if restoreErr != nil || flagsErr != nil {
 			clear(secret)
 			secret = nil
-			err = errors.Join(err, fmt.Errorf("file_io: restore terminal: %w", errors.Join(restoreErr, flagsErr)))
+			err = errors.Join(err, fmt.Errorf("fsutil: restore terminal: %w", errors.Join(restoreErr, flagsErr)))
 		}
 	}()
 	if _, err = unix.FcntlInt(uintptr(fd), unix.F_SETFL, flags|unix.O_NONBLOCK); err != nil {
@@ -66,7 +66,7 @@ func ReadPassword(ctx context.Context, input *os.File) (secret []byte, err error
 				return secret, context.Canceled
 			}
 			if len(secret) >= 1<<20 {
-				return secret, fmt.Errorf("file_io: passphrase exceeds 1MiB")
+				return secret, fmt.Errorf("fsutil: passphrase exceeds 1MiB")
 			}
 			secret = append(secret, character[0])
 		}

@@ -6,24 +6,23 @@ import (
 	"encoding/hex"
 	"io"
 	"os"
-	"time"
 
 	"glesha/internal/fsutil"
 	"glesha/internal/logger"
 )
 
-const cleanupTimeout = 30 * time.Second
-
-func fileHash(ctx context.Context, p string) (string, int64, error) {
+// HashFile returns the SHA-256 and size of the file at p.
+func HashFile(ctx context.Context, p string) (string, int64, error) {
 	f, e := os.Open(p)
 	if e != nil {
 		return "", 0, e
 	}
 	defer f.Close()
-	return readerHash(ctx, f)
+	return HashReader(ctx, f)
 }
 
-func readerHash(ctx context.Context, r io.Reader) (string, int64, error) {
+// HashReader returns the SHA-256 and size of r, reporting progress.
+func HashReader(ctx context.Context, r io.Reader) (string, int64, error) {
 	total := int64(-1)
 	if file, ok := r.(*os.File); ok {
 		info, err := file.Stat()
@@ -32,7 +31,7 @@ func readerHash(ctx context.Context, r io.Reader) (string, int64, error) {
 		}
 		total = info.Size()
 	}
-	progress := logger.StartProgress(ctx, "Hashing "+transferLabel(ctx)+" for upload", total)
+	progress := logger.StartProgress(ctx, "Hashing "+TransferLabel(ctx)+" for upload", total)
 	defer progress.Finish()
 	r = progress.Reader(r)
 	h := sha256.New()

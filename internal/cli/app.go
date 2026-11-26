@@ -16,6 +16,7 @@ import (
 
 	"glesha/internal/backup"
 	"glesha/internal/cloud"
+	"glesha/internal/cloud/s3store"
 	"glesha/internal/config"
 	"glesha/internal/database/model"
 	"glesha/internal/database/repository"
@@ -135,24 +136,21 @@ type AppCmdEnv struct {
 }
 
 type runtime struct {
-	emitted                int
-	command                string
-	catalogCheckProgress   *logger.Progress
-	catalogCheckActive     bool
-	catalogCacheUpdated    bool
-	catalogReplicasUpdated int
-	remoteScope            *remoteScope
-	operationLocked        bool
-	ctx                    context.Context
-	env                    *AppCmdEnv
-	config                 config.Config
-	budget                 memory.Budget
-	registry               repository.Registryor
-	root                   string
-	service                *backup.Service
-	out                    io.Writer
-	errOut                 io.Writer
-	limit                  chan struct{}
+	emitted         int
+	command         string
+	catalogSync     catalogSyncRun
+	remoteScope     *remoteScope
+	operationLocked bool
+	ctx             context.Context
+	env             *AppCmdEnv
+	config          config.Config
+	budget          memory.Budget
+	registry        repository.Registryor
+	root            string
+	service         *backup.Service
+	out             io.Writer
+	errOut          io.Writer
+	limit           chan struct{}
 }
 type handler func(*runtime, []string) error
 
@@ -593,7 +591,7 @@ func (r *runtime) stores(ids []string) error {
 			}
 			return fmt.Errorf("cli: catalog requires access to %s bucket %q; %s", remote.Kind, remote.Bucket, hint)
 		}
-		store, err := cloud.New(r.ctx, cloud.Remote{Kind: p.Kind, Bucket: p.Bucket, Region: p.Region, Endpoint: p.Endpoint}, r.budget.TransferWorkers, r.limit)
+		store, err := s3store.New(r.ctx, cloud.Remote{Kind: p.Kind, Bucket: p.Bucket, Region: p.Region, Endpoint: p.Endpoint}, r.budget.TransferWorkers, r.limit)
 		if err != nil {
 			return err
 		}

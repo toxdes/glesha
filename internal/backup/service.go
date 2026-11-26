@@ -174,17 +174,8 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 		return model.Snapshot{}, err
 	}
 	to := plan.to
-	if len(s.Set.To) == 0 {
-		s.Set.To = slices.Clone(to)
-		if err := s.Registry.Save(ctx, s.Set); err != nil {
-			return model.Snapshot{}, err
-		}
-	}
-	if s.Set.CatalogTo == "" {
-		s.Set.CatalogTo = to[0]
-		if err := s.Registry.Save(ctx, s.Set); err != nil {
-			return model.Snapshot{}, err
-		}
+	if err := s.saveTargets(ctx, to); err != nil {
+		return model.Snapshot{}, err
 	}
 	if err := s.Pull(ctx); err != nil {
 		return model.Snapshot{}, err
@@ -216,39 +207,18 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 			os.Remove(s.pending())
 		}
 	}()
-	chunked, level, mode := plan.chunked, plan.level, plan.mode
-	request := runRequest{Chunked: chunked, SpoolMax: plan.spool, To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: mode, Level: level, Prefix: o.Prefix}
+	request := runRequest{Chunked: plan.chunked, SpoolMax: plan.spool, To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: plan.mode, Level: plan.level, Prefix: o.Prefix}
 	b, _ := json.Marshal(request)
-	for k, value := range map[string]string{"operation": "run", "request": string(b), "pending_snapshot": v.ID, "archive_wrapper": archive.Stem(v.File)} {
-		if err = p.SetMeta(ctx, k, value); err != nil {
-			return v, err
-		}
-	}
-	if err = p.PutSnapshot(ctx, v); err != nil {
-		return v, err
-	}
 	exclusions := []string{v.File, filepath.Dir(s.Directory)}
-	if err = archive.Inventory(ctx, p, v.ID, s.Set.Roots, exclusions, s.Budget.HashWorkers); err != nil {
-		return v, err
-	}
-	changes, err := detectChanges(ctx, p, &v)
+	changes, err := s.recordInventory(ctx, p, &v, string(b), exclusions)
 	if err != nil {
 		return v, err
 	}
-	if changes.removed > 0 {
-		message := fmt.Sprintf("%d removed or type-changed paths:\n%s\nRecord changes?", changes.removed, strings.Join(changes.sample, "\n"))
-		if o.Confirm == nil {
-			return v, ErrConfirmationRequired
-		}
-		if err = o.Confirm(ctx, message); err != nil {
-			return v, err
-		}
+	if err = confirmChanges(ctx, o, changes); err != nil {
+		return v, err
 	}
 	if !changes.changed {
-		if err = archive.ValidateSources(ctx, p, v.ID); err != nil {
-			return v, err
-		}
-		if err = archive.ValidateTree(ctx, p, v.ID, s.Set.Roots, exclusions); err != nil {
+		if err = s.validateUnchanged(ctx, p, v.ID, exclusions); err != nil {
 			return v, err
 		}
 		return model.Snapshot{}, nil
@@ -256,25 +226,24 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 	if err = p.PutSnapshot(ctx, v); err != nil {
 		return v, err
 	}
-	if chunked {
+	if plan.chunked {
 		keep = true
 		if err = s.createChunks(ctx, p, &v, request, o.Password); err != nil {
 			return v, err
 		}
 	} else {
-		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: level, Mode: mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
+		// the pending catalog is kept once it records a finished archive
+		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: plan.level, Mode: plan.mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
 			v.Hash, v.Size, v.ReadyFile = hash, size, file
-			err := p.PutSnapshot(ctx, v)
-			if err == nil {
-				keep = true
+			if err := p.PutSnapshot(ctx, v); err != nil {
+				return err
 			}
-			return err
+			keep = true
+			return nil
 		}})
 		if err != nil {
 			return v, err
 		}
-	}
-	if !chunked {
 		v.ReadyFile = ""
 	}
 	if err = p.PutSnapshot(ctx, v); err != nil {
@@ -289,6 +258,64 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 		}
 	}
 	return v, s.finishRun(ctx, p, &v)
+}
+
+func (s *Service) saveTargets(ctx context.Context, to []string) error {
+	if len(s.Set.To) == 0 {
+		s.Set.To = slices.Clone(to)
+		if err := s.Registry.Save(ctx, s.Set); err != nil {
+			return err
+		}
+	}
+	if s.Set.CatalogTo == "" {
+		s.Set.CatalogTo = to[0]
+		if err := s.Registry.Save(ctx, s.Set); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) recordInventory(ctx context.Context, p repository.Cataloger, v *model.Snapshot, request string, exclusions []string) (runChanges, error) {
+	if err := markRunPending(ctx, p, *v, request); err != nil {
+		return runChanges{}, err
+	}
+	if err := p.PutSnapshot(ctx, *v); err != nil {
+		return runChanges{}, err
+	}
+	if err := archive.Inventory(ctx, p, v.ID, s.Set.Roots, exclusions, s.Budget.HashWorkers); err != nil {
+		return runChanges{}, err
+	}
+	return detectChanges(ctx, p, v)
+}
+
+func markRunPending(ctx context.Context, p repository.Cataloger, v model.Snapshot, request string) error {
+	for k, value := range map[string]string{"operation": "run", "request": request, "pending_snapshot": v.ID, "archive_wrapper": archive.Stem(v.File)} {
+		if err := p.SetMeta(ctx, k, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func confirmChanges(ctx context.Context, o RunOptions, changes runChanges) error {
+	if changes.removed > 0 {
+		message := fmt.Sprintf("%d removed or type-changed paths:\n%s\nRecord changes?", changes.removed, strings.Join(changes.sample, "\n"))
+		if o.Confirm == nil {
+			return ErrConfirmationRequired
+		}
+		if err := o.Confirm(ctx, message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) validateUnchanged(ctx context.Context, p repository.Cataloger, id string, exclusions []string) error {
+	if err := archive.ValidateSources(ctx, p, id); err != nil {
+		return err
+	}
+	return archive.ValidateTree(ctx, p, id, s.Set.Roots, exclusions)
 }
 
 // runPlan is a validated run request, resolved against the set's saved settings.
@@ -410,7 +437,7 @@ func (s *Service) newSnapshot(ctx context.Context, c repository.Cataloger, o Run
 			supported = supported || s.Capabilities(id).StorageClasses
 		}
 		if !supported {
-			return v, fmt.Errorf("backup: storage class requires an AWS destination")
+			return v, fmt.Errorf("backup: storage class requires a destination with storage classes")
 		}
 	}
 	if err = ValidateClass(v.InitialClass); err != nil {

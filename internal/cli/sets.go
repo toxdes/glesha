@@ -85,6 +85,7 @@ func create(r *runtime, args []string) error {
 	}
 	return r.emit("set", set, fmt.Sprintf("Created %q.", set.Name))
 }
+
 func (r *runtime) catalogDestination(to []string) (string, error) {
 	if r.env.CatalogTo == "local" {
 		return "local", nil
@@ -101,6 +102,7 @@ func (r *runtime) catalogDestination(to []string) (string, error) {
 	}
 	return "", nil
 }
+
 func configure(r *runtime, args []string) error {
 	unlock, err := requireSet(r, args)
 	if err != nil {
@@ -113,6 +115,48 @@ func configure(r *runtime, args []string) error {
 		return err
 	}
 	previous := s.Set
+	if err = configureSpool(r, s); err != nil {
+		return err
+	}
+	if s.Pending() {
+		return fmt.Errorf("%w: finish pending work before configuring", backup.ErrPending)
+	}
+	roots, err := rootMappings(r.env.Root)
+	if err != nil {
+		return err
+	}
+	if err = configureDestinations(r, s); err != nil {
+		return err
+	}
+	if err = configureOptions(r, s); err != nil {
+		return err
+	}
+	if err = checkBaseline(r, s); err != nil {
+		return err
+	}
+	if len(roots) > 0 {
+		if err = s.BindRoots(r.ctx, roots); err != nil {
+			return err
+		}
+	}
+	if err = r.registry.Save(r.ctx, s.Set); err != nil {
+		return err
+	}
+	if r.env.Baseline != "" {
+		if err = s.SetBaseline(r.ctx, r.env.Baseline); err != nil {
+			return err
+		}
+	}
+	if err = s.SaveConfiguration(r.ctx, previous); err != nil {
+		return err
+	}
+	if err = r.publishState(); err != nil {
+		return err
+	}
+	return r.emit("set", s.Set, "Configuration saved.")
+}
+
+func configureSpool(r *runtime, s *backup.Service) error {
 	if r.env.given("chunked") {
 		s.Set.Chunked = r.env.Chunked
 	}
@@ -129,13 +173,10 @@ func configure(r *runtime, args []string) error {
 		}
 		s.Set.SpoolMax = size
 	}
-	if s.Pending() {
-		return fmt.Errorf("%w: finish pending work before configuring", backup.ErrPending)
-	}
-	roots, err := rootMappings(r.env.Root)
-	if err != nil {
-		return err
-	}
+	return nil
+}
+
+func configureDestinations(r *runtime, s *backup.Service) error {
 	if len(r.env.To) > 0 {
 		ids, err := r.remoteIDs(r.env.To)
 		if err != nil {
@@ -167,6 +208,11 @@ func configure(r *runtime, args []string) error {
 		}
 		s.Set.CatalogTo = target
 	}
+	return nil
+}
+
+func configureOptions(r *runtime, s *backup.Service) error {
+	var err error
 	if r.env.Compression != "" {
 		s.Set.Compression = r.env.Compression
 	}
@@ -188,6 +234,10 @@ func configure(r *runtime, args []string) error {
 		}
 		s.Set.IncrementalClass = r.env.IncrementalStorageClass
 	}
+	return nil
+}
+
+func checkBaseline(r *runtime, s *backup.Service) error {
 	if r.env.Baseline != "" {
 		c, err := s.Catalog(r.ctx)
 		if err != nil {
@@ -202,27 +252,9 @@ func configure(r *runtime, args []string) error {
 			return fmt.Errorf("cli: baseline is not completed")
 		}
 	}
-	if len(roots) > 0 {
-		if err = s.BindRoots(r.ctx, roots); err != nil {
-			return err
-		}
-	}
-	if err = r.registry.Save(r.ctx, s.Set); err != nil {
-		return err
-	}
-	if r.env.Baseline != "" {
-		if err = s.SetBaseline(r.ctx, r.env.Baseline); err != nil {
-			return err
-		}
-	}
-	if err = s.SaveConfiguration(r.ctx, previous); err != nil {
-		return err
-	}
-	if err = r.publishState(); err != nil {
-		return err
-	}
-	return r.emit("set", s.Set, "Configuration saved.")
+	return nil
 }
+
 func rootMappings(values mappings) ([]model.Root, error) {
 	out := []model.Root{}
 	for name, p := range values {
@@ -249,6 +281,7 @@ func rootMappings(values mappings) ([]model.Root, error) {
 	}
 	return out, nil
 }
+
 func run(r *runtime, args []string) error {
 	unlock, err := requireSet(r, args)
 	if err != nil {
@@ -267,46 +300,13 @@ func run(r *runtime, args []string) error {
 	if chunked && (r.env.KeepArchive || r.env.Output != "" || r.env.ArchiveMode == "memory") {
 		return fmt.Errorf("cli: --chunked cannot use --keep-archive, --output or memory archive mode")
 	}
-	var spool int64
-	if r.env.SpoolMax != "" {
-		if !chunked && !s.Pending() {
-			return fmt.Errorf("cli: --spool-max requires --chunked")
-		}
-		spool, err = backup.ParseSpoolSize(r.env.SpoolMax)
-		if err != nil {
-			return err
-		}
-		if spool < backup.MinimumSpoolMax {
-			return fmt.Errorf("cli: spool requires at least 2MiB")
-		}
-	}
-	to, err := r.remoteIDs(r.env.To)
+	spool, err := parseSpool(r, s, chunked)
 	if err != nil {
 		return err
 	}
-	if len(to) == 0 && !s.Pending() {
-		to = s.Set.To
-	}
-	if len(to) == 0 && !s.Pending() {
-		return fmt.Errorf("cli: --to is required at creation or run time")
-	}
-	if !s.Pending() {
-		if err = s.ValidateRoots(); err != nil {
-			return err
-		}
-	}
-	required := to
-	if s.Pending() {
-		required, err = s.RequiredRemotes(r.ctx)
-		if err != nil {
-			return err
-		}
-	}
-	if err = r.stores(required); err != nil {
+	to, err := prepareRemotes(r, s)
+	if err != nil {
 		return err
-	}
-	if s.Set.CatalogTo == "" && len(to) > 0 {
-		s.Set.CatalogTo = to[0]
 	}
 	if err = r.syncStores(); err != nil {
 		return err
@@ -335,13 +335,67 @@ func run(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
+	return reportRun(r, s, v)
+}
+
+func parseSpool(r *runtime, s *backup.Service, chunked bool) (int64, error) {
+	var spool int64
+	var err error
+	if r.env.SpoolMax != "" {
+		if !chunked && !s.Pending() {
+			return 0, fmt.Errorf("cli: --spool-max requires --chunked")
+		}
+		spool, err = backup.ParseSpoolSize(r.env.SpoolMax)
+		if err != nil {
+			return 0, err
+		}
+		if spool < backup.MinimumSpoolMax {
+			return 0, fmt.Errorf("cli: spool requires at least 2MiB")
+		}
+	}
+	return spool, nil
+}
+
+func prepareRemotes(r *runtime, s *backup.Service) ([]string, error) {
+	to, err := r.remoteIDs(r.env.To)
+	if err != nil {
+		return nil, err
+	}
+	if len(to) == 0 && !s.Pending() {
+		to = s.Set.To
+	}
+	if len(to) == 0 && !s.Pending() {
+		return nil, fmt.Errorf("cli: --to is required at creation or run time")
+	}
+	if !s.Pending() {
+		if err = s.ValidateRoots(); err != nil {
+			return nil, err
+		}
+	}
+	required := to
+	if s.Pending() {
+		required, err = s.RequiredRemotes(r.ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err = r.stores(required); err != nil {
+		return nil, err
+	}
+	if s.Set.CatalogTo == "" && len(to) > 0 {
+		s.Set.CatalogTo = to[0]
+	}
+	return to, nil
+}
+
+func reportRun(r *runtime, s *backup.Service, v model.Snapshot) error {
 	if v.ID == "" {
-		if err = r.publishState(); err != nil {
+		if err := r.publishState(); err != nil {
 			return err
 		}
 		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, fmt.Sprintf("No changes in %q; no snapshot created.", s.Set.Name))
 	}
-	if err = r.publishState(); err != nil {
+	if err := r.publishState(); err != nil {
 		return err
 	}
 	message := fmt.Sprintf("Created snapshot %s of %q.", v.ID, s.Set.Name)
@@ -350,6 +404,7 @@ func run(r *runtime, args []string) error {
 	}
 	return r.emit("snapshot", v, message)
 }
+
 func retry(r *runtime, args []string) error {
 	unlock, err := requireSet(r, args)
 	if err != nil {
@@ -402,6 +457,7 @@ func retry(r *runtime, args []string) error {
 	}
 	return r.result(fmt.Sprintf("Pending work completed for %q.", s.Set.Name))
 }
+
 func history(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
@@ -459,6 +515,7 @@ func history(r *runtime, args []string) error {
 	return nil
 
 }
+
 func browse(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
 		return err
@@ -505,6 +562,7 @@ func browse(r *runtime, args []string) error {
 	return nil
 
 }
+
 func list(r *runtime, args []string) error {
 	if err := count(args, 0); err != nil {
 		return err
@@ -557,6 +615,7 @@ func list(r *runtime, args []string) error {
 	}
 	return nil
 }
+
 func catalog(r *runtime, args []string) error {
 	if len(args) > 0 && args[0] == "unlock" {
 		return catalogUnlock(r, args[1:])

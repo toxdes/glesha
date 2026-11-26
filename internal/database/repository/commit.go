@@ -53,21 +53,7 @@ func (c *catalog) Commit(ctx context.Context, v model.Snapshot, wrapper string, 
 	defer tx.Rollback()
 	last := ""
 	for {
-		rows, err := tx.QueryContext(ctx, "SELECT "+inventoryColumns+" FROM inventory WHERE snapshot=? AND path>? ORDER BY path LIMIT 128", v.ID, last)
-		if err != nil {
-			return err
-		}
-		batch := make([]model.Entry, 0, 128)
-		for rows.Next() {
-			e, err := scanEntry(rows)
-			if err != nil {
-				rows.Close()
-				return err
-			}
-			batch = append(batch, e)
-		}
-		err = rows.Err()
-		rows.Close()
+		batch, err := readInventoryBatch(ctx, tx, v.ID, last)
 		if err != nil {
 			return err
 		}
@@ -75,62 +61,98 @@ func (c *catalog) Commit(ctx context.Context, v model.Snapshot, wrapper string, 
 			break
 		}
 		for _, entry := range batch {
-			var parent, node, version int64
-			if entry.Parent != "" {
-				if err = tx.QueryRowContext(ctx, "SELECT node FROM desired WHERE path=?", entry.Parent).Scan(&parent); err != nil {
-					return fmt.Errorf("catalog: missing parent for %q: %w", entry.Path, err)
-				}
-			}
-			var old model.Entry
-			if compare != "" {
-				old, err = scanEntry(tx.QueryRowContext(ctx, "SELECT "+inventoryColumns+" FROM "+c.view+" WHERE path=?", entry.Path))
-				if err != nil && !errors.Is(err, sql.ErrNoRows) {
-					return err
-				}
-				if err == nil && old.Type == entry.Type {
-					var oldParent int64
-					if err = tx.QueryRowContext(ctx, "SELECT t.node,t.version,n.parent FROM "+c.view+" t JOIN nodes n ON n.id=t.node WHERE t.path=?", entry.Path).Scan(&node, &version, &oldParent); err != nil {
-						return err
-					}
-					if oldParent != parent {
-						node, version = 0, 0
-					}
-				}
-			}
-			if node == 0 {
-				r, err := tx.ExecContext(ctx, "INSERT INTO nodes(parent,name) VALUES(?,?)", parent, entry.Name)
-				if err != nil {
-					return err
-				}
-				node, err = r.LastInsertId()
-				if err != nil {
-					return err
-				}
-			}
-			if version == 0 || !sameMetadata(old, entry) || !v.Full && entry.Archive == v.ID {
-				h, err := hex.DecodeString(entry.Hash)
-				if err != nil {
-					return err
-				}
-				p, err := json.Marshal(entry.PAX)
-				if err != nil {
-					return err
-				}
-				r, err := tx.ExecContext(ctx, "INSERT INTO versions(kind,size,mode,mtime,uid,gid,link,hash,pax,owner) VALUES(?,?,?,?,?,?,?,?,?,?)", entry.Type, entry.Size, entry.Mode, entry.ModTime, entry.UID, entry.GID, entry.Link, h, string(p), seq)
-				if err != nil {
-					return err
-				}
-				version, err = r.LastInsertId()
-				if err != nil {
-					return err
-				}
-			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO desired VALUES(?,?,?)", entry.Path, node, version); err != nil {
+			if err = c.desireEntry(ctx, tx, v, compare, seq, entry); err != nil {
 				return err
 			}
 			last = entry.Path
 		}
 	}
+	if err = finishCommit(ctx, tx, v, wrapper, base, seq, advance || previous.ID == ""); err != nil {
+		return err
+	}
+	return c.clearViews(ctx)
+}
+
+func readInventoryBatch(ctx context.Context, tx *sql.Tx, snapshot, last string) ([]model.Entry, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT "+inventoryColumns+" FROM inventory WHERE snapshot=? AND path>? ORDER BY path LIMIT 128", snapshot, last)
+	if err != nil {
+		return nil, err
+	}
+	batch := make([]model.Entry, 0, 128)
+	for rows.Next() {
+		e, err := scanEntry(rows)
+		if err != nil {
+			rows.Close()
+			return nil, err
+		}
+		batch = append(batch, e)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	return batch, nil
+}
+
+func (c *catalog) desireEntry(ctx context.Context, tx *sql.Tx, v model.Snapshot, compare string, seq int64, entry model.Entry) error {
+	var err error
+	var parent, node, version int64
+	if entry.Parent != "" {
+		if err = tx.QueryRowContext(ctx, "SELECT node FROM desired WHERE path=?", entry.Parent).Scan(&parent); err != nil {
+			return fmt.Errorf("catalog: missing parent for %q: %w", entry.Path, err)
+		}
+	}
+	var old model.Entry
+	if compare != "" {
+		old, err = scanEntry(tx.QueryRowContext(ctx, "SELECT "+inventoryColumns+" FROM "+c.view+" WHERE path=?", entry.Path))
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if err == nil && old.Type == entry.Type {
+			var oldParent int64
+			if err = tx.QueryRowContext(ctx, "SELECT t.node,t.version,n.parent FROM "+c.view+" t JOIN nodes n ON n.id=t.node WHERE t.path=?", entry.Path).Scan(&node, &version, &oldParent); err != nil {
+				return err
+			}
+			if oldParent != parent {
+				node, version = 0, 0
+			}
+		}
+	}
+	if node == 0 {
+		r, err := tx.ExecContext(ctx, "INSERT INTO nodes(parent,name) VALUES(?,?)", parent, entry.Name)
+		if err != nil {
+			return err
+		}
+		node, err = r.LastInsertId()
+		if err != nil {
+			return err
+		}
+	}
+	if version == 0 || !sameMetadata(old, entry) || !v.Full && entry.Archive == v.ID {
+		h, err := hex.DecodeString(entry.Hash)
+		if err != nil {
+			return err
+		}
+		p, err := json.Marshal(entry.PAX)
+		if err != nil {
+			return err
+		}
+		r, err := tx.ExecContext(ctx, "INSERT INTO versions(kind,size,mode,mtime,uid,gid,link,hash,pax,owner) VALUES(?,?,?,?,?,?,?,?,?,?)", entry.Type, entry.Size, entry.Mode, entry.ModTime, entry.UID, entry.GID, entry.Link, h, string(p), seq)
+		if err != nil {
+			return err
+		}
+		version, err = r.LastInsertId()
+		if err != nil {
+			return err
+		}
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO desired VALUES(?,?,?)", entry.Path, node, version)
+	return err
+}
+
+func finishCommit(ctx context.Context, tx *sql.Tx, v model.Snapshot, wrapper string, base, seq int64, moveHead bool) error {
+	var err error
 	if _, err = tx.ExecContext(ctx, "UPDATE membership SET end=? WHERE end IS NULL AND NOT EXISTS(SELECT 1 FROM desired d WHERE d.node=membership.node AND d.version=membership.version)", seq); err != nil {
 		return err
 	}
@@ -145,7 +167,7 @@ func (c *catalog) Commit(ctx context.Context, v model.Snapshot, wrapper string, 
 	if _, err = tx.ExecContext(ctx, "UPDATE snapshots SET status=?,data=?,baseline=?,wrapper=? WHERE id=?", v.Status, string(b), base, wrapper, v.ID); err != nil {
 		return err
 	}
-	if advance || previous.ID == "" {
+	if moveHead {
 		if _, err = tx.ExecContext(ctx, "INSERT OR REPLACE INTO meta VALUES('head',?)", v.ID); err != nil {
 			return err
 		}
@@ -156,11 +178,9 @@ func (c *catalog) Commit(ctx context.Context, v model.Snapshot, wrapper string, 
 	if _, err = tx.ExecContext(ctx, "DELETE FROM meta WHERE key=?", "inventory:"+v.ID); err != nil {
 		return err
 	}
-	if err = tx.Commit(); err != nil {
-		return err
-	}
-	return c.clearViews(ctx)
+	return tx.Commit()
 }
+
 func sameMetadata(a, b model.Entry) bool {
 	ap, _ := json.Marshal(a.PAX)
 	bp, _ := json.Marshal(b.PAX)

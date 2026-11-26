@@ -33,16 +33,18 @@ type Provider struct {
 	// SetupHint completes "configure that location before syncing".
 	SetupHint string
 
+	// S3 is set for providers with an S3-compatible API.
+	S3 *S3Dialect
+
 	// each entry lists the accepted environment names for one value
 	keyEnv, secretEnv, tokenEnv []string
-	s3                          s3Dialect
 }
 
-// s3Dialect holds the differences between S3-compatible APIs.
-type s3Dialect struct {
-	requireEndpoint  bool
-	normalizeRegion  bool
-	relaxedChecksums bool
+// S3Dialect holds the differences between S3-compatible APIs.
+type S3Dialect struct {
+	RequireEndpoint  bool
+	NormalizeRegion  bool
+	RelaxedChecksums bool
 }
 
 var providers = []Provider{
@@ -53,14 +55,14 @@ var providers = []Provider{
 		keyEnv:       []string{"AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY"},
 		secretEnv:    []string{"AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY"},
 		tokenEnv:     []string{"AWS_SESSION_TOKEN"},
-		s3:           s3Dialect{normalizeRegion: true},
+		S3:           &S3Dialect{NormalizeRegion: true},
 	},
 	{
 		Kind:      B2,
 		SetupHint: " in [b2]/[remotes.NAME], or use B2_BUCKET_NAME and B2_BUCKET_ENDPOINT",
 		keyEnv:    []string{"B2_KEY_ID"},
 		secretEnv: []string{"B2_APPLICATION_KEY"},
-		s3:        s3Dialect{requireEndpoint: true, relaxedChecksums: true},
+		S3:        &S3Dialect{RequireEndpoint: true, RelaxedChecksums: true},
 	},
 }
 
@@ -99,7 +101,8 @@ func (p Provider) ValidateCredentials() error {
 	return fmt.Errorf("cloud: %s credentials are missing: %s; set them in the environment or load them with --env FILE", p.Kind, strings.Join(missing, ", "))
 }
 
-func (p Provider) credentials() (key, secret, token string) {
+// Credentials reads the provider's access key, secret and session token from the environment.
+func (p Provider) Credentials() (key, secret, token string) {
 	return firstEnv(p.keyEnv...), firstEnv(p.secretEnv...), firstEnv(p.tokenEnv...)
 }
 

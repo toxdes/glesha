@@ -1,9 +1,11 @@
-package cloud
+package s3store
 
 import (
 	"context"
 	"strings"
 	"testing"
+
+	"glesha/internal/cloud"
 )
 
 func TestCredentialRequirements(t *testing.T) {
@@ -27,12 +29,12 @@ func TestCredentialRequirements(t *testing.T) {
 			for _, name := range []string{"AWS_ACCESS_KEY_ID", "AWS_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY", "AWS_SECRET_KEY", "AWS_SESSION_TOKEN", "B2_KEY_ID", "B2_APPLICATION_KEY"} {
 				t.Setenv(name, tc.env[name])
 			}
-			provider, err := Lookup(tc.provider)
+			provider, err := cloud.Lookup(tc.provider)
 			if err != nil {
 				t.Fatal(err)
 			}
 			err = provider.ValidateCredentials()
-			_, setupErr := New(context.Background(), Remote{Kind: tc.provider, Bucket: "bucket", Endpoint: "http://127.0.0.1:1", Region: "us-east-1"}, 1, nil)
+			_, setupErr := New(context.Background(), cloud.Remote{Kind: tc.provider, Bucket: "bucket", Endpoint: "http://127.0.0.1:1", Region: "us-east-1"}, 1, nil)
 			if len(tc.missing) == 0 {
 				if err != nil || setupErr != nil {
 					t.Fatalf("valid credentials rejected: %v, %v", err, setupErr)

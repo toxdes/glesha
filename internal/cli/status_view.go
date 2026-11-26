@@ -47,6 +47,66 @@ func status(r *runtime, args []string) error {
 	}
 	defer copies.Close()
 	totals := &statusTotals{copies: copies}
+	rows, failures, err := collectStatusRows(r, args, totals)
+	if err != nil {
+		return err
+	}
+	refreshProgress.Stop()
+	if format == "json" {
+		for _, d := range rows {
+			if err := r.emit("status", d, ""); err != nil {
+				return err
+			}
+		}
+		return errors.Join(failures...)
+	}
+	if format == "csv" {
+		return writeStatusCSV(r, rows, failures)
+	}
+	if len(rows) == 0 {
+		return errors.Join(errors.Join(failures...), r.emptyInventory())
+	}
+	all := len(args) == 0
+	sum := summarizeStatus(rows, totals, all)
+	cells := statusTable(rows, sum, all)
+	color := logger.ColorEnabled(term.IsTerminal(int(os.Stdout.Fd())))
+	_, err = fmt.Fprint(r.out, renderColumns(cells, format, color))
+	if err != nil {
+		return err
+	}
+	if len(args) == 1 && len(rows) == 1 {
+		details := rows[0]
+		details.Providers = make(map[string]string, len(details.Set.To))
+		for _, id := range details.Set.To {
+			details.Providers[id] = r.remoteLabel(id)
+		}
+		if _, err := fmt.Fprint(r.out, statusDetails(details)); err != nil {
+			return err
+		}
+	}
+	if err = renderRetrievals(r.out, rows, len(args) == 1, format, color); err != nil {
+		return err
+	}
+	if all && sum.unavailable > 0 {
+		fmt.Fprintf(r.out, "\nTotals include %d of %d sets; the others have no readable catalog.\n", len(rows)-sum.unavailable, len(rows))
+	}
+	if all && sum.locked > 0 {
+		fmt.Fprintf(r.out, "%d sets have a locked catalog.\n  Open a cached catalog: glesha catalog unlock SET\n  Fetch remote metadata: glesha catalog sync\n", sum.locked)
+	}
+	if err := r.renderAttention(rows, len(args) == 1, color); err != nil {
+		return err
+	}
+	partial := strings.HasSuffix(totalCost(sum.total), "*")
+	for _, d := range rows {
+		partial = partial || strings.HasSuffix(totalCost(d), "*")
+	}
+	if partial {
+		fmt.Fprintln(r.out, "\n* Partial estimate; unknown values are excluded.")
+	}
+	return reportedError("status", errors.Join(failures...))
+}
+
+func collectStatusRows(r *runtime, args []string, totals *statusTotals) ([]statusData, []error, error) {
 	rows := []statusData{}
 	var failures []error
 	if len(args) == 0 {
@@ -69,104 +129,77 @@ func status(r *runtime, args []string) error {
 	if len(args) == 1 {
 		set, err := r.registry.Set(r.ctx, args[0])
 		if err != nil {
-			return setError(args[0], err)
+			return nil, nil, setError(args[0], err)
 		}
 		if err = collect(set); err != nil {
-			return err
+			return nil, nil, err
 		}
 	} else if err := r.registry.Each(r.ctx, collect); err != nil {
-		return err
+		return nil, nil, err
 	}
-	refreshProgress.Stop()
-	if format == "json" {
-		for _, d := range rows {
-			if err := r.emit("status", d, ""); err != nil {
-				return err
-			}
-		}
-		return errors.Join(failures...)
-	}
-	if format == "csv" {
-		writer := csv.NewWriter(r.out)
-		writer.Write([]string{"set", "state", "archive_bytes", "snapshots", "storage_class", "estimated_annual_usd", "estimate_complete", "retrievals"})
-		for _, d := range rows {
-			retrievals, err := json.Marshal(d.Retrievals)
-			if err != nil {
-				return err
-			}
-			writer.Write([]string{d.Set.Name, d.Condition.State.String(), strconv.FormatInt(d.ArchiveBytes, 10), strconv.FormatInt(d.Snapshots, 10), dominantClass(d.Classes), strconv.FormatFloat(d.ArchiveAnnualUSD+d.MetadataAnnualUSD, 'f', 6, 64), strconv.FormatBool(d.EstimateComplete), string(retrievals)})
-		}
-		writer.Flush()
-		return errors.Join(writer.Error(), errors.Join(failures...))
-	}
-	if len(rows) == 0 {
-		return errors.Join(errors.Join(failures...), r.emptyInventory())
-	}
-	locked, unavailable := 0, 0
-	cells := [][]string{{"SET", "STATE", "SIZE", "SNAPSHOTS", "STORAGE CLASS", "EST/YR"}}
-	total := statusData{EstimateComplete: true}
+	return rows, failures, nil
+}
+
+func writeStatusCSV(r *runtime, rows []statusData, failures []error) error {
+	writer := csv.NewWriter(r.out)
+	writer.Write([]string{"set", "state", "archive_bytes", "snapshots", "storage_class", "estimated_annual_usd", "estimate_complete", "retrievals"})
 	for _, d := range rows {
-		size := compactSize(d.ArchiveBytes)
-		snapshots := fmt.Sprint(d.Snapshots)
-		if d.Condition.State == backup.STATE_LOCKED {
-			locked++
-		}
-		if !d.CatalogAvailable {
-			unavailable++
-			size = "-"
-			snapshots = "-"
-		}
-		cells = append(cells, []string{d.Set.Name, d.Condition.State.String(), size, snapshots, dominantClass(d.Classes), totalCost(d)})
-		total.ArchiveBytes += d.ArchiveBytes
-		total.Snapshots += d.Snapshots
-		total.ArchiveAnnualUSD += d.ArchiveAnnualUSD
-		total.MetadataAnnualUSD += d.MetadataAnnualUSD
-		total.EstimateComplete = total.EstimateComplete && d.EstimateComplete
-	}
-	if len(args) == 0 {
-		total.ArchiveBytes = totals.bytes
-		total.ArchiveAnnualUSD = totals.annualUSD
-		totalSize, totalSnapshots := compactSize(total.ArchiveBytes), fmt.Sprint(total.Snapshots)
-		if unavailable == len(rows) {
-			totalSize, totalSnapshots = "-", "-"
-		}
-		cells = append(cells, []string{"TOTAL", "", totalSize, totalSnapshots, "", totalCost(total)})
-	}
-	color := logger.ColorEnabled(term.IsTerminal(int(os.Stdout.Fd())))
-	_, err = fmt.Fprint(r.out, renderColumns(cells, format, color))
-	if err != nil {
-		return err
-	}
-	if len(args) == 1 && len(rows) == 1 {
-		details := rows[0]
-		details.Providers = make(map[string]string, len(details.Set.To))
-		for _, id := range details.Set.To {
-			details.Providers[id] = r.remoteLabel(id)
-		}
-		if _, err := fmt.Fprint(r.out, statusDetails(details)); err != nil {
+		retrievals, err := json.Marshal(d.Retrievals)
+		if err != nil {
 			return err
 		}
+		writer.Write([]string{d.Set.Name, d.Condition.State.String(), strconv.FormatInt(d.ArchiveBytes, 10), strconv.FormatInt(d.Snapshots, 10), dominantClass(d.Classes), strconv.FormatFloat(d.ArchiveAnnualUSD+d.MetadataAnnualUSD, 'f', 6, 64), strconv.FormatBool(d.EstimateComplete), string(retrievals)})
 	}
-	if err = renderRetrievals(r.out, rows, len(args) == 1, format, color); err != nil {
-		return err
-	}
-	if unavailable > 0 && len(args) == 0 {
-		fmt.Fprintf(r.out, "\nTotals include %d of %d sets; the others have no readable catalog.\n", len(rows)-unavailable, len(rows))
-	}
-	if locked > 0 && len(args) == 0 {
-		fmt.Fprintf(r.out, "%d sets have a locked catalog.\n  Open a cached catalog: glesha catalog unlock SET\n  Fetch remote metadata: glesha catalog sync\n", locked)
-	}
-	if err := r.renderAttention(rows, len(args) == 1, color); err != nil {
-		return err
-	}
-	partial := strings.HasSuffix(totalCost(total), "*")
+	writer.Flush()
+	return errors.Join(writer.Error(), errors.Join(failures...))
+}
+
+// statusSummary totals the rows status shows. With every set shown, the archive
+// size and cost come from totals, which counts each stored copy once.
+type statusSummary struct {
+	total               statusData
+	locked, unavailable int
+}
+
+func summarizeStatus(rows []statusData, totals *statusTotals, all bool) statusSummary {
+	sum := statusSummary{total: statusData{EstimateComplete: true}}
 	for _, d := range rows {
-		partial = partial || strings.HasSuffix(totalCost(d), "*")
+		if d.Condition.State == backup.STATE_LOCKED {
+			sum.locked++
+		}
+		if !d.CatalogAvailable {
+			sum.unavailable++
+		}
+		sum.total.ArchiveBytes += d.ArchiveBytes
+		sum.total.Snapshots += d.Snapshots
+		sum.total.ArchiveAnnualUSD += d.ArchiveAnnualUSD
+		sum.total.MetadataAnnualUSD += d.MetadataAnnualUSD
+		sum.total.EstimateComplete = sum.total.EstimateComplete && d.EstimateComplete
 	}
-	if partial {
-		fmt.Fprintln(r.out, "\n* Partial estimate; unknown values are excluded.")
+	if all {
+		sum.total.ArchiveBytes = totals.bytes
+		sum.total.ArchiveAnnualUSD = totals.annualUSD
 	}
-	return reportedError("status", errors.Join(failures...))
+	return sum
+}
+
+func statusTable(rows []statusData, sum statusSummary, all bool) [][]string {
+	cells := [][]string{{"SET", "STATE", "SIZE", "SNAPSHOTS", "STORAGE CLASS", "EST/YR"}}
+	for _, d := range rows {
+		size, snapshots := compactSize(d.ArchiveBytes), fmt.Sprint(d.Snapshots)
+		if !d.CatalogAvailable {
+			size, snapshots = "-", "-"
+		}
+		cells = append(cells, []string{d.Set.Name, d.Condition.State.String(), size, snapshots, dominantClass(d.Classes), totalCost(d)})
+	}
+	if all {
+		size, snapshots := compactSize(sum.total.ArchiveBytes), fmt.Sprint(sum.total.Snapshots)
+		if sum.unavailable == len(rows) {
+			size, snapshots = "-", "-"
+		}
+		cells = append(cells, []string{"TOTAL", "", size, snapshots, "", totalCost(sum.total)})
+	}
+	return cells
 }
 
 func compactSize(size int64) string {

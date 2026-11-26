@@ -1,4 +1,4 @@
-package cloud
+package s3store
 
 import (
 	"context"

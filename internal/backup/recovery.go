@@ -193,100 +193,14 @@ func (s *Service) reconcile(ctx context.Context, keep string) error {
 	defer remote.Close()
 	head, _ := remote.GetMeta(ctx, "head")
 	err = p.EachSnapshot(ctx, func(v model.Snapshot) error {
-		if v.Status != model.STATUS_COMPLETED {
-			return fmt.Errorf("backup: unfinished uploads cannot be reconciled")
-		}
-		existing, err := remote.Snapshot(ctx, v.ID)
-		if err == nil {
-			if existing.Hash != v.Hash || !sameManifest(existing.Manifest, v.Manifest) {
-				return fmt.Errorf("%w: snapshot identity differs", ErrConflict)
-			}
-			localLocations, err := p.Locations(ctx, v.ID)
-			if err != nil {
-				return err
-			}
-			remoteLocations, err := remote.Locations(ctx, v.ID)
-			if err != nil {
-				return err
-			}
-			different := len(localLocations) != len(remoteLocations)
-			for i, l := range localLocations {
-				if i >= len(remoteLocations) || !sameReference(l, remoteLocations[i]) {
-					different = true
-				}
-			}
-			if different {
-				if keep == "" {
-					return fmt.Errorf("%w: snapshot references differ; resolve using local or remote", ErrConflict)
-				}
-				if keep == "local" {
-					for _, l := range localLocations {
-						if err = remote.PutLocation(ctx, l); err != nil {
-							return err
-						}
-					}
-				}
-			}
-			if v.Layout == "chunked" {
-				if len(v.Chunks) != len(existing.Chunks) {
-					return fmt.Errorf("%w: chunk identities differ", ErrConflict)
-				}
-				for i, ch := range v.Chunks {
-					other := existing.Chunks[i]
-					if ch.Hash != other.Hash || ch.Size != other.Size || len(ch.Locations) != len(other.Locations) {
-						return fmt.Errorf("%w: chunk identities differ", ErrConflict)
-					}
-					for j, l := range ch.Locations {
-						if !sameReference(l, other.Locations[j]) && keep == "" {
-							return fmt.Errorf("%w: chunk references differ", ErrConflict)
-						}
-					}
-				}
-				if keep == "local" {
-					if err = remote.PutSnapshot(ctx, v); err != nil {
-						return err
-					}
-				}
-			}
-			return nil
-		}
-		if v.Parent != "" {
-			if _, err = remote.Snapshot(ctx, v.Parent); err != nil {
-				return fmt.Errorf("backup: missing remote ancestry")
-			}
-		}
-		if err = p.EachEntry(ctx, v.ID, func(e model.Entry) error { return remote.PutEntry(ctx, v.ID, e) }); err != nil {
-			return err
-		}
-		locations, err := p.Locations(ctx, v.ID)
-		if err != nil {
-			return err
-		}
-		for _, l := range locations {
-			if err = remote.PutLocation(ctx, l); err != nil {
-				return err
-			}
-		}
-		return remote.Commit(ctx, v, archive.Stem(v.File), false)
+		return reconcileSnapshot(ctx, p, remote, v, keep)
 	})
 	if err != nil {
 		return err
 	}
-	if keep == "local" {
-		localHead, err := p.GetMeta(ctx, "head")
-		if err != nil {
-			return err
-		}
-		head = localHead
-	}
-	if keep == "remote" {
-		if err = peer.loadDescriptor(ctx); err != nil {
-			return err
-		}
-		s.Set = peer.Set
-		if err = s.Registry.Save(ctx, s.Set); err != nil {
-			return err
-		}
+	head, err = s.resolveKeptHead(ctx, p, &peer, keep, head)
+	if err != nil {
+		return err
 	}
 	if head != "" {
 		if err = remote.SetMeta(ctx, "head", head); err != nil {
@@ -305,6 +219,113 @@ func (s *Service) reconcile(ctx context.Context, keep string) error {
 		return err
 	}
 	return s.Push(ctx)
+}
+
+func reconcileSnapshot(ctx context.Context, p, remote repository.Cataloger, v model.Snapshot, keep string) error {
+	if v.Status != model.STATUS_COMPLETED {
+		return fmt.Errorf("backup: unfinished uploads cannot be reconciled")
+	}
+	existing, err := remote.Snapshot(ctx, v.ID)
+	if err == nil {
+		return reconcileExisting(ctx, p, remote, v, existing, keep)
+	}
+	if v.Parent != "" {
+		if _, err = remote.Snapshot(ctx, v.Parent); err != nil {
+			return fmt.Errorf("backup: missing remote ancestry")
+		}
+	}
+	if err = p.EachEntry(ctx, v.ID, func(e model.Entry) error { return remote.PutEntry(ctx, v.ID, e) }); err != nil {
+		return err
+	}
+	locations, err := p.Locations(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	for _, l := range locations {
+		if err = remote.PutLocation(ctx, l); err != nil {
+			return err
+		}
+	}
+	return remote.Commit(ctx, v, archive.Stem(v.File), false)
+}
+
+func reconcileExisting(ctx context.Context, p, remote repository.Cataloger, v, existing model.Snapshot, keep string) error {
+	if existing.Hash != v.Hash || !sameManifest(existing.Manifest, v.Manifest) {
+		return fmt.Errorf("%w: snapshot identity differs", ErrConflict)
+	}
+	localLocations, err := p.Locations(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	remoteLocations, err := remote.Locations(ctx, v.ID)
+	if err != nil {
+		return err
+	}
+	different := len(localLocations) != len(remoteLocations)
+	for i, l := range localLocations {
+		if i >= len(remoteLocations) || !sameReference(l, remoteLocations[i]) {
+			different = true
+		}
+	}
+	if different {
+		if keep == "" {
+			return fmt.Errorf("%w: snapshot references differ; resolve using local or remote", ErrConflict)
+		}
+		if keep == "local" {
+			for _, l := range localLocations {
+				if err = remote.PutLocation(ctx, l); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	if v.Layout == "chunked" {
+		return reconcileChunks(ctx, remote, v, existing, keep)
+	}
+	return nil
+}
+
+func reconcileChunks(ctx context.Context, remote repository.Cataloger, v, existing model.Snapshot, keep string) error {
+	if len(v.Chunks) != len(existing.Chunks) {
+		return fmt.Errorf("%w: chunk identities differ", ErrConflict)
+	}
+	for i, ch := range v.Chunks {
+		other := existing.Chunks[i]
+		if ch.Hash != other.Hash || ch.Size != other.Size || len(ch.Locations) != len(other.Locations) {
+			return fmt.Errorf("%w: chunk identities differ", ErrConflict)
+		}
+		for j, l := range ch.Locations {
+			if !sameReference(l, other.Locations[j]) && keep == "" {
+				return fmt.Errorf("%w: chunk references differ", ErrConflict)
+			}
+		}
+	}
+	if keep == "local" {
+		if err := remote.PutSnapshot(ctx, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Service) resolveKeptHead(ctx context.Context, p repository.Cataloger, peer *Service, keep, head string) (string, error) {
+	if keep == "local" {
+		localHead, err := p.GetMeta(ctx, "head")
+		if err != nil {
+			return "", err
+		}
+		head = localHead
+	}
+	if keep == "remote" {
+		if err := peer.loadDescriptor(ctx); err != nil {
+			return "", err
+		}
+		s.Set = peer.Set
+		if err := s.Registry.Save(ctx, s.Set); err != nil {
+			return "", err
+		}
+	}
+	return head, nil
 }
 
 func (s *Service) finishPending(ctx context.Context, c repository.Cataloger) error {
@@ -370,7 +391,7 @@ func (s *Service) ClassRemotes(ctx context.Context, id string) ([]string, error)
 		}
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("backup: snapshot has no registered AWS copy")
+		return nil, fmt.Errorf("backup: snapshot has no registered copy on a remote with storage classes")
 	}
 	return out, nil
 }

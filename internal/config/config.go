@@ -168,6 +168,9 @@ func FirstEnv(keys ...string) string {
 	}
 	return ""
 }
+
+// NOTE: only the legacy [aws] and [b2] sections read bucket settings from the environment;
+// [remotes.NAME] reads them from the file only, so the names stay here instead of in cloud's provider table
 func (c *Config) ProviderEnv() {
 	if c.AWS.Bucket == "" {
 		c.AWS.Bucket = FirstEnv("AWS_BUCKET_NAME")

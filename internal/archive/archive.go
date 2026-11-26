@@ -129,38 +129,10 @@ func Extension(format string) string {
 	return ".tar.bz2"
 }
 func Create(ctx context.Context, o Options) (hash string, size int64, err error) {
-	if o.Compression == "xz" {
-		dictionary, e := xzDictionary(o.Level)
-		if e != nil {
-			return "", 0, e
-		}
-		o.Budget, e = memory.Reserve(o.Budget, 5*int64(dictionary)+12*memory.MiB)
-		if e != nil {
-			return "", 0, e
-		}
-	}
-	if o.Sources == nil {
-		o.Sources = fsutil.NewSourceReader()
-	}
-	if o.Encoder == nil {
-		o.Encoder = NewEncoder()
-	}
-	if o.Encryptor == nil {
-		o.Encryptor = crypt.NewCipher()
-	}
-	if _, e := os.Lstat(o.Output); !os.IsNotExist(e) {
-		return "", 0, fmt.Errorf("archive: output already exists or cannot be inspected")
-	}
-	if o.Timestamp.IsZero() {
-		o.Timestamp = time.Now().UTC()
-	}
-	stem := Stem(o.Output)
-	normalized, e := SafeName(stem)
-	if e != nil || normalized != stem || path.Base(stem) != stem {
-		return "", 0, fmt.Errorf("archive: invalid stem")
-	}
-	if o.Mode != "auto" && o.Mode != "memory" && o.Mode != "stream" {
-		return "", 0, fmt.Errorf("archive: invalid archive mode")
+	var stem string
+	o, stem, err = prepareOptions(o)
+	if err != nil {
+		return "", 0, err
 	}
 	if err = prepareHardlinks(ctx, o); err != nil {
 		return "", 0, err
@@ -213,16 +185,7 @@ func Create(ctx context.Context, o Options) (hash string, size int64, err error)
 			}
 		}
 	}
-	if err = validateSources(ctx, o.Sources, o.Catalog, o.Manifest.ID, o.Output); err != nil {
-		return "", 0, err
-	}
-	if err = validateTree(ctx, o.Sources, o.Catalog, o.Manifest.ID, o.Manifest.Roots, append(o.Exclusions, o.Output, f.Name())); err != nil {
-		return "", 0, err
-	}
-	if err = f.Sync(); err != nil {
-		return "", 0, err
-	}
-	if err = f.Close(); err != nil {
+	if err = validateOutput(ctx, o, f); err != nil {
 		return "", 0, err
 	}
 	hash, size, err = Hash(ctx, f.Name())
@@ -241,6 +204,57 @@ func Create(ctx context.Context, o Options) (hash string, size int64, err error)
 	err = fsutil.Publish(f.Name(), o.Output)
 	return
 }
+
+func prepareOptions(o Options) (Options, string, error) {
+	if o.Compression == "xz" {
+		dictionary, e := xzDictionary(o.Level)
+		if e != nil {
+			return o, "", e
+		}
+		o.Budget, e = memory.Reserve(o.Budget, 5*int64(dictionary)+12*memory.MiB)
+		if e != nil {
+			return o, "", e
+		}
+	}
+	if o.Sources == nil {
+		o.Sources = fsutil.NewSourceReader()
+	}
+	if o.Encoder == nil {
+		o.Encoder = NewEncoder()
+	}
+	if o.Encryptor == nil {
+		o.Encryptor = crypt.NewCipher()
+	}
+	if _, e := os.Lstat(o.Output); !os.IsNotExist(e) {
+		return o, "", fmt.Errorf("archive: output already exists or cannot be inspected")
+	}
+	if o.Timestamp.IsZero() {
+		o.Timestamp = time.Now().UTC()
+	}
+	stem := Stem(o.Output)
+	normalized, e := SafeName(stem)
+	if e != nil || normalized != stem || path.Base(stem) != stem {
+		return o, "", fmt.Errorf("archive: invalid stem")
+	}
+	if o.Mode != "auto" && o.Mode != "memory" && o.Mode != "stream" {
+		return o, "", fmt.Errorf("archive: invalid archive mode")
+	}
+	return o, stem, nil
+}
+
+func validateOutput(ctx context.Context, o Options, f *os.File) error {
+	if err := validateSources(ctx, o.Sources, o.Catalog, o.Manifest.ID, o.Output); err != nil {
+		return err
+	}
+	if err := validateTree(ctx, o.Sources, o.Catalog, o.Manifest.ID, o.Manifest.Roots, append(o.Exclusions, o.Output, f.Name())); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	return f.Close()
+}
+
 func joinClose(first, next error) error {
 	if first != nil {
 		return first
@@ -301,41 +315,11 @@ func prepareHardlinks(ctx context.Context, o Options) error {
 }
 
 func writeTar(ctx context.Context, o Options, stem string, tw *tar.Writer, progress *logger.Progress) error {
-	if e := tw.WriteHeader(&tar.Header{Name: stem + "/", Typeflag: tar.TypeDir, Mode: 0700, ModTime: o.Timestamp}); e != nil {
-		return e
-	}
-	b, e := json.Marshal(o.Manifest)
-	if len(b) > 4<<20 {
-		return fmt.Errorf("archive: manifest exceeds 4MiB limit")
-	}
-	if e != nil {
-		return e
-	}
-	if e = tw.WriteHeader(&tar.Header{Name: path.Join(stem, ManifestName), Mode: 0600, Size: int64(len(b))}); e != nil {
-		return e
-	}
-	if _, e = tw.Write(b); e != nil {
-		return e
+	if err := writeTarManifest(o, stem, tw); err != nil {
+		return err
 	}
 	if o.Manifest.DeletionsMember != "" {
-		eachDeleted := func(fn func(string) error) error {
-			return o.Catalog.EachEntry(ctx, o.Manifest.Parent, func(v model.Entry) error {
-				_, err := o.Catalog.Entry(ctx, o.Manifest.ID, v.Path)
-				if errors.Is(err, sql.ErrNoRows) {
-					return fn(v.Path)
-				}
-				return err
-			})
-		}
-		var size int64
-		if err := eachDeleted(func(name string) error { b, err := json.Marshal(name); size += int64(len(b)) + 1; return err }); err != nil {
-			return err
-		}
-		if err := tw.WriteHeader(&tar.Header{Name: path.Join(stem, DeletionsName), Mode: 0600, Size: size}); err != nil {
-			return err
-		}
-		encoder := json.NewEncoder(tw)
-		if err := eachDeleted(func(name string) error { return encoder.Encode(name) }); err != nil {
+		if err := writeTarDeletions(ctx, o, stem, tw); err != nil {
 			return err
 		}
 	}
@@ -363,65 +347,10 @@ func writeTar(ctx context.Context, o Options, stem string, tw *tar.Writer, progr
 			v.PAX = old.PAX
 			return saveEntry(v)
 		}
-		info, e := o.Sources.Lstat(ctx, v.Source)
+		v, e = writeTarMember(ctx, o, stem, tw, progress, v)
 		if e != nil {
 			return e
 		}
-		check := v
-		if v.Type == "directory" && Within(filepath.Dir(o.Output), v.Source) {
-			check.ModTime = info.ModTime().UnixNano()
-		}
-		if !unchanged(check, info) {
-			return fmt.Errorf("archive: source changed before archival %s", v.Source)
-		}
-		link := ""
-		if info.Mode()&os.ModeSymlink != 0 {
-			link, e = o.Sources.Readlink(ctx, v.Source)
-			if e != nil {
-				return e
-			}
-			if link != v.Link {
-				return fmt.Errorf("archive: symlink changed %s", v.Source)
-			}
-		}
-		h, e := tar.FileInfoHeader(info, link)
-		if e != nil {
-			return e
-		}
-		h.Name = path.Join(stem, v.Path)
-		h.Format = tar.FormatPAX
-		h.ModTime = time.Unix(0, v.ModTime)
-		// access and change times are not part of the frozen inventory
-		h.AccessTime = time.Time{}
-		h.ChangeTime = time.Time{}
-		if v.Type == "hardlink" {
-			h.Typeflag = tar.TypeLink
-			h.Linkname = path.Join(stem, v.Link)
-			h.Size = 0
-		}
-
-		if e = tw.WriteHeader(h); e != nil {
-			return e
-		}
-		if h.Typeflag == tar.TypeReg {
-			f, e := o.Sources.Open(ctx, v.Source)
-			if e != nil {
-				return e
-			}
-			hash := sha256.New()
-			n, e := io.CopyBuffer(io.MultiWriter(tw, hash), fsutil.ContextReader{Ctx: ctx, Reader: progress.Reader(f)}, make([]byte, 64*1024))
-			after, se := f.Stat()
-			sourceAfter, pathErr := o.Sources.Lstat(ctx, v.Source)
-			f.Close()
-			if e != nil {
-				return e
-			}
-			if pathErr != nil || se != nil || !os.SameFile(info, sourceAfter) || !unchanged(v, after) || n != v.Size || hex.EncodeToString(hash.Sum(nil)) != v.Hash {
-				return fmt.Errorf("archive: included bytes differ from inventory %s", v.Source)
-			}
-		}
-		v.Archive = o.Manifest.ID
-		v.Member = h.Name
 		return saveEntry(v)
 	})
 	if err != nil {
@@ -431,4 +360,111 @@ func writeTar(ctx context.Context, o Options, stem string, tw *tar.Writer, progr
 		return o.Catalog.PutEntries(ctx, o.Manifest.ID, batch)
 	}
 	return nil
+}
+
+func writeTarManifest(o Options, stem string, tw *tar.Writer) error {
+	if e := tw.WriteHeader(&tar.Header{Name: stem + "/", Typeflag: tar.TypeDir, Mode: 0700, ModTime: o.Timestamp}); e != nil {
+		return e
+	}
+	b, e := json.Marshal(o.Manifest)
+	if len(b) > 4<<20 {
+		return fmt.Errorf("archive: manifest exceeds 4MiB limit")
+	}
+	if e != nil {
+		return e
+	}
+	if e = tw.WriteHeader(&tar.Header{Name: path.Join(stem, ManifestName), Mode: 0600, Size: int64(len(b))}); e != nil {
+		return e
+	}
+	if _, e = tw.Write(b); e != nil {
+		return e
+	}
+	return nil
+}
+
+func writeTarDeletions(ctx context.Context, o Options, stem string, tw *tar.Writer) error {
+	eachDeleted := func(fn func(string) error) error {
+		return o.Catalog.EachEntry(ctx, o.Manifest.Parent, func(v model.Entry) error {
+			_, err := o.Catalog.Entry(ctx, o.Manifest.ID, v.Path)
+			if errors.Is(err, sql.ErrNoRows) {
+				return fn(v.Path)
+			}
+			return err
+		})
+	}
+	var size int64
+	if err := eachDeleted(func(name string) error { b, err := json.Marshal(name); size += int64(len(b)) + 1; return err }); err != nil {
+		return err
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: path.Join(stem, DeletionsName), Mode: 0600, Size: size}); err != nil {
+		return err
+	}
+	encoder := json.NewEncoder(tw)
+	if err := eachDeleted(func(name string) error { return encoder.Encode(name) }); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeTarMember(ctx context.Context, o Options, stem string, tw *tar.Writer, progress *logger.Progress, v model.Entry) (model.Entry, error) {
+	info, e := o.Sources.Lstat(ctx, v.Source)
+	if e != nil {
+		return v, e
+	}
+	check := v
+	if v.Type == "directory" && Within(filepath.Dir(o.Output), v.Source) {
+		check.ModTime = info.ModTime().UnixNano()
+	}
+	if !unchanged(check, info) {
+		return v, fmt.Errorf("archive: source changed before archival %s", v.Source)
+	}
+	link := ""
+	if info.Mode()&os.ModeSymlink != 0 {
+		link, e = o.Sources.Readlink(ctx, v.Source)
+		if e != nil {
+			return v, e
+		}
+		if link != v.Link {
+			return v, fmt.Errorf("archive: symlink changed %s", v.Source)
+		}
+	}
+	h, e := tar.FileInfoHeader(info, link)
+	if e != nil {
+		return v, e
+	}
+	h.Name = path.Join(stem, v.Path)
+	h.Format = tar.FormatPAX
+	h.ModTime = time.Unix(0, v.ModTime)
+	// access and change times are not part of the frozen inventory
+	h.AccessTime = time.Time{}
+	h.ChangeTime = time.Time{}
+	if v.Type == "hardlink" {
+		h.Typeflag = tar.TypeLink
+		h.Linkname = path.Join(stem, v.Link)
+		h.Size = 0
+	}
+
+	if e = tw.WriteHeader(h); e != nil {
+		return v, e
+	}
+	if h.Typeflag == tar.TypeReg {
+		f, e := o.Sources.Open(ctx, v.Source)
+		if e != nil {
+			return v, e
+		}
+		hash := sha256.New()
+		n, e := io.CopyBuffer(io.MultiWriter(tw, hash), fsutil.ContextReader{Ctx: ctx, Reader: progress.Reader(f)}, make([]byte, 64*1024))
+		after, se := f.Stat()
+		sourceAfter, pathErr := o.Sources.Lstat(ctx, v.Source)
+		f.Close()
+		if e != nil {
+			return v, e
+		}
+		if pathErr != nil || se != nil || !os.SameFile(info, sourceAfter) || !unchanged(v, after) || n != v.Size || hex.EncodeToString(hash.Sum(nil)) != v.Hash {
+			return v, fmt.Errorf("archive: included bytes differ from inventory %s", v.Source)
+		}
+	}
+	v.Archive = o.Manifest.ID
+	v.Member = h.Name
+	return v, nil
 }

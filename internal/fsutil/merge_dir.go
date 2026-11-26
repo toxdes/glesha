@@ -31,7 +31,7 @@ type mergeDirectory struct {
 // CheckDestinationEntry rejects symlink ancestors and existing non-directory entries.
 func CheckDestinationEntry(root *os.Root, name string, directory bool, source *os.Root) error {
 	if !fs.ValidPath(name) || name == "." {
-		return fmt.Errorf("file_io: unsafe restore path %q", name)
+		return fmt.Errorf("fsutil: unsafe restore path %q", name)
 	}
 	parts := strings.Split(name, "/")
 	for i := range parts {
@@ -53,7 +53,7 @@ func CheckDestinationEntry(root *os.Root, name string, directory bool, source *o
 				return nil
 			}
 		}
-		return fmt.Errorf("file_io: restore would overwrite existing path %q", current)
+		return fmt.Errorf("fsutil: restore would overwrite existing path %q", current)
 	}
 	return nil
 }
@@ -70,7 +70,7 @@ func saveDirectoryMerge(file string, value directoryMerge) error {
 func MergeDir(ctx context.Context, source, dest, journal string) error {
 	rel, err := filepath.Rel(dest, source)
 	if err != nil || !filepath.IsLocal(rel) || filepath.Dir(rel) != "." || rel == "." {
-		return fmt.Errorf("file_io: restore staging must be a child of the destination")
+		return fmt.Errorf("fsutil: restore staging must be a child of the destination")
 	}
 	root, err := os.OpenRoot(dest)
 	if err != nil {
@@ -82,28 +82,9 @@ func MergeDir(ctx context.Context, source, dest, journal string) error {
 		return err
 	}
 	defer staged.Close()
-	state := directoryMerge{Version: directoryMergeVersion, Source: source, Destination: dest}
-	if b, readErr := os.ReadFile(journal); readErr == nil {
-		if err = json.Unmarshal(b, &state); err != nil {
-			return err
-		}
-		if state.Version != directoryMergeVersion || state.Source != source || state.Destination != dest {
-			return fmt.Errorf("file_io: unsupported or conflicting restore publication journal")
-		}
-	} else if !errors.Is(readErr, fs.ErrNotExist) {
-		return readErr
-	}
-	if err = saveDirectoryMerge(journal, state); err != nil {
+	state, err := openMergeJournal(root, source, dest, journal)
+	if err != nil {
 		return err
-	}
-	if state.PendingDirectory != "" {
-		if _, err := root.Lstat(state.PendingDirectory); !errors.Is(err, fs.ErrNotExist) {
-			return fmt.Errorf("file_io: interrupted creation of %q cannot establish ownership; inspect preserved staging", state.PendingDirectory)
-		}
-		state.PendingDirectory = ""
-		if err = saveDirectoryMerge(journal, state); err != nil {
-			return err
-		}
 	}
 	err = fs.WalkDir(staged.FS(), ".", func(name string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -119,44 +100,88 @@ func MergeDir(ctx context.Context, source, dest, journal string) error {
 			return err
 		}
 		if entry.IsDir() {
-			if _, err := root.Lstat(name); err == nil {
-				return nil
-			} else if !errors.Is(err, fs.ErrNotExist) {
-				return err
-			}
-			state.PendingDirectory = name
-			if err := saveDirectoryMerge(journal, state); err != nil {
-				return err
-			}
-			if err := root.Mkdir(name, 0700); err != nil {
-				return err
-			}
-			identity, err := fileIdentity(root, name)
-			if err != nil {
-				return err
-			}
-			state.Directories = append(state.Directories, mergeDirectory{Path: name, Identity: identity})
-			state.PendingDirectory = ""
-			return saveDirectoryMerge(journal, state)
+			return createEntry(root, journal, &state, name)
 		}
-		if info, err := root.Lstat(name); err == nil {
-			original, err := staged.Lstat(name)
-			if err == nil && os.SameFile(info, original) {
-				return nil
-			}
-			return fmt.Errorf("file_io: restore destination changed at %q", name)
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return root.Link(path.Join(filepath.ToSlash(rel), name), name)
+		return linkEntry(root, staged, rel, name)
 	})
 	if err != nil {
 		return err
 	}
+	if err = restoreMergedMetadata(root, staged, state); err != nil {
+		return err
+	}
+	return os.Remove(journal)
+}
+
+func openMergeJournal(root *os.Root, source, dest, journal string) (directoryMerge, error) {
+	var err error
+	state := directoryMerge{Version: directoryMergeVersion, Source: source, Destination: dest}
+	if b, readErr := os.ReadFile(journal); readErr == nil {
+		if err = json.Unmarshal(b, &state); err != nil {
+			return state, err
+		}
+		if state.Version != directoryMergeVersion || state.Source != source || state.Destination != dest {
+			return state, fmt.Errorf("fsutil: unsupported or conflicting restore publication journal")
+		}
+	} else if !errors.Is(readErr, fs.ErrNotExist) {
+		return state, readErr
+	}
+	if err = saveDirectoryMerge(journal, state); err != nil {
+		return state, err
+	}
+	if state.PendingDirectory != "" {
+		if _, err := root.Lstat(state.PendingDirectory); !errors.Is(err, fs.ErrNotExist) {
+			return state, fmt.Errorf("fsutil: interrupted creation of %q cannot establish ownership; inspect preserved staging", state.PendingDirectory)
+		}
+		state.PendingDirectory = ""
+		if err = saveDirectoryMerge(journal, state); err != nil {
+			return state, err
+		}
+	}
+	return state, nil
+}
+
+func createEntry(root *os.Root, journal string, state *directoryMerge, name string) error {
+	if _, err := root.Lstat(name); err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	state.PendingDirectory = name
+	if err := saveDirectoryMerge(journal, *state); err != nil {
+		return err
+	}
+	if err := root.Mkdir(name, 0700); err != nil {
+		return err
+	}
+	identity, err := fileIdentity(root, name)
+	if err != nil {
+		return err
+	}
+	state.Directories = append(state.Directories, mergeDirectory{Path: name, Identity: identity})
+	state.PendingDirectory = ""
+	return saveDirectoryMerge(journal, *state)
+}
+
+func linkEntry(root, staged *os.Root, rel, name string) error {
+	if info, err := root.Lstat(name); err == nil {
+		original, err := staged.Lstat(name)
+		if err == nil && os.SameFile(info, original) {
+			return nil
+		}
+		return fmt.Errorf("fsutil: restore destination changed at %q", name)
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return root.Link(path.Join(filepath.ToSlash(rel), name), name)
+}
+
+func restoreMergedMetadata(root, staged *os.Root, state directoryMerge) error {
+	var err error
 	for i := len(state.Directories) - 1; i >= 0; i-- {
 		name := state.Directories[i].Path
 		if !fs.ValidPath(name) || name == "." {
-			return fmt.Errorf("file_io: invalid directory in restore journal")
+			return fmt.Errorf("fsutil: invalid directory in restore journal")
 		}
 		if err = CheckDestinationEntry(root, name, true, nil); err != nil {
 			return err
@@ -173,7 +198,7 @@ func MergeDir(ctx context.Context, source, dest, journal string) error {
 			return err
 		}
 	}
-	return os.Remove(journal)
+	return nil
 }
 
 func restoreDirectoryMetadata(root *os.Root, name, expected string, info fs.FileInfo, header *tar.Header) error {
@@ -187,7 +212,7 @@ func restoreDirectoryMetadata(root *os.Root, name, expected string, info fs.File
 		return err
 	}
 	if identity != expected {
-		return fmt.Errorf("file_io: restore directory changed at %q", name)
+		return fmt.Errorf("fsutil: restore directory changed at %q", name)
 	}
 	if err = SetOwner(directory, ".", header.Uid, header.Gid, false); err != nil {
 		return err

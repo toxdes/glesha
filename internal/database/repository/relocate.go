@@ -36,7 +36,7 @@ func ValidateStateDatabase(ctx context.Context, file string, registry bool) erro
 	}
 	var version string
 	if err = db.QueryRowContext(ctx, "SELECT value FROM meta WHERE key='version'").Scan(&version); err != nil || version != "2" {
-		return fmt.Errorf("repository: unsupported catalog version %q; state left unchanged", version)
+		return fmt.Errorf("catalog: unsupported catalog version %q; state left unchanged", version)
 	}
 	rows, err := db.QueryContext(ctx, "SELECT data FROM snapshots ORDER BY seq")
 	if err != nil {
@@ -53,7 +53,7 @@ func ValidateStateDatabase(ctx context.Context, file string, registry bool) erro
 			return err
 		}
 		if snapshot.Version > 2 || snapshot.Layout != "" && snapshot.Layout != "single" && snapshot.Layout != "chunked" {
-			return fmt.Errorf("repository: unsupported snapshot format; state left unchanged")
+			return fmt.Errorf("catalog: unsupported snapshot format; state left unchanged")
 		}
 	}
 	return rows.Err()
@@ -91,7 +91,7 @@ func RelocateStateDatabase(ctx context.Context, file, oldRoot, newRoot string) e
 			return err
 		}
 		if snapshot.Version > 2 || snapshot.Layout != "" && snapshot.Layout != "single" && snapshot.Layout != "chunked" {
-			return fmt.Errorf("repository: unsupported snapshot format; state left unchanged")
+			return fmt.Errorf("catalog: unsupported snapshot format; state left unchanged")
 		}
 		changed := false
 		for _, key := range []string{"file", "ready_file"} {

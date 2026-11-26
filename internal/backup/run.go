@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -116,67 +117,12 @@ func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *mode
 	if err != nil {
 		return err
 	}
-	var wg sync.WaitGroup
-	var mu sync.Mutex
-	var failures []error
-	verified := false
-	for _, remote := range strings.Split(v.Destinations, ",") {
-		done := false
-		for _, l := range locations {
-			if l.Provider == remote && l.Status == model.STATUS_COMPLETED {
-				done = true
-			}
-		}
-		if done {
-			continue
-		}
-		if !verified {
-			hash, size, err := archive.Hash(logger.WithProgressLabel(ctx, "Checking archive before upload"), v.File)
-			if err != nil || hash != v.Hash || size != v.Size {
-				return fmt.Errorf("backup: completed encrypted archive is unavailable or changed; pending work retained")
-			}
-			verified = true
-		}
-		store := s.Stores[remote]
-		if store == nil {
-			return fmt.Errorf("backup: pending remote is unavailable")
-		}
+	verified, err := s.verifyUploads(ctx, v, locations)
+	if err != nil {
+		return err
 	}
-	for _, remote := range strings.Split(v.Destinations, ",") {
-		done := false
-		for _, l := range locations {
-			if l.Provider == remote && l.Status == model.STATUS_COMPLETED {
-				done = true
-			}
-		}
-		if done {
-			continue
-		}
-		store := s.Stores[remote]
-		class := v.InitialClass
-		if !s.Capabilities(remote).StorageClasses {
-			class = "STANDARD"
-		}
-		wg.Add(1)
-		go func(remote, class string, store cloud.Store) {
-			defer wg.Done()
-			key := s.payloadKey(*v)
-			h, err := cloud.Create(ctx, store, key, v.File, class)
-			if err == nil {
-				l := uploadedLocation(v.ID, remote, h)
-				l.InitialClass = class
-				err = c.PutLocation(ctx, l)
-			}
-			if err != nil {
-				mu.Lock()
-				failures = append(failures, err)
-				mu.Unlock()
-			}
-		}(remote, class, store)
-	}
-	wg.Wait()
-	if len(failures) > 0 {
-		return fmt.Errorf("%w: upload failed; encrypted archive retained: %v", ErrPending, failures[0])
+	if err = s.uploadSnapshot(ctx, c, v, locations); err != nil {
+		return err
 	}
 	wrapper, err := c.GetMeta(ctx, "archive_wrapper")
 	if err != nil {
@@ -196,20 +142,94 @@ func (s *Service) finishRun(ctx context.Context, c repository.Cataloger, v *mode
 		return err
 	}
 	if request.AutoCleanup && local != nil {
-		// publication-only retries may not have checked local bytes
-		if !verified {
-			hash, size, err := archive.Hash(logger.WithProgress(ctx, nil), v.File)
-			if err != nil || hash != v.Hash || size != v.Size {
-				logger.Warn("Archive retained: local file changed or unavailable.")
-				return nil
-			}
-		}
-		if err := fsutil.RemoveUnchanged(v.File, local); err != nil {
-			logger.Warn(fmt.Sprintf("Archive retained: %v", err))
-		}
+		return removeLocalArchive(ctx, v, local, verified)
 	}
 	return nil
 }
+
+func (s *Service) verifyUploads(ctx context.Context, v *model.Snapshot, locations []model.Location) (bool, error) {
+	verified := false
+	for _, remote := range strings.Split(v.Destinations, ",") {
+		done := false
+		for _, l := range locations {
+			if l.Provider == remote && l.Status == model.STATUS_COMPLETED {
+				done = true
+			}
+		}
+		if done {
+			continue
+		}
+		if !verified {
+			hash, size, err := archive.Hash(logger.WithProgressLabel(ctx, "Checking archive before upload"), v.File)
+			if err != nil || hash != v.Hash || size != v.Size {
+				return false, fmt.Errorf("backup: completed encrypted archive is unavailable or changed; pending work retained")
+			}
+			verified = true
+		}
+		store := s.Stores[remote]
+		if store == nil {
+			return false, fmt.Errorf("backup: pending remote is unavailable")
+		}
+	}
+	return verified, nil
+}
+
+func (s *Service) uploadSnapshot(ctx context.Context, c repository.Cataloger, v *model.Snapshot, locations []model.Location) error {
+	var wg sync.WaitGroup
+	destinations := strings.Split(v.Destinations, ",")
+	failures := make([]error, len(destinations))
+	for i, remote := range destinations {
+		done := false
+		for _, l := range locations {
+			if l.Provider == remote && l.Status == model.STATUS_COMPLETED {
+				done = true
+			}
+		}
+		if done {
+			continue
+		}
+		store := s.Stores[remote]
+		class := v.InitialClass
+		if !s.Capabilities(remote).StorageClasses {
+			class = "STANDARD"
+		}
+		wg.Add(1)
+		go func(i int, remote, class string, store cloud.Store) {
+			defer wg.Done()
+			key := s.payloadKey(*v)
+			h, err := cloud.Create(ctx, store, key, v.File, class)
+			if err == nil {
+				l := uploadedLocation(v.ID, remote, h)
+				l.InitialClass = class
+				err = c.PutLocation(ctx, l)
+			}
+			if err != nil {
+				failures[i] = s.remoteError(ctx, remote, err)
+			}
+		}(i, remote, class, store)
+	}
+	wg.Wait()
+	if err := errors.Join(failures...); err != nil {
+		return fmt.Errorf("%w: upload failed; encrypted archive retained: %v", ErrPending, err)
+	}
+	return nil
+}
+
+func removeLocalArchive(ctx context.Context, v *model.Snapshot, local os.FileInfo, verified bool) error {
+	// publication-only retries may not have checked local bytes
+	if !verified {
+		hash, size, err := archive.Hash(logger.WithProgress(ctx, nil), v.File)
+		if err != nil || hash != v.Hash || size != v.Size {
+			logger.Warn("Archive retained: local file changed or unavailable.")
+			return nil
+		}
+	}
+	if err := fsutil.RemoveUnchanged(v.File, local); err != nil {
+		logger.Warn(fmt.Sprintf("Archive retained: %v", err))
+	}
+	return nil
+}
+
 func (s *Service) payloadKey(v model.Snapshot) string {
 	return "glesha/archives/" + s.Set.ID + "/" + v.ID + archive.Extension(v.Compression) + ".gpg"
 }

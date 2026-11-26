@@ -54,7 +54,7 @@ func catalogSync(r *runtime, args []string) error {
 	if err != nil {
 		return err
 	}
-	r.catalogReplicasUpdated = 0
+	r.catalogSync.replicasUpdated = 0
 	summary := catalogSyncSummary{}
 	failures := catalogFailures{}
 	for _, set := range sets {
@@ -72,50 +72,7 @@ func catalogSync(r *runtime, args []string) error {
 			}
 			continue
 		}
-		updated := false
-		err := func() (result error) {
-			if err := r.openSet(set.ID); err != nil {
-				return err
-			}
-			if err := r.checkRemote(r.service.Set.CatalogTo); err != nil {
-				return err
-			}
-			unlock, err := r.lock()
-			if err != nil {
-				return err
-			}
-			defer unlock()
-			r.catalogCacheUpdated = false
-			before, err := r.localCatalogRevision()
-			if err != nil {
-				return err
-			}
-			defer func() {
-				if e := r.service.RecordResult(context.WithoutCancel(r.ctx), "sync", result); e != nil {
-					logger.Debug(e.Error())
-				}
-			}()
-			defer func() { wipe(r.service.CatalogPassword) }()
-			if r.service.Pending() {
-				if err = r.syncStores(); err != nil {
-					return err
-				}
-				if err = r.catalogSecret(true); err != nil {
-					return err
-				}
-				if err = r.service.SyncCatalog(r.ctx); err != nil {
-					return err
-				}
-			} else if err = r.prepareMutation(); err != nil {
-				return err
-			}
-			if err = r.replicateDirectory(); err != nil {
-				return err
-			}
-			after, err := r.localCatalogRevision()
-			updated = r.catalogCacheUpdated || before != after
-			return err
-		}()
+		updated, err := syncSetCatalog(r, set)
 		if err != nil {
 			summary.Failed++
 			if outputErr := failures.addSet(r, set, err); outputErr != nil {
@@ -129,6 +86,51 @@ func catalogSync(r *runtime, args []string) error {
 	}
 	return failures.finish(r, summary)
 }
+
+func syncSetCatalog(r *runtime, set model.Set) (updated bool, result error) {
+	if err := r.openSet(set.ID); err != nil {
+		return false, err
+	}
+	if err := r.checkRemote(r.service.Set.CatalogTo); err != nil {
+		return false, err
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	r.catalogSync.cacheUpdated = false
+	before, err := r.localCatalogRevision()
+	if err != nil {
+		return false, err
+	}
+	defer func() {
+		if e := r.service.RecordResult(context.WithoutCancel(r.ctx), "sync", result); e != nil {
+			logger.Debug(e.Error())
+		}
+	}()
+	defer func() { wipe(r.service.CatalogPassword) }()
+	if r.service.Pending() {
+		if err = r.syncStores(); err != nil {
+			return false, err
+		}
+		if err = r.catalogSecret(true); err != nil {
+			return false, err
+		}
+		if err = r.service.SyncCatalog(r.ctx); err != nil {
+			return false, err
+		}
+	} else if err = r.prepareMutation(); err != nil {
+		return false, err
+	}
+	if err = r.replicateDirectory(); err != nil {
+		return false, err
+	}
+	after, err := r.localCatalogRevision()
+	updated = r.catalogSync.cacheUpdated || before != after
+	return updated, err
+}
+
 func catalogResolve(r *runtime, args []string) (result error) {
 	if len(args) != 1 || r.env.All {
 		return fmt.Errorf("cli: catalog resolve requires SET")
@@ -218,14 +220,16 @@ func catalogResolve(r *runtime, args []string) (result error) {
 	}
 	return r.completed("", "", fmt.Sprintf("Catalog resolved for %q.", r.service.Set.Name))
 }
+
+type cleanupWork struct {
+	service *backup.Service
+	plan    backup.CleanupPlan
+}
+
 func cleanup(r *runtime, args []string) error {
 	sets, err := r.selectedSets(args)
 	if err != nil {
 		return err
-	}
-	type work struct {
-		service *backup.Service
-		plan    backup.CleanupPlan
 	}
 	var deferRelease []func()
 	defer func() {
@@ -233,7 +237,7 @@ func cleanup(r *runtime, args []string) error {
 			release()
 		}
 	}()
-	var plans []work
+	var plans []cleanupWork
 	var failures []error
 	var total int64
 	count := 0
@@ -242,67 +246,12 @@ func cleanup(r *runtime, args []string) error {
 			return err
 		}
 		err := func() error {
-			if err := r.openSet(set.ID); err != nil {
+			plan, release, err := planSetCleanup(r, set)
+			if err != nil || release == nil {
 				return err
 			}
-			unlock, err := r.lock()
-			if err != nil {
-				return err
-			}
-			defer func() {
-				if unlock != nil {
-					unlock()
-				}
-			}()
-			// skip pending work before opening cloud connections.
-			reason, err := r.service.CleanupBlock(r.ctx)
-			if err != nil {
-				return err
-			}
-			if reason != "" {
-				if err := r.setEvent("skipped", set, "", reason); err != nil {
-					return err
-				}
-				return nil
-			}
-			if r.env.DryRun {
-				if err = r.syncStores(); err != nil {
-					return err
-				}
-				if err = r.catalogSecret(false); err != nil {
-					return err
-				}
-				if err = r.service.Pull(r.ctx); err != nil {
-					return err
-				}
-			} else if err = r.prepareMutation(); err != nil {
-				return err
-			}
-			defer wipe(r.service.CatalogPassword)
-			ids, err := r.service.CleanupRemotes(r.ctx)
-			if err != nil {
-				return err
-			}
-			if err = r.stores(ids); err != nil {
-				return err
-			}
-			plan, err := r.service.PlanCleanup(r.ctx)
-			if err != nil {
-				return err
-			}
-			if plan.Skipped != "" {
-				if err := r.setEvent("skipped", set, "", plan.Skipped); err != nil {
-					return err
-				}
-				return nil
-			}
-			if len(plan.Files) == 0 {
-				return nil
-			}
-			release := unlock
-			unlock = nil
 			deferRelease = append(deferRelease, release)
-			plans = append(plans, work{r.service, plan})
+			plans = append(plans, cleanupWork{r.service, plan})
 			for _, file := range plan.Files {
 				if err := r.emit("cleanup_candidate", struct {
 					Set  string `json:"set"`
@@ -338,21 +287,89 @@ func cleanup(r *runtime, args []string) error {
 	if err = confirm(r.ctx, "Remove these local archives? Remote copies will be kept.", r.env.AssumeYes); err != nil {
 		return err
 	}
+	removals, err := removeCleanupFiles(r, plans)
+	if err != nil {
+		return err
+	}
+	return reportedError("cleanup", errors.Join(append(failures, removals...)...))
+}
+
+// planSetCleanup returns a nil release when the set has nothing to remove.
+func planSetCleanup(r *runtime, set model.Set) (backup.CleanupPlan, func(), error) {
+	if err := r.openSet(set.ID); err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	unlock, err := r.lock()
+	if err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	defer func() {
+		if unlock != nil {
+			unlock()
+		}
+	}()
+	// skip pending work before opening cloud connections.
+	reason, err := r.service.CleanupBlock(r.ctx)
+	if err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	if reason != "" {
+		return backup.CleanupPlan{}, nil, r.setEvent("skipped", set, "", reason)
+	}
+	if r.env.DryRun {
+		if err = r.syncStores(); err != nil {
+			return backup.CleanupPlan{}, nil, err
+		}
+		if err = r.catalogSecret(false); err != nil {
+			return backup.CleanupPlan{}, nil, err
+		}
+		if err = r.service.Pull(r.ctx); err != nil {
+			return backup.CleanupPlan{}, nil, err
+		}
+	} else if err = r.prepareMutation(); err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	defer wipe(r.service.CatalogPassword)
+	ids, err := r.service.CleanupRemotes(r.ctx)
+	if err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	if err = r.stores(ids); err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	plan, err := r.service.PlanCleanup(r.ctx)
+	if err != nil {
+		return backup.CleanupPlan{}, nil, err
+	}
+	if plan.Skipped != "" {
+		return backup.CleanupPlan{}, nil, r.setEvent("skipped", set, "", plan.Skipped)
+	}
+	if len(plan.Files) == 0 {
+		return backup.CleanupPlan{}, nil, nil
+	}
+	release := unlock
+	unlock = nil
+	return plan, release, nil
+}
+
+// removeCleanupFiles deletes the planned files and reports each one. It returns
+// the files it could not remove as failures, and err only when output fails.
+func removeCleanupFiles(r *runtime, plans []cleanupWork) (failures []error, err error) {
 	removed := 0
 	var reclaimed int64
 	for _, work := range plans {
 		for _, file := range work.plan.Files {
-			if err = work.service.RemoveCleanupFile(r.ctx, file); err != nil {
+			if err := work.service.RemoveCleanupFile(r.ctx, file); err != nil {
 				failures = append(failures, err)
 				if outputErr := r.emitAtLevel("", nil, fmt.Sprintf("Could not remove %q: %s", file.Path, err), logger.ERROR); outputErr != nil {
-					return errors.Join(err, outputErr)
+					return nil, errors.Join(err, outputErr)
 				}
 			} else {
 				if err := r.emit("cleanup_removed", struct {
 					Path string `json:"path"`
 					Size int64  `json:"size"`
 				}{file.Path, file.Size}, ""); err != nil {
-					return err
+					return nil, err
 				}
 				removed++
 				reclaimed += file.Size
@@ -360,9 +377,9 @@ func cleanup(r *runtime, args []string) error {
 		}
 	}
 	if err := r.result(fmt.Sprintf("Removed %d local archives; reclaimed %s.", removed, compactSize(reclaimed))); err != nil {
-		return err
+		return nil, err
 	}
-	return reportedError("cleanup", errors.Join(failures...))
+	return failures, nil
 }
 
 type cleanupSummary struct {

@@ -574,6 +574,10 @@ func (s *Service) pull(ctx context.Context, mode authorityMode, hops int) error 
 	if current == rs[len(rs)-1].ID {
 		return nil
 	}
+	return s.applyRevisions(ctx, c, store, rs, current, authorityChanged)
+}
+
+func (s *Service) applyRevisions(ctx context.Context, c repository.Cataloger, store cloud.Store, rs []revision, current string, authorityChanged bool) error {
 	start, checkpoint, err := revisionRange(rs, current)
 	if err != nil {
 		return err

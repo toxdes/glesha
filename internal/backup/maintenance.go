@@ -56,45 +56,9 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 		}
 	}
 	if !s.Pending() {
-		if err := s.Pull(ctx); err != nil {
-			return err
-		}
-		c, err := s.Catalog(ctx)
+		matching, err := s.classMatches(ctx, id, class)
 		if err != nil {
 			return err
-		}
-		v, err := Resolve(ctx, c, id)
-		if err != nil {
-			c.Close()
-			return err
-		}
-		if v.Layout == "chunked" {
-			c.Close()
-			return fmt.Errorf("backup: storage-class changes for chunked snapshots are not supported")
-		}
-		locations, err := c.Locations(ctx, v.ID)
-		c.Close()
-		if err != nil {
-			return err
-		}
-		found, matching := false, true
-		for _, l := range locations {
-			if !s.Capabilities(l.Provider).StorageClasses {
-				continue
-			}
-			found = true
-			store := s.Stores[l.Provider]
-			if store == nil {
-				return fmt.Errorf("backup: AWS remote unavailable")
-			}
-			h, err := store.Head(ctx, l.Key, l.Version)
-			if err != nil {
-				return err
-			}
-			matching = matching && h.Class == class
-		}
-		if !found {
-			return fmt.Errorf("backup: snapshot has no registered AWS copy")
 		}
 		if matching {
 			return nil
@@ -108,29 +72,91 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 	if err = s.checkCatalogSecret(ctx, p); err != nil {
 		return err
 	}
+	id, class, err = bindClassChange(ctx, p, id, class)
+	if err != nil {
+		return err
+	}
+	if err = s.applyClassChange(ctx, p, id, class); err != nil {
+		return err
+	}
+	if err = s.publish(ctx, p, currentAuthority); err != nil {
+		return err
+	}
+	return s.finishPending(ctx, p)
+}
+
+func (s *Service) classMatches(ctx context.Context, id, class string) (bool, error) {
+	if err := s.Pull(ctx); err != nil {
+		return false, err
+	}
+	c, err := s.Catalog(ctx)
+	if err != nil {
+		return false, err
+	}
+	v, err := Resolve(ctx, c, id)
+	if err != nil {
+		c.Close()
+		return false, err
+	}
+	if v.Layout == "chunked" {
+		c.Close()
+		return false, fmt.Errorf("backup: storage-class changes for chunked snapshots are not supported")
+	}
+	locations, err := c.Locations(ctx, v.ID)
+	c.Close()
+	if err != nil {
+		return false, err
+	}
+	found, matching := false, true
+	for _, l := range locations {
+		if !s.Capabilities(l.Provider).StorageClasses {
+			continue
+		}
+		found = true
+		store := s.Stores[l.Provider]
+		if store == nil {
+			return false, fmt.Errorf("backup: remote %s unavailable", l.Provider)
+		}
+		h, err := store.Head(ctx, l.Key, l.Version)
+		if err != nil {
+			return false, err
+		}
+		matching = matching && h.Class == class
+	}
+	if !found {
+		return false, fmt.Errorf("backup: snapshot has no registered copy on a remote with storage classes")
+	}
+	return matching, nil
+}
+
+func bindClassChange(ctx context.Context, p repository.Cataloger, id, class string) (string, string, error) {
 	savedID, _ := p.GetMeta(ctx, "class_snapshot")
 	savedClass, _ := p.GetMeta(ctx, "class_target")
 	if savedID != "" {
 		if id != "" && id != "latest" && id != savedID || class != "" && class != savedClass {
-			return fmt.Errorf("backup: options conflict with pending class change")
+			return "", "", fmt.Errorf("backup: options conflict with pending class change")
 		}
 		id, class = savedID, savedClass
 	} else {
 		v, err := Resolve(ctx, p, id)
 		if err != nil {
-			return err
+			return "", "", err
 		}
 		id = v.ID
 		if class == "" {
-			return fmt.Errorf("backup: storage class is required")
+			return "", "", fmt.Errorf("backup: storage class is required")
 		}
 		if err = p.SetMeta(ctx, "class_snapshot", id); err != nil {
-			return err
+			return "", "", err
 		}
 		if err = p.SetMeta(ctx, "class_target", class); err != nil {
-			return err
+			return "", "", err
 		}
 	}
+	return id, class, nil
+}
+
+func (s *Service) applyClassChange(ctx context.Context, p repository.Cataloger, id, class string) error {
 	v, err := p.Snapshot(ctx, id)
 	if err != nil {
 		return err
@@ -150,7 +176,7 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 		found = true
 		store := s.Stores[l.Provider]
 		if store == nil {
-			return fmt.Errorf("backup: AWS remote unavailable")
+			return fmt.Errorf("backup: remote %s unavailable", l.Provider)
 		}
 		h, err := store.Head(ctx, l.Key, l.Version)
 		if err != nil {
@@ -181,12 +207,9 @@ func (s *Service) StorageClass(ctx context.Context, id, class string) error {
 		}
 	}
 	if !found {
-		return fmt.Errorf("backup: snapshot has no registered AWS copy")
+		return fmt.Errorf("backup: snapshot has no registered copy on a remote with storage classes")
 	}
-	if err = s.publish(ctx, p, currentAuthority); err != nil {
-		return err
-	}
-	return s.finishPending(ctx, p)
+	return nil
 }
 
 // Move copies the set's snapshots and catalog to the remote to and makes it the
@@ -432,7 +455,7 @@ func (s *Service) downloadMoveSource(ctx context.Context, locations []model.Loca
 			if l.Provider != remote {
 				continue
 			}
-			if _, err := Download(ctx, s.Stores, []string{remote}, l.Key, l.Version, file); err == nil {
+			if _, err := s.Download(ctx, []string{remote}, l.Key, l.Version, file); err == nil {
 				return true
 			}
 		}

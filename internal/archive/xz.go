@@ -81,109 +81,129 @@ func (g *xzGuard) take(n int) ([]byte, error) {
 func (g *xzGuard) next() error {
 	switch g.stage {
 	case xzHeader:
-		b, err := g.take(4)
-		if err != nil {
-			return err
-		}
-		if bytes.Equal(b, []byte{0, 0, 0, 0}) {
-			g.queued = b
-			return nil
-		}
-		tail, err := g.take(8)
-		if err != nil {
-			return err
-		}
-		b = append(b, tail...)
-		if !xz.ValidHeader(b) {
-			return fmt.Errorf("archive: invalid xz header")
-		}
-		switch b[7] {
-		case xz.None:
-			g.checkSize = 0
-		case xz.CRC32:
-			g.checkSize = 4
-		case xz.CRC64:
-			g.checkSize = 8
-		case xz.SHA256:
-			g.checkSize = 32
-		default:
-			return fmt.Errorf("archive: unsupported xz checksum")
-		}
-		g.queued, g.stage = b, xzBlock
+		return g.nextHeader()
 	case xzBlock:
-		b, err := g.take(1)
-		if err != nil {
-			return err
-		}
-		if b[0] == 0 {
-			g.queued, g.stage = b, xzIndex
-			return nil
-		}
-		g.blocks++
-		if g.blocks > 65536 {
-			return fmt.Errorf("archive: xz block count exceeds memory limit")
-		}
-		tail, err := g.take((int(b[0])+1)*4 - 1)
-		if err != nil {
-			return err
-		}
-		b = append(b, tail...)
-		if err = g.checkDictionary(b); err != nil {
-			return err
-		}
-		g.queued, g.stage, g.blockSize = b, xzChunk, 0
+		return g.nextBlock()
 	case xzChunk:
-		b, err := g.take(1)
-		if err != nil {
-			return err
-		}
-		if b[0] == 0 {
-			g.blockSize++
-			g.queued, g.remaining, g.stage = b, (-g.blockSize)&3+g.checkSize, xzBlock
-			return nil
-		}
-		header := 2
-		if b[0] >= 0x80 {
-			header = 4
-			if b[0] >= 0xc0 {
-				header++
-			}
-		} else if b[0] != 1 && b[0] != 2 {
-			return fmt.Errorf("archive: invalid xz chunk")
-		}
-		tail, err := g.take(header)
-		if err != nil {
-			return err
-		}
-		b = append(b, tail...)
-		sizeOffset := 1
-		if b[0] >= 0x80 {
-			sizeOffset = 3
-		}
-		g.remaining = int64(binary.BigEndian.Uint16(b[sizeOffset:])) + 1
-		g.blockSize += int64(len(b)) + g.remaining
-		g.queued = b
+		return g.nextChunk()
 	case xzIndex:
-		b := []byte{}
-		count, err := g.indexInteger(&b)
-		if err != nil {
-			return err
-		}
-		if count > 65536 {
-			return fmt.Errorf("archive: xz index exceeds memory limit")
-		}
-		for i := uint64(0); i < count*2; i++ {
-			if _, err = g.indexInteger(&b); err != nil {
-				return err
-			}
-		}
-		// index padding, CRC32 and stream footer
-		tail, err := g.take((-(len(b) + 1) & 3) + 4 + 12)
-		if err != nil {
-			return err
-		}
-		g.queued, g.stage = append(b, tail...), xzHeader
+		return g.nextIndex()
 	}
+	return nil
+}
+
+func (g *xzGuard) nextHeader() error {
+	b, err := g.take(4)
+	if err != nil {
+		return err
+	}
+	if bytes.Equal(b, []byte{0, 0, 0, 0}) {
+		g.queued = b
+		return nil
+	}
+	tail, err := g.take(8)
+	if err != nil {
+		return err
+	}
+	b = append(b, tail...)
+	if !xz.ValidHeader(b) {
+		return fmt.Errorf("archive: invalid xz header")
+	}
+	switch b[7] {
+	case xz.None:
+		g.checkSize = 0
+	case xz.CRC32:
+		g.checkSize = 4
+	case xz.CRC64:
+		g.checkSize = 8
+	case xz.SHA256:
+		g.checkSize = 32
+	default:
+		return fmt.Errorf("archive: unsupported xz checksum")
+	}
+	g.queued, g.stage = b, xzBlock
+	return nil
+}
+
+func (g *xzGuard) nextBlock() error {
+	b, err := g.take(1)
+	if err != nil {
+		return err
+	}
+	if b[0] == 0 {
+		g.queued, g.stage = b, xzIndex
+		return nil
+	}
+	g.blocks++
+	if g.blocks > 65536 {
+		return fmt.Errorf("archive: xz block count exceeds memory limit")
+	}
+	tail, err := g.take((int(b[0])+1)*4 - 1)
+	if err != nil {
+		return err
+	}
+	b = append(b, tail...)
+	if err = g.checkDictionary(b); err != nil {
+		return err
+	}
+	g.queued, g.stage, g.blockSize = b, xzChunk, 0
+	return nil
+}
+
+func (g *xzGuard) nextChunk() error {
+	b, err := g.take(1)
+	if err != nil {
+		return err
+	}
+	if b[0] == 0 {
+		g.blockSize++
+		g.queued, g.remaining, g.stage = b, (-g.blockSize)&3+g.checkSize, xzBlock
+		return nil
+	}
+	header := 2
+	if b[0] >= 0x80 {
+		header = 4
+		if b[0] >= 0xc0 {
+			header++
+		}
+	} else if b[0] != 1 && b[0] != 2 {
+		return fmt.Errorf("archive: invalid xz chunk")
+	}
+	tail, err := g.take(header)
+	if err != nil {
+		return err
+	}
+	b = append(b, tail...)
+	sizeOffset := 1
+	if b[0] >= 0x80 {
+		sizeOffset = 3
+	}
+	g.remaining = int64(binary.BigEndian.Uint16(b[sizeOffset:])) + 1
+	g.blockSize += int64(len(b)) + g.remaining
+	g.queued = b
+	return nil
+}
+
+func (g *xzGuard) nextIndex() error {
+	b := []byte{}
+	count, err := g.indexInteger(&b)
+	if err != nil {
+		return err
+	}
+	if count > 65536 {
+		return fmt.Errorf("archive: xz index exceeds memory limit")
+	}
+	for i := uint64(0); i < count*2; i++ {
+		if _, err = g.indexInteger(&b); err != nil {
+			return err
+		}
+	}
+	// index padding, CRC32 and stream footer
+	tail, err := g.take((-(len(b) + 1) & 3) + 4 + 12)
+	if err != nil {
+		return err
+	}
+	g.queued, g.stage = append(b, tail...), xzHeader
 	return nil
 }
 
