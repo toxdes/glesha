@@ -5,7 +5,9 @@ For each remote, one device backs up a new set, changes the sources and backs
 up again. A second device with no local state, a Docker container holding
 only the glesha binary and the credentials file, then discovers the set with
 'catalog sync' and restores both snapshots. Each restore must match the
-sources as they were when that snapshot was taken.
+sources as they were when that snapshot was taken. The first device then
+moves the set to the trash and restores it, and finally deletes it with
+'delete --now'; the second device must see each change after 'catalog sync'.
 
 Usage:
     tests/e2e.py --env FILE --remote b2
@@ -16,7 +18,9 @@ The credentials file is passed to 'glesha --env' and never read here. Each
 run uploads a few MiB to a new set named e2e-<random> in STANDARD storage. As
 soon as the set exists its deletion is queued: before the script exits, pass
 or fail, tests/e2ecleanup deletes every stored version of the set's objects,
-so nothing stays billed. No other object is read or modified.
+including the marker 'delete --now' keeps, so nothing stays billed. After a
+'delete --now', it must find nothing else. No other object is read or
+modified.
 
 Requirements: go, docker.
 """
@@ -115,8 +119,11 @@ def build_cleanup(directory: Path) -> Path:
     return binary
 
 
-def delete_set(cleanup: Path, device: Device, remote: str, identity: str, uploaded: bool) -> None:
-    """Deletes every stored version of the set's remote objects."""
+def delete_set(cleanup: Path, device: Device, remote: str, identity: str, uploaded: bool, deleted: bool) -> None:
+    """Deletes every stored version of the set's remote objects.
+
+    deleted says that 'glesha delete --now' ran, so only its markers may remain.
+    """
     print(f"[cleanup] deleting set {identity} from {remote}", flush=True)
     env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(device.home)}
     result = subprocess.run(
@@ -130,6 +137,11 @@ def delete_set(cleanup: Path, device: Device, remote: str, identity: str, upload
         n, where, prefix = line.split(" ", 2)
         counts[f"{where}:{prefix}"] = int(n)
     print("[cleanup] " + ", ".join(f"{n} versions under {where}" for where, n in counts.items()), flush=True)
+    if deleted:
+        left = [where for where, n in counts.items() if n and "/tombstones/" not in where]
+        if left:
+            raise SystemExit(f"[cleanup] glesha delete --now left versions under {left}")
+        return
     empty = [where for where, n in counts.items() if n == 0 and "/directory/" not in where]
     if uploaded and empty:
         raise SystemExit(f"[cleanup] nothing found under {empty}; the key layout changed and objects may remain")
@@ -196,22 +208,50 @@ def scenario(remote: str, binary: Path, cleanup: Path, env_file: Path, image: st
     write_sources(sources)
     first.glesha("create", name, str(sources), "--to", remote, "--storage-class", "STANDARD", "--compression", "gzip")
     identity = set_id(first, name)
-    uploaded = False
+    uploaded = deleted = False
     try:
         first.glesha("run", name, "--passphrase-file", "-", stdin=PASSPHRASE + "\n")
         uploaded = True
-        exercise(first, name, identity, remote, binary, env_file, image, work)
+        second = exercise(first, name, identity, remote, binary, env_file, image, work)
+        trash(first, second, name, identity, remote)
+        first.glesha("delete", name, "--now", "--assume-yes")
+        deleted = True
+        second.glesha("catalog", "sync", "--from", remote)
+        # a sync limited to one remote leaves the rest of the deletion to the next command
+        second.glesha("status")
+        if identity in [s["id"] for s in second.records("set", "list")]:
+            raise SystemExit("[second] still lists the deleted set after catalog sync and status")
     except BaseException:
         # report a failed cleanup without hiding the original failure
         try:
-            delete_set(cleanup, first, remote, identity, uploaded)
+            delete_set(cleanup, first, remote, identity, uploaded, deleted)
         except SystemExit as failure:
             print(failure, file=sys.stderr)
         raise
-    delete_set(cleanup, first, remote, identity, uploaded)
+    delete_set(cleanup, first, remote, identity, uploaded, deleted)
 
 
-def exercise(first: Device, name: str, identity: str, remote: str, binary: Path, env_file: Path, image: str, work: Path) -> None:
+def state(device: Device, identity: str) -> str:
+    """Returns the state that 'status' reports for the set."""
+    states = [r["condition"]["state"] for r in device.records("status", "status") if r["set"]["id"] == identity]
+    if len(states) != 1:
+        raise SystemExit(f"[{device.name}] status shows the set {len(states)} times")
+    return states[0]
+
+
+def trash(first: Device, second: "ContainerDevice", name: str, identity: str, remote: str) -> None:
+    """Moves the set to the trash and back; the second device follows both."""
+    first.glesha("delete", name, "--assume-yes")
+    second.glesha("catalog", "sync", "--from", remote)
+    if (seen := state(second, identity)) != "TRASH":
+        raise SystemExit(f"[second] set is {seen} after delete, want TRASH")
+    first.glesha("undelete", name)
+    second.glesha("catalog", "sync", "--from", remote)
+    if (seen := state(second, identity)) == "TRASH":
+        raise SystemExit("[second] set is still in the trash after undelete")
+
+
+def exercise(first: Device, name: str, identity: str, remote: str, binary: Path, env_file: Path, image: str, work: Path) -> "ContainerDevice":
     """Changes and backs up the sources, then restores both snapshots on a second device."""
     sources = first.home / "sources"
     before = work / "expected-full"
@@ -231,6 +271,7 @@ def exercise(first: Device, name: str, identity: str, remote: str, binary: Path,
             "--passphrase-file", "-", stdin=PASSPHRASE + "\n",
         )
         compare(expected, second.home / into / "sources", label)
+    return second
 
 
 def main() -> None:
