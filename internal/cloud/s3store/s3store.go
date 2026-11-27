@@ -658,6 +658,32 @@ func (s *s3Store) List(ctx context.Context, prefix, after string) (objects []clo
 	return out, last, nil
 }
 
+// ListVersions calls each for every version and delete marker under prefix.
+func (s *s3Store) ListVersions(ctx context.Context, prefix string, each func(cloud.Object) error) (err error) {
+	defer classify(&err)
+	input := &s3.ListObjectVersionsInput{Bucket: &s.bucket, Prefix: &prefix}
+	for {
+		v, err := s.client.ListObjectVersions(ctx, input)
+		if err != nil {
+			return err
+		}
+		for _, o := range v.Versions {
+			if err = each(cloud.Object{Key: aws.ToString(o.Key), Version: aws.ToString(o.VersionId), Size: aws.ToInt64(o.Size)}); err != nil {
+				return err
+			}
+		}
+		for _, o := range v.DeleteMarkers {
+			if err = each(cloud.Object{Key: aws.ToString(o.Key), Version: aws.ToString(o.VersionId)}); err != nil {
+				return err
+			}
+		}
+		if !aws.ToBool(v.IsTruncated) {
+			return nil
+		}
+		input.KeyMarker, input.VersionIdMarker = v.NextKeyMarker, v.NextVersionIdMarker
+	}
+}
+
 // classify tags S3 error codes with the matching cloud sentinel error.
 func classify(err *error) {
 	var api smithy.APIError

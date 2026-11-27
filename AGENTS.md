@@ -55,6 +55,7 @@
   - `logger.SetLevelFromString()` - set log level
 
 ## Conventions
+- End-to-end test against real remotes: `tests/e2e.py --env FILE --remote REMOTE` (needs Docker; see its docstring).
 - Catalog init sequence: `repository.NewCatalogRepository(ctx, path)` → `defer catalog.Close()`
 - `Execute` applies `--log-level` and `--color` once, before any command runs.
 - Expand `~` in all path flags; `AppCmdEnv.expandPaths` does this for the shared ones.
