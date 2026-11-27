@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"glesha/internal/archive"
 	"glesha/internal/cloud"
@@ -88,7 +89,8 @@ func (m *memoryStore) put(ctx context.Context, key, file, class string) (cloud.O
 	if err != nil {
 		return cloud.Object{}, err
 	}
-	v := cloud.Object{Key: key, Version: "version", ETag: h, Hash: h, Size: size, Class: class}
+	stored := time.Now().UTC()
+	v := cloud.Object{Key: key, Version: "version", ETag: h, Hash: h, Size: size, Class: class, ModifiedAt: &stored}
 	m.files[key] = b
 	m.objects[key] = v
 	m.puts[key]++

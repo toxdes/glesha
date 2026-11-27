@@ -21,6 +21,8 @@ type Set struct {
 	IncrementalClass string    `json:"incremental_storage_class"`
 	Authority        string    `json:"incremental_remote,omitempty"`
 	Created          time.Time `json:"created"`
+	// Trash is set while the set waits to be deleted
+	Trash *Trash `json:"trash,omitempty"`
 }
 type Remote struct {
 	ID       string `json:"id"`

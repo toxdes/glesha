@@ -32,7 +32,7 @@ func TestImportCommandPublishesWithoutReuploadingPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := newImportRemote(t, map[string][]byte{"legacy.gpg": data})
+	f := newImportRemote(t, map[string][]byte{"legacy.gpg": data, "copy.gpg": data})
 	server := f.server
 	defer server.Close()
 	cfg := config.Defaults()
@@ -75,6 +75,11 @@ func TestImportCommandPublishesWithoutReuploadingPayload(t *testing.T) {
 	}
 	c.Close()
 	r.env.File = ""
+	// one archive in two sets would break the other set when one is deleted
+	if err = importArchive(r, []string{"shared-docs"}); err == nil || !strings.Contains(err.Error(), "legacy.gpg is already in set old-docs") {
+		t.Fatalf("archive imported into a second set: %v", err)
+	}
+	r.env.Key = "copy.gpg"
 	if err = importArchive(r, []string{"downloaded-docs"}); err != nil {
 		t.Fatal(err)
 	}

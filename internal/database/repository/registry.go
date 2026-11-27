@@ -28,6 +28,8 @@ type Registryor interface {
 	LocatorReplicated(context.Context, string, string) (bool, error)
 	MarkLocatorReplicated(context.Context, string, string) error
 	ForgetLocatorReplicas(context.Context, string) error
+	// Remove forgets a set and its discovery records.
+	Remove(context.Context, string) error
 }
 type registry struct{ db *sql.DB }
 

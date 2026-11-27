@@ -30,6 +30,8 @@ const (
 	STATE_CONFLICT   SetState = "CONFLICT"
 	STATE_FAILED     SetState = "FAILED"
 	STATE_LOCKED     SetState = "LOCKED"
+	STATE_TRASH      SetState = "TRASH"
+	STATE_DELETING   SetState = "DELETING"
 )
 
 func (s SetState) String() string { return string(s) }
@@ -118,6 +120,12 @@ func (s *Service) Condition(ctx context.Context) (Condition, error) {
 }
 
 func (s *Service) blockedCondition(ctx context.Context) (Condition, bool, error) {
+	if t := s.Set.Trash; t != nil {
+		if t.Due(now()) {
+			return Condition{State: STATE_DELETING, Reason: "Trash period ended; deletion not finished", Action: "glesha delete --now " + s.Set.ID}, true, nil
+		}
+		return Condition{State: STATE_TRASH, Reason: "Deleted after " + t.Deadline.Local().Format("2006-01-02 15:04"), Action: "glesha undelete " + s.Set.ID}, true, nil
+	}
 	if pending, err := s.DirectoryRepairPending(ctx); err != nil {
 		return Condition{}, true, err
 	} else if pending && !s.Pending() {

@@ -151,8 +151,17 @@ func (s *Service) DiscoverState(ctx context.Context, remote string) error {
 	if err := s.Registry.ForgetLocatorReplicas(ctx, remote+":"+s.directoryPrefix()); err != nil {
 		return err
 	}
+	markers, err := s.discoverTrash(ctx, store)
+	if err != nil {
+		return err
+	}
 	prefix := s.directoryPrefix()
 	if err := cloud.List(ctx, store, prefix, func(object cloud.Object) error {
+		if set, _, _ := strings.Cut(strings.TrimPrefix(object.Key, prefix), "/"); markers.deleted[set] {
+			// a device that predates deletion markers published it again
+			_, err := cloud.DeleteAll(ctx, store, prefix+set+"/", nil)
+			return err
+		}
 		v, err := s.readLocator(ctx, store, object.Key)
 		if err != nil {
 			return err
@@ -169,7 +178,7 @@ func (s *Service) DiscoverState(ctx context.Context, remote string) error {
 	}
 	if err := cloud.List(ctx, store, setPrefix, func(object cloud.Object) error {
 		parts := strings.Split(strings.TrimPrefix(object.Key, setPrefix), "/")
-		if len(parts) == 3 && parts[1] == folder {
+		if len(parts) == 3 && parts[1] == folder && !markers.deleted[parts[0]] {
 			if _, err := uuid.Parse(parts[0]); err != nil {
 				return fmt.Errorf("backup: invalid discovered set ID")
 			}
@@ -180,7 +189,7 @@ func (s *Service) DiscoverState(ctx context.Context, remote string) error {
 		return err
 	}
 	if len(sets) == 0 {
-		return nil
+		return s.applyTrash(ctx, remote, markers)
 	}
 	authority, err := s.Registry.Remote(ctx, remote)
 	if err != nil {
@@ -213,7 +222,7 @@ func (s *Service) DiscoverState(ctx context.Context, remote string) error {
 			return err
 		}
 	}
-	return nil
+	return s.applyTrash(ctx, remote, markers)
 }
 
 func (s *Service) useLocator(ctx context.Context) error {
@@ -426,6 +435,9 @@ func (s *Service) PublishDirectoryWithResult(ctx context.Context) (int, error) {
 		return updated, err
 	}
 	for _, set := range sets {
+		if set.Trash != nil && set.Trash.Started {
+			continue
+		}
 		locators, err := s.Registry.Locators(ctx, set.ID)
 		if err != nil {
 			return updated, err
