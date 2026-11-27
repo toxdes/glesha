@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 
@@ -108,18 +107,17 @@ func (s *Service) retireMoveSource(ctx context.Context, pending repository.Catal
 	if err != nil {
 		return err
 	}
-	peer := *s
+	peer, remove, err := s.scratch("retirement")
+	if err != nil {
+		return err
+	}
+	defer remove()
 	peer.Set = previous
-	peer.Directory, err = os.MkdirTemp(s.Directory, ".glesha-retirement-")
+	published, err := peer.openRemoteCatalog()
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(peer.Directory)
-	store, err := peer.metadataStore()
-	if err != nil {
-		return err
-	}
-	history, err := peer.revisions(ctx, store)
+	history, err := published.revisions(ctx)
 	if err != nil {
 		return err
 	}

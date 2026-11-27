@@ -177,12 +177,11 @@ func (s *Service) reconcile(ctx context.Context, keep string) error {
 	}
 	stagedName := filepath.Join(s.Directory, "reconciled-"+newID()+".db")
 	defer os.Remove(stagedName)
-	peer := *s
-	peer.Directory = filepath.Join(s.Directory, ".glesha-reconcile-"+newID())
-	if err = os.Mkdir(peer.Directory, 0700); err != nil {
+	peer, remove, err := s.scratch("reconcile")
+	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(peer.Directory)
+	defer remove()
 	if err = peer.Pull(ctx); err != nil {
 		return err
 	}
@@ -198,7 +197,7 @@ func (s *Service) reconcile(ctx context.Context, keep string) error {
 	if err != nil {
 		return err
 	}
-	head, err = s.resolveKeptHead(ctx, p, &peer, keep, head)
+	head, err = s.resolveKeptHead(ctx, p, peer, keep, head)
 	if err != nil {
 		return err
 	}

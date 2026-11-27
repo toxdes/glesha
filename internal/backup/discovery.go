@@ -138,7 +138,7 @@ func (s *Service) readDescriptor(ctx context.Context, store cloud.Store, prefix,
 	if err != nil {
 		return Descriptor{}, err
 	}
-	body, err := s.metadataReader(ctx, r, h.Key)
+	body, err := metadataReader(ctx, r, h.Key, s.CatalogPassword)
 	if err != nil {
 		r.Close()
 		return Descriptor{}, err

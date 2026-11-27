@@ -35,7 +35,13 @@ func (r *runtime) retrieval() (backup.RetrievalOptions, error) {
 	if days < 1 || int64(days) > 2147483647 {
 		return backup.RetrievalOptions{}, fmt.Errorf("cli: availability days must be positive and fit int32")
 	}
-	return backup.RetrievalOptions{Tier: tier, Days: int32(days), UseSavedDays: !r.env.given("days"), Request: r.env.RequestRetrieval, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, false) }}, nil
+	return backup.RetrievalOptions{
+		Tier:         tier,
+		Days:         int32(days),
+		UseSavedDays: !r.env.given("days"),
+		Request:      r.env.RequestRetrieval,
+		Confirm:      func(ctx context.Context, message string) error { return confirm(ctx, message, false) },
+	}, nil
 }
 func importArchive(r *runtime, args []string) error {
 	if err := count(args, 1); err != nil {
@@ -107,7 +113,15 @@ func importArchive(r *runtime, args []string) error {
 			location.Verification = "metadata"
 		}
 	}
-	v, err := r.service.Import(r.ctx, backup.ImportOptions{File: file, Remote: remote, Object: location, Password: pw, Roots: roots, Date: date, Baseline: r.env.Baseline == "new"})
+	v, err := r.service.Import(r.ctx, backup.ImportOptions{
+		File:     file,
+		Remote:   remote,
+		Object:   location,
+		Password: pw,
+		Roots:    roots,
+		Date:     date,
+		Baseline: r.env.Baseline == "new",
+	})
 	if err != nil {
 		return err
 	}
@@ -399,18 +413,6 @@ func upload(r *runtime, args []string) error {
 	class := r.env.StorageClass
 	if class == "" {
 		class = "STANDARD"
-	}
-	if err = backup.ValidateClass(class); err != nil {
-		return err
-	}
-	if class != "STANDARD" {
-		supported := false
-		for _, id := range to {
-			supported = supported || r.service.Capabilities(id).StorageClasses
-		}
-		if !supported {
-			return fmt.Errorf("cli: storage class requires a destination with storage classes")
-		}
 	}
 	file, err := fsutil.Expand(args[0])
 	if err != nil {

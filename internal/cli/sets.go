@@ -331,7 +331,28 @@ func run(r *runtime, args []string) error {
 			return err
 		}
 	}
-	v, err := s.Run(r.ctx, backup.RunOptions{Chunked: r.env.Chunked, ChunkedSet: r.env.given("chunked"), SpoolMax: spool, To: to, Incremental: r.env.Incremental, Full: r.env.Full, KeepArchive: r.env.KeepArchive, Output: r.env.Output, Compression: r.env.Compression, Level: r.env.CompressionLevel, Class: r.env.StorageClass, Mode: r.env.ArchiveMode, Prefix: r.env.Prefix, Password: pw, Confirm: func(ctx context.Context, message string) error { return confirm(ctx, message, r.env.AssumeYes) }})
+	var chunkedOption *bool
+	if r.env.given("chunked") {
+		chunkedOption = &r.env.Chunked
+	}
+	v, err := s.Run(r.ctx, backup.RunOptions{
+		Chunked:     chunkedOption,
+		SpoolMax:    spool,
+		To:          to,
+		Incremental: r.env.Incremental,
+		Full:        r.env.Full,
+		KeepArchive: r.env.KeepArchive,
+		Output:      r.env.Output,
+		Compression: r.env.Compression,
+		Level:       r.env.CompressionLevel,
+		Class:       r.env.StorageClass,
+		Mode:        r.env.ArchiveMode,
+		Prefix:      r.env.Prefix,
+		Password:    pw,
+		Confirm: func(ctx context.Context, message string) error {
+			return confirm(ctx, message, r.env.AssumeYes)
+		},
+	})
 	if err != nil {
 		return err
 	}
@@ -393,7 +414,11 @@ func reportRun(r *runtime, s *backup.Service, v model.Snapshot) error {
 		if err := r.publishState(); err != nil {
 			return err
 		}
-		return r.emit("no_changes", operationResult{Command: "run", State: model.STATUS_COMPLETED, Set: s.Set.ID}, fmt.Sprintf("No changes in %q; no snapshot created.", s.Set.Name))
+		return r.emit("no_changes", operationResult{
+			Command: "run",
+			State:   model.STATUS_COMPLETED,
+			Set:     s.Set.ID,
+		}, fmt.Sprintf("No changes in %q; no snapshot created.", s.Set.Name))
 	}
 	if err := r.publishState(); err != nil {
 		return err

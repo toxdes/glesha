@@ -207,7 +207,7 @@ func (s *Service) catalogCondition(ctx context.Context) (Condition, error) {
 	if dirty != "" {
 		return Condition{State: STATE_LOCAL, Reason: "Unpublished " + dirty + " changes", Action: "glesha catalog sync " + s.Set.Name}, nil
 	}
-	if downloaded, err := s.downloadedState(); err == nil {
+	if downloaded, err := s.remoteCatalog().downloadedState(); err == nil {
 		ahead, err := catalogCacheAhead(ctx, c, downloaded, s.localAuthority)
 		if err != nil {
 			return Condition{}, err

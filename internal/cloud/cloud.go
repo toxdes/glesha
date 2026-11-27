@@ -29,6 +29,12 @@ type Reader interface {
 type Deleter interface {
 	Delete(context.Context, string) error
 }
+
+// VersionLister lists every stored version and delete marker under a prefix;
+// on versioned buckets a plain Delete leaves those behind.
+type VersionLister interface {
+	ListVersions(ctx context.Context, prefix string, each func(Object) error) error
+}
 type ClassChanger interface {
 	CopyClass(context.Context, string, string, string) (Object, error)
 }

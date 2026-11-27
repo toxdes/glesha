@@ -75,6 +75,9 @@ func (s *Service) Upload(ctx context.Context, to []string, key, file, class stri
 	if len(to) == 0 {
 		return fmt.Errorf("backup: --to is required")
 	}
+	if err := s.checkClass(to, class); err != nil {
+		return err
+	}
 	for _, id := range to {
 		if s.Stores[id] == nil {
 			return s.remoteError(ctx, id, fmt.Errorf("backup: remote unavailable"))

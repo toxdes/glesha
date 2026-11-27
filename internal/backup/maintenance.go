@@ -471,13 +471,12 @@ func (s *Service) prepareMoveCatalog(ctx context.Context, p repository.Cataloger
 	if saved != "" {
 		return nil
 	}
-	peer := *s
-	peer.Set = next
-	peer.Directory = filepath.Join(s.Directory, ".glesha-move-view-"+newID())
-	if err = os.Mkdir(peer.Directory, 0700); err != nil {
+	peer, remove, err := s.scratch("move-view")
+	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(peer.Directory)
+	defer remove()
+	peer.Set = next
 	if err = peer.pull(ctx, retiredAuthority, 0); err != nil {
 		return err
 	}

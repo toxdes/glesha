@@ -12,6 +12,7 @@
 - `internal/cloud`: storage providers. A provider is one entry in the table in `provider.go` with its `Capabilities`; behaviour that differs by provider reads a capability, never a provider name.
 - `internal/cloud/s3store`: the `cloud.Store` for S3-compatible providers and the only package that imports the AWS SDK. It reports missing objects and lost conditional writes as `cloud.ErrNotFound` and `cloud.ErrConflict`; code outside it never inspects S3 error codes.
 - `internal/backup`: set operations (run, restore, import, move) and catalog publication.
+- `internal/backup/catalog_remote.go`: `remoteCatalog` reads and writes the published catalog format (revisions, batches, descriptors) and its local cache. Get it from `openRemoteCatalog` once the authority is settled, and again after the authority, prefix or catalog encryption changes.
 - `internal/database/model` (data structs + CREATE TABLE consts), `internal/database/repository` (interface + impl + `New*`).
 - Repository triad: exported interface → unexported struct → exported `New*` constructor that returns the interface.
 - Catalog repositories are opened with `repository.NewCatalogRepository(ctx, path)`.
@@ -54,6 +55,7 @@
   - `logger.SetLevelFromString()` - set log level
 
 ## Conventions
+- End-to-end test against real remotes: `tests/e2e.py --env FILE --remote REMOTE` (needs Docker; see its docstring).
 - Catalog init sequence: `repository.NewCatalogRepository(ctx, path)` → `defer catalog.Close()`
 - `Execute` applies `--log-level` and `--color` once, before any command runs.
 - Expand `~` in all path flags; `AppCmdEnv.expandPaths` does this for the shared ones.
