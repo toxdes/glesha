@@ -120,18 +120,20 @@ Environment variables do not set these keys. glesha does not take the region fro
 
 ### [backup]
 
-The storage classes that `create` saves with a new set. Changing these keys does not change existing sets. To change a set, use `glesha configure`.
+The storage classes that `create` saves with a new set, and how long `delete` keeps a set in the trash. Changing the storage classes does not change existing sets. To change a set, use `glesha configure`.
 
 ```toml
 [backup]
 full_storage_class = "STANDARD_IA"
 incremental_storage_class = "STANDARD_IA"
+trash_period = "24h"
 ```
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
 | `full_storage_class` | string | none | AWS storage class for full snapshots. |
 | `incremental_storage_class` | string | none | AWS storage class for incremental snapshots. |
+| `trash_period` | duration | `"24h"` | How long a deleted set stays in the trash, for example `"30m"` or `"72h"`. `"0"` makes `delete` permanent at once, like `delete --now`. Other values must be at least `"1s"`. |
 
 `create --storage-class` and `create --incremental-storage-class` override these keys. Without a class, glesha uses the [order in Storage classes](#storage-classes).
 

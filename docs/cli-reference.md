@@ -97,6 +97,8 @@ For archives in AWS cold storage.
 | [`browse`](#browse) | List the files in a snapshot. |
 | [`catalog`](#catalog) | Discover, unlock, synchronize, or repair catalogs. |
 | [`cleanup`](#cleanup) | Remove local archive copies that also exist on a remote. |
+| [`delete`](#delete) | Move sets to the trash, or delete them permanently. |
+| [`undelete`](#undelete) | Restore sets from the trash. |
 | [`move`](#move) | Copy a set to another remote and switch its destination. |
 | [`storage-class`](#storage-class) | Change the AWS storage class of a snapshot. |
 | [`check`](#check) | Test upload, download, and delete access to buckets. |
@@ -273,6 +275,8 @@ With `--from` and `--key`, glesha downloads the object once and records the remo
 
 If the set has a remote catalog location, `import` publishes the catalog. If the publication fails, the import is kept. Run `glesha retry SET` or the same `import` command again to finish it.
 
+A remote object belongs to one set. `import` fails if another set on this computer already uses the object, because deleting either set would break the other. It also fails while another set's catalog is not on this computer, because glesha cannot check that set; run `glesha catalog unlock SET` first.
+
 | Option | Description |
 | --- | --- |
 | `--file FILE` | Local archive. |
@@ -324,7 +328,7 @@ docs                            87156a05-ea28-45fe-81df-bb74a4a50f3a
 glesha status [SET] [options]
 ```
 
-Shows one line for each set, or details for one set. By default, `status` reads local records only and makes no cloud requests. With `--refresh`, it checks the archive objects and lists the catalog objects in each bucket. It never downloads catalogs or requests retrievals.
+Shows one line for each set, or details for one set. By default, `status` reads local records only and makes no cloud requests, except to finish [deletions whose trash period has ended](#delete). With `--refresh`, it checks the archive objects and lists the catalog objects in each bucket. It never downloads catalogs or requests retrievals.
 
 ```text
 SET    STATE   SIZE   SNAPSHOTS  STORAGE CLASS  EST/YR
@@ -545,6 +549,53 @@ glesha skips a set that is in the `CONFLICT`, `FAILED`, `PAUSED`, or `WAITING` s
 ```sh
 glesha cleanup docs --dry-run
 glesha cleanup docs
+```
+
+### delete
+
+```text
+glesha delete SET... [options]
+```
+
+Moves each `SET` to the trash. glesha lists each set with its size and remotes, and asks for confirmation. The data stays in the buckets, and `glesha undelete SET` restores the set. A set in the trash accepts only `restore`, `browse`, `history`, `status`, `list`, `catalog`, `delete`, and `undelete`. `create` cannot reuse its name until the deletion finishes.
+
+When the trash period ends, the first glesha command that can reach the set's catalog remote deletes the set and prints the space freed on stderr. Storage is billed until then. The period is `[backup] trash_period` in the [configuration](configuration.md#backup), 24 hours by default, and is saved with the set when it moves to the trash. The period is measured by the bucket's clock, so a wrong clock on this computer cannot shorten it.
+
+With `--now`, or when `trash_period` is `0`, glesha deletes each `SET` permanently. You type each set name to confirm, one prompt for each set, in the order given. glesha deletes every stored version of the set's archives, catalog, and registry records from every configured remote, then its local state. It keeps a small marker in each bucket that stops other computers from publishing the set again.
+
+Archives that were added with `import` are deleted too. glesha keeps an archive, and names it on stderr, if another set on this computer uses it, if another set's catalog is not on this computer, or if the object is in a bucket without versions and has changed since the import. The catalog of each `SET` must be open on this computer, because only the catalog lists imported archives.
+
+Once a deletion has removed data from any bucket, it cannot be undone. If a remote cannot be reached, the set stays in the `DELETING` state on every computer that knows it, and the next command that can reach every configured remote finishes the deletion.
+
+| Option | Description |
+| --- | --- |
+| `--now` | Delete permanently now, without the trash period. |
+| `--dry-run` | List what would be deleted, and delete nothing. |
+| `--from REMOTE...` | Buckets that the command may access. |
+| `--to REMOTE...` | Other buckets that the command may access. |
+| `--assume-yes` | Answer yes to the confirmation prompts. |
+
+```sh
+glesha delete docs
+glesha delete docs photos --now --dry-run
+glesha delete docs photos --now
+```
+
+### undelete
+
+```text
+glesha undelete SET... [options]
+```
+
+Takes each `SET` out of the trash. Nothing was deleted, so the set is restored as it was. After the trash period ends, or once a deletion has started on any remote, `undelete` fails.
+
+| Option | Description |
+| --- | --- |
+| `--from REMOTE...` | Buckets that the command may access. |
+| `--to REMOTE...` | Other buckets that the command may access. |
+
+```sh
+glesha undelete docs
 ```
 
 ### move
@@ -870,6 +921,8 @@ Error records have the fields `code`, `message`, and `exit_code`. glesha writes 
 | `CONFLICT` | The local and remote histories conflict. Run `glesha catalog resolve SET`. |
 | `FAILED` | The last operation failed. The details show the error. |
 | `LOCKED` | The catalog needs its passphrase. Run `glesha catalog unlock SET`. |
+| `TRASH` | The set is in the trash. The details show when it will be deleted. Run `glesha undelete SET` to restore it. |
+| `DELETING` | The trash period ended or the deletion started, but it is not finished. The next command that can reach every configured remote finishes it. |
 
 ## Exit status
 
