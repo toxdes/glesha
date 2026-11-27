@@ -15,6 +15,9 @@ import (
 	"glesha/internal/database/model"
 )
 
+// chunkedOn is the RunOptions.Chunked value that selects chunked mode.
+var chunkedOn = true
+
 func TestSpoolSize(t *testing.T) {
 	for _, tc := range []struct {
 		input string
@@ -46,7 +49,7 @@ func TestChunkedFullAndMixedIncrementalRestore(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(source, "large.bin"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			v, err := s.Run(ctx, RunOptions{Chunked: true, SpoolMax: 2 << 20, Compression: compression, Password: pw})
+			v, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Compression: compression, Password: pw})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +105,7 @@ func TestChunkedResumeRetainsCompletedUploads(t *testing.T) {
 	rand.Read(data)
 	os.WriteFile(filepath.Join(source, "large.bin"), data, 0600)
 	store.fail = "/chunks/000001-"
-	v, err := s.Run(ctx, RunOptions{Chunked: true, SpoolMax: 2 << 20, Compression: "gzip", Password: pw})
+	v, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Compression: "gzip", Password: pw})
 	if !errors.Is(err, ErrPending) {
 		t.Fatal(err)
 	}
@@ -135,7 +138,7 @@ func TestChunkedChangedSourceAndConflictingOptions(t *testing.T) {
 	pw := []byte("password")
 	os.WriteFile(filepath.Join(source, "a"), bytes.Repeat([]byte("a"), 3<<20), 0600)
 	store.fail = "/chunks/000001-"
-	_, err := s.Run(ctx, RunOptions{Chunked: true, SpoolMax: 2 << 20, Compression: "gzip", Password: pw})
+	_, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Compression: "gzip", Password: pw})
 	if !errors.Is(err, ErrPending) {
 		t.Fatal(err)
 	}
@@ -144,7 +147,7 @@ func TestChunkedChangedSourceAndConflictingOptions(t *testing.T) {
 	if _, err = s.Run(ctx, RunOptions{Password: pw}); err == nil || !strings.Contains(err.Error(), "changed") {
 		t.Fatalf("accepted changed source: %v", err)
 	}
-	for _, o := range []RunOptions{{Chunked: true, KeepArchive: true}, {Chunked: true, Output: "x"}, {Chunked: true, SpoolMax: 1}, {SpoolMax: 128000000}} {
+	for _, o := range []RunOptions{{Chunked: &chunkedOn, KeepArchive: true}, {Chunked: &chunkedOn, Output: "x"}, {Chunked: &chunkedOn, SpoolMax: 1}, {SpoolMax: 128000000}} {
 		clean, _, _ := setupService(t)
 		if _, err = clean.Run(ctx, o); err == nil {
 			t.Fatalf("accepted conflicting options: %+v", o)
@@ -206,7 +209,7 @@ func TestChunkedBoundedSpoolAndAcknowledgmentRecovery(t *testing.T) {
 		s.Stores[id] = checked
 	}
 	checked.directory = s.Directory
-	v, err := s.Run(ctx, RunOptions{Chunked: true, SpoolMax: 2 << 20, Compression: "gzip", Password: []byte("password")})
+	v, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Compression: "gzip", Password: []byte("password")})
 	if err == nil || !s.Pending() {
 		t.Fatal("interruption did not preserve pending work", err)
 	}
@@ -243,7 +246,7 @@ func TestChunkedIncrementalDeletionAndNoChanges(t *testing.T) {
 	}
 	os.Remove(filepath.Join(source, "removed"))
 	os.WriteFile(filepath.Join(source, "added"), []byte("new"), 0600)
-	v, err := s.Run(ctx, RunOptions{Incremental: true, Chunked: true, SpoolMax: 2 << 20, Password: pw, Confirm: func(context.Context, string) error { return nil }})
+	v, err := s.Run(ctx, RunOptions{Incremental: true, Chunked: &chunkedOn, SpoolMax: 2 << 20, Password: pw, Confirm: func(context.Context, string) error { return nil }})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +260,7 @@ func TestChunkedIncrementalDeletionAndNoChanges(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(out, "docs", "added")); err != nil {
 		t.Fatal(err)
 	}
-	unchanged, err := s.Run(ctx, RunOptions{Incremental: true, Chunked: true, SpoolMax: 2 << 20, Password: pw})
+	unchanged, err := s.Run(ctx, RunOptions{Incremental: true, Chunked: &chunkedOn, SpoolMax: 2 << 20, Password: pw})
 	if err != nil || unchanged.ID != "" {
 		t.Fatal("unexpected no-change payload", err)
 	}
@@ -268,7 +271,7 @@ func TestAbandonChunkedClearsOnlyLocalSpool(t *testing.T) {
 	s, store, source := setupService(t)
 	os.WriteFile(filepath.Join(source, "file"), bytes.Repeat([]byte("a"), 3<<20), 0600)
 	store.fail = "/chunks/000001-"
-	v, err := s.Run(ctx, RunOptions{Chunked: true, SpoolMax: 2 << 20, Password: []byte("pw")})
+	v, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Password: []byte("pw")})
 	if !errors.Is(err, ErrPending) {
 		t.Fatal(err)
 	}
@@ -290,7 +293,7 @@ func TestImportIndividualChunkRejectsRegistration(t *testing.T) {
 	ctx := context.Background()
 	s, store, source := setupService(t)
 	os.WriteFile(filepath.Join(source, "file"), []byte("small"), 0600)
-	v, err := s.Run(ctx, RunOptions{Chunked: true, Password: []byte("pw")})
+	v, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, Password: []byte("pw")})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,5 +310,24 @@ func TestImportIndividualChunkRejectsRegistration(t *testing.T) {
 	}
 	if peer.Pending() {
 		t.Fatal("invalid import left pending work")
+	}
+}
+
+func TestResumeRejectsChangedChunkedMode(t *testing.T) {
+	ctx := context.Background()
+	s, store, source := setupService(t)
+	pw := []byte("password")
+	os.WriteFile(filepath.Join(source, "a"), bytes.Repeat([]byte("a"), 3<<20), 0600)
+	store.fail = "/chunks/000001-"
+	if _, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Compression: "gzip", Password: pw}); !errors.Is(err, ErrPending) {
+		t.Fatal(err)
+	}
+	store.fail = ""
+	off := false
+	if _, err := s.Run(ctx, RunOptions{Chunked: &off, Password: pw}); err == nil || !strings.Contains(err.Error(), "options conflict with pending run") {
+		t.Fatalf("resumed a chunked run as unchunked: %v", err)
+	}
+	if _, err := s.Run(ctx, RunOptions{Chunked: &chunkedOn, Password: pw}); err != nil {
+		t.Fatal(err)
 	}
 }

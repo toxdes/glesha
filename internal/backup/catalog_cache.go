@@ -3,14 +3,11 @@ package backup
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -54,7 +51,7 @@ func catalogCacheAhead(ctx context.Context, c repository.Cataloger, downloaded d
 }
 
 func (s *Service) DownloadedCatalogAhead(ctx context.Context) (bool, error) {
-	downloaded, err := s.downloadedState()
+	downloaded, err := s.remoteCatalog().downloadedState()
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
 	}
@@ -67,45 +64,6 @@ func (s *Service) DownloadedCatalogAhead(ctx context.Context) (bool, error) {
 	}
 	defer c.Close()
 	return catalogCacheAhead(ctx, c, downloaded, s.localAuthority)
-}
-
-func (s *Service) metadataCachePath(key string) string {
-	sum := sha256.Sum256([]byte(key))
-	return filepath.Join(s.Directory, "metadata-"+hex.EncodeToString(sum[:]))
-}
-
-func (s *Service) downloadedState() (downloadedState, error) {
-	var v downloadedState
-	b, err := os.ReadFile(filepath.Join(s.Directory, "downloaded-state.json"))
-	if err != nil {
-		return v, err
-	}
-	if err = json.Unmarshal(b, &v); err != nil {
-		return v, fmt.Errorf("backup: read downloaded state: %w", err)
-	}
-	if err = v.Version.Validate(); err != nil {
-		return v, err
-	}
-	if len(v.Revisions) == 0 {
-		return v, fmt.Errorf("backup: downloaded catalog has no revisions")
-	}
-	if v.Authority != "" && v.Authority != s.Set.CatalogTo {
-		return v, fmt.Errorf("backup: downloaded catalog belongs to a previous authority; run catalog sync")
-	}
-	for _, rev := range v.Revisions {
-		if err = rev.Version.Validate(); err != nil {
-			return v, err
-		}
-		if rev.Set != s.Set.ID || !strings.HasPrefix(rev.Key, s.prefix()+"batches/") {
-			return v, fmt.Errorf("backup: downloaded catalog identity differs")
-		}
-	}
-	last := v.Revisions[len(v.Revisions)-1]
-	stem := s.prefix() + "descriptors/" + fmt.Sprintf("%020d-%s.json.gz", last.Number, last.ID)
-	if v.Descriptor != stem && v.Descriptor != stem+".gpg" {
-		return v, fmt.Errorf("backup: downloaded descriptor identity differs")
-	}
-	return v, nil
 }
 
 func (s *Service) CatalogLocked(ctx context.Context) (bool, error) {
@@ -129,7 +87,7 @@ func (s *Service) CachedEncryption(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	value, err := s.downloadedState()
+	value, err := s.remoteCatalog().downloadedState()
 	if err != nil {
 		return err
 	}
@@ -145,7 +103,7 @@ func (s *Service) UnlockCached(ctx context.Context) (err error) {
 	if err := s.useLocator(ctx); err != nil {
 		return err
 	}
-	v, err := s.downloadedState()
+	v, err := s.remoteCatalog().downloadedState()
 	if err != nil {
 		return err
 	}
@@ -156,7 +114,7 @@ func (s *Service) UnlockCached(ctx context.Context) (err error) {
 			os.Remove(s.path())
 		}
 	}()
-	peer.Stores = map[string]cloud.Store{s.Set.CatalogTo: &cachedCatalogStore{service: &peer, state: v, provider: s.provider(s.Set.CatalogTo)}}
+	peer.Stores = map[string]cloud.Store{s.Set.CatalogTo: &cachedCatalogStore{catalog: s.remoteCatalog(), state: v, provider: s.provider(s.Set.CatalogTo)}}
 	if err = peer.LoadDescriptor(ctx); err != nil {
 		return err
 	}
@@ -171,7 +129,7 @@ func (s *Service) UnlockCached(ctx context.Context) (err error) {
 }
 
 type cachedCatalogStore struct {
-	service  *Service
+	catalog  *remoteCatalog
 	state    downloadedState
 	provider cloud.Provider
 }
@@ -197,10 +155,10 @@ func (c *cachedCatalogStore) List(ctx context.Context, prefix, after string) ([]
 }
 
 func (c *cachedCatalogStore) revisionKey(rev revision) string {
-	if c.service.Capabilities(c.service.Set.CatalogTo).ConditionalWrites {
-		return c.service.prefix() + "commits/" + fmt.Sprintf("%020d.json", rev.Number)
+	if c.provider.Capabilities.ConditionalWrites {
+		return c.catalog.prefix + "commits/" + fmt.Sprintf("%020d.json", rev.Number)
 	}
-	return c.service.prefix() + "heads/" + fmt.Sprintf("%020d-%s.json", rev.Number, rev.ID)
+	return c.catalog.prefix + "heads/" + fmt.Sprintf("%020d-%s.json", rev.Number, rev.ID)
 }
 
 func (c *cachedCatalogStore) Head(ctx context.Context, key, version string) (cloud.Object, error) {
@@ -232,7 +190,7 @@ func (c *cachedCatalogStore) Get(ctx context.Context, key, version string) (io.R
 	} else if expected == "" {
 		return nil, cloud.Object{}, &os.PathError{Op: "read cached catalog", Path: key, Err: os.ErrNotExist}
 	}
-	file := c.service.metadataCachePath(key)
+	file := c.catalog.metadataCachePath(key)
 	hash, size, err := archive.Hash(logger.WithProgressLabel(logger.WithProgress(ctx, nil), "Checking cached catalog"), file)
 	if err != nil {
 		return nil, cloud.Object{}, err

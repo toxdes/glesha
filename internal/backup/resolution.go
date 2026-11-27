@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 
 	"glesha/internal/database/model"
 	"glesha/internal/database/repository"
@@ -37,13 +36,11 @@ func (s *Service) ResolutionDifferences(ctx context.Context, show func(Resolutio
 			return fmt.Errorf("%w: finish %s before resolution", ErrPending, op)
 		}
 	}
-	directory, err := os.MkdirTemp(s.Directory, ".glesha-resolution-")
+	peer, remove, err := s.scratch("resolution")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(directory)
-	peer := *s
-	peer.Directory = directory
+	defer remove()
 	if err = peer.Pull(ctx); err != nil {
 		return err
 	}

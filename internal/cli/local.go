@@ -54,7 +54,17 @@ func localArchive(r *runtime, args []string) error {
 		return err
 	}
 	defer wipe(pw)
-	_, _, err = archive.Create(r.ctx, archive.Options{Output: output, Compression: r.config.Archive.Compression, Level: r.config.Archive.Level, Mode: r.config.Archive.Mode, Budget: r.budget, Password: pw, Manifest: model.Manifest{Version: 1, ID: id, Full: true, Roots: roots, Compression: r.config.Archive.Compression}, Catalog: c, Exclusions: exclude})
+	_, _, err = archive.Create(r.ctx, archive.Options{
+		Output:      output,
+		Compression: r.config.Archive.Compression,
+		Level:       r.config.Archive.Level,
+		Mode:        r.config.Archive.Mode,
+		Budget:      r.budget,
+		Password:    pw,
+		Manifest:    model.Manifest{Version: 1, ID: id, Full: true, Roots: roots, Compression: r.config.Archive.Compression},
+		Catalog:     c,
+		Exclusions:  exclude,
+	})
 	if err == nil {
 		return r.completed(output, "", fmt.Sprintf("Created %q.", output))
 	}

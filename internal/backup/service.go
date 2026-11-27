@@ -29,16 +29,15 @@ var ErrConflict = errors.New("backup: catalog conflict")
 var validName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$`)
 
 type Service struct {
-	Config            config.Config
-	Budget            memory.Budget
-	Registry          repository.Registryor
-	Set               model.Set
-	Directory         string
-	Stores            map[string]cloud.Store
-	CatalogPassword   []byte
-	DiscoveryPrefix   string
-	localAuthority    string
-	metadataDownloads int
+	Config          config.Config
+	Budget          memory.Budget
+	Registry        repository.Registryor
+	Set             model.Set
+	Directory       string
+	Stores          map[string]cloud.Store
+	CatalogPassword []byte
+	DiscoveryPrefix string
+	localAuthority  string
 }
 
 func (s *Service) Catalog(ctx context.Context) (repository.Cataloger, error) {
@@ -62,6 +61,19 @@ func (s *Service) Catalog(ctx context.Context) (repository.Cataloger, error) {
 		}
 	}
 	return c, nil
+}
+
+// scratch returns a copy of s that keeps its catalog files in a new directory
+// under s.Directory, deleted by remove. The copy shares Stores, Registry and
+// the maps and slices in Config and Set with s.
+func (s *Service) scratch(purpose string) (peer *Service, remove func(), err error) {
+	directory, err := os.MkdirTemp(s.Directory, ".glesha-"+purpose+"-")
+	if err != nil {
+		return nil, nil, err
+	}
+	copied := *s
+	copied.Directory = directory
+	return &copied, func() { os.RemoveAll(directory) }, nil
 }
 
 // provider describes the store for remote; an unopened remote is the zero Provider.
@@ -99,7 +111,17 @@ func NewSet(name string, roots []model.Root, c config.Config) (model.Set, error)
 	if !validName.MatchString(name) {
 		return model.Set{}, fmt.Errorf("backup: invalid set name %q", name)
 	}
-	return model.Set{ID: uuid.NewString(), Name: name, Roots: roots, Compression: c.Archive.Compression, Level: c.Archive.Level, Prefix: c.Archive.Prefix, Class: c.Backup.FullClass, IncrementalClass: c.Backup.IncrementalClass, Created: now()}, nil
+	return model.Set{
+		ID:               uuid.NewString(),
+		Name:             name,
+		Roots:            roots,
+		Compression:      c.Archive.Compression,
+		Level:            c.Archive.Level,
+		Prefix:           c.Archive.Prefix,
+		Class:            c.Backup.FullClass,
+		IncrementalClass: c.Backup.IncrementalClass,
+		Created:          now(),
+	}, nil
 }
 func Resolve(ctx context.Context, c repository.Cataloger, id string) (model.Snapshot, error) {
 	if id == "" || id == "latest" {
@@ -146,8 +168,7 @@ type RunOptions struct {
 	To                                       []string
 	Incremental, Full                        bool
 	KeepArchive                              bool
-	Chunked                                  bool
-	ChunkedSet                               bool
+	Chunked                                  *bool // nil keeps the set's setting
 	SpoolMax                                 int64
 	autoCleanup                              bool
 	Output, Compression, Class, Mode, Prefix string
@@ -207,7 +228,18 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 			os.Remove(s.pending())
 		}
 	}()
-	request := runRequest{Chunked: plan.chunked, SpoolMax: plan.spool, To: to, Incremental: o.Incremental, AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive, Compression: v.Compression, Class: v.InitialClass, Mode: plan.mode, Level: plan.level, Prefix: o.Prefix}
+	request := runRequest{
+		Chunked:     plan.chunked,
+		SpoolMax:    plan.spool,
+		To:          to,
+		Incremental: o.Incremental,
+		AutoCleanup: (o.Output == "" || o.autoCleanup) && !o.KeepArchive,
+		Compression: v.Compression,
+		Class:       v.InitialClass,
+		Mode:        plan.mode,
+		Level:       plan.level,
+		Prefix:      o.Prefix,
+	}
 	b, _ := json.Marshal(request)
 	exclusions := []string{v.File, filepath.Dir(s.Directory)}
 	changes, err := s.recordInventory(ctx, p, &v, string(b), exclusions)
@@ -233,14 +265,25 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (model.Snapshot, error)
 		}
 	} else {
 		// the pending catalog is kept once it records a finished archive
-		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{Output: v.File, Compression: v.Compression, Level: plan.level, Mode: plan.mode, Password: o.Password, Budget: s.Budget, Manifest: v.Manifest, Catalog: p, Exclusions: exclusions, OnReady: func(ctx context.Context, hash string, size int64, file string) error {
-			v.Hash, v.Size, v.ReadyFile = hash, size, file
-			if err := p.PutSnapshot(ctx, v); err != nil {
-				return err
-			}
-			keep = true
-			return nil
-		}})
+		v.Hash, v.Size, err = archive.Create(ctx, archive.Options{
+			Output:      v.File,
+			Compression: v.Compression,
+			Level:       plan.level,
+			Mode:        plan.mode,
+			Password:    o.Password,
+			Budget:      s.Budget,
+			Manifest:    v.Manifest,
+			Catalog:     p,
+			Exclusions:  exclusions,
+			OnReady: func(ctx context.Context, hash string, size int64, file string) error {
+				v.Hash, v.Size, v.ReadyFile = hash, size, file
+				if err := p.PutSnapshot(ctx, v); err != nil {
+					return err
+				}
+				keep = true
+				return nil
+			},
+		})
 		if err != nil {
 			return v, err
 		}
@@ -330,8 +373,8 @@ type runPlan struct {
 // validateRun checks o against the set and resolves its defaults without side effects.
 func (s *Service) validateRun(o RunOptions) (runPlan, error) {
 	chunked := s.Set.Chunked
-	if o.ChunkedSet || o.Chunked {
-		chunked = o.Chunked
+	if o.Chunked != nil {
+		chunked = *o.Chunked
 	}
 	spool := o.SpoolMax
 	if spool == 0 {
@@ -387,7 +430,20 @@ func (s *Service) validateRun(o RunOptions) (runPlan, error) {
 func (s *Service) newSnapshot(ctx context.Context, c repository.Cataloger, o RunOptions, plan runPlan) (model.Snapshot, error) {
 	to := plan.to
 	var err error
-	v := model.Snapshot{Manifest: model.Manifest{Version: 1, Set: s.Set.ID, ID: uuid.NewString(), Full: !o.Incremental, Roots: s.Set.Roots, Compression: s.Set.Compression, InitialClass: s.Set.Class}, Created: now(), Status: model.STATUS_RUNNING, Destinations: strings.Join(to, ",")}
+	v := model.Snapshot{
+		Manifest: model.Manifest{
+			Version:      1,
+			Set:          s.Set.ID,
+			ID:           uuid.NewString(),
+			Full:         !o.Incremental,
+			Roots:        s.Set.Roots,
+			Compression:  s.Set.Compression,
+			InitialClass: s.Set.Class,
+		},
+		Created:      now(),
+		Status:       model.STATUS_RUNNING,
+		Destinations: strings.Join(to, ","),
+	}
 	if plan.chunked {
 		v.Layout = "chunked"
 		v.Version = 2
@@ -431,16 +487,7 @@ func (s *Service) newSnapshot(ctx context.Context, c repository.Cataloger, o Run
 			v.InitialClass = "STANDARD"
 		}
 	}
-	if v.InitialClass != "STANDARD" {
-		supported := false
-		for _, id := range to {
-			supported = supported || s.Capabilities(id).StorageClasses
-		}
-		if !supported {
-			return v, fmt.Errorf("backup: storage class requires a destination with storage classes")
-		}
-	}
-	if err = ValidateClass(v.InitialClass); err != nil {
+	if err = s.checkClass(to, v.InitialClass); err != nil {
 		return v, err
 	}
 	v.File = o.Output
@@ -517,6 +564,21 @@ func (s *Service) coverage(ctx context.Context, c repository.Cataloger, v model.
 		return fmt.Errorf("backup: selected remote lacks historical archive %s; move the complete set first", snapshot.ID)
 	})
 }
+
+// checkClass rejects an invalid class, and a class other than STANDARD unless
+// a destination in to supports storage classes.
+func (s *Service) checkClass(to []string, class string) error {
+	if err := ValidateClass(class); err != nil || class == "STANDARD" {
+		return err
+	}
+	for _, id := range to {
+		if s.Capabilities(id).StorageClasses {
+			return nil
+		}
+	}
+	return fmt.Errorf("backup: storage class requires a destination with storage classes")
+}
+
 func ValidateClass(class string) error {
 	switch class {
 	case "STANDARD", "STANDARD_IA", "ONEZONE_IA", "INTELLIGENT_TIERING", "GLACIER_IR", "GLACIER", "DEEP_ARCHIVE", "REDUCED_REDUNDANCY":

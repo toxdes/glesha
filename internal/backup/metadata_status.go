@@ -58,12 +58,12 @@ func (s *Service) RefreshMetadataStatus(ctx context.Context) error {
 	if _, err := s.MetadataStatus(); err != nil {
 		return err
 	}
-	store, err := s.metadataStore()
-	if err != nil || store == nil {
+	published, err := s.openRemoteCatalog()
+	if err != nil || published == nil {
 		return err
 	}
 	v := MetadataStatus{Version: 1, Remote: s.Set.CatalogTo, Complete: true, AsOf: now(), Classes: map[string]MetadataClass{}}
-	if err = cloud.List(ctx, store, s.prefix(), func(o cloud.Object) error {
+	if err = cloud.List(ctx, published.store, published.prefix, func(o cloud.Object) error {
 		if o.Size < 0 {
 			return fmt.Errorf("backup: negative remote metadata size")
 		}

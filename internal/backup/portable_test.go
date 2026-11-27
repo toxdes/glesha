@@ -202,14 +202,14 @@ func TestLegacyStateMigrationAndUnknownVersions(t *testing.T) {
 	if err = s.SyncCatalog(ctx); err != nil {
 		t.Fatal(err)
 	}
-	revisions, err := s.revisions(ctx, store)
+	revisions, err := s.remoteCatalog().revisions(ctx)
 	if err != nil || len(revisions) != 2 || revisions[0].Version != model.StateVersionLegacy || revisions[1].Version != model.StateVersionPortable || !revisions[1].Checkpoint {
 		t.Fatal("migration did not preserve legacy history and create a portable checkpoint", err)
 	}
 	if err = s.SyncCatalog(ctx); err != nil {
 		t.Fatal(err)
 	}
-	again, err := s.revisions(ctx, store)
+	again, err := s.remoteCatalog().revisions(ctx)
 	if err != nil || len(again) != len(revisions) {
 		t.Fatal("unchanged sync republished state", err)
 	}
@@ -333,5 +333,47 @@ func TestAnotherComputerFollowsMovedCatalogAuthority(t *testing.T) {
 	recovered, err := c.Snapshot(ctx, v.ID)
 	if err != nil || recovered.Hash != v.Hash {
 		t.Fatal("authority move changed archive identity", err)
+	}
+}
+
+func TestCacheCatalogReportsRepairedMetadata(t *testing.T) {
+	ctx := context.Background()
+	s, _, source := setupService(t)
+	if err := os.WriteFile(filepath.Join(source, "f"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Run(ctx, RunOptions{Password: []byte("pw"), Output: filepath.Join(t.TempDir(), "full.gpg")}); err != nil {
+		t.Fatal(err)
+	}
+	peer := freshStateService(t, s)
+	if err := peer.DiscoverState(ctx, s.Set.CatalogTo); err != nil {
+		t.Fatal(err)
+	}
+	if err := peer.OpenSet(ctx, s.Set.ID, peer.Directory); err != nil {
+		t.Fatal(err)
+	}
+	updated := func() bool {
+		t.Helper()
+		v, err := peer.CacheCatalogWithResult(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v.Updated
+	}
+	if !updated() {
+		t.Fatal("first download not reported")
+	}
+	if updated() {
+		t.Fatal("unchanged cache reported as updated")
+	}
+	cached, err := peer.remoteCatalog().downloadedState()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(peer.remoteCatalog().metadataCachePath(cached.Revisions[0].Key), []byte("damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if !updated() {
+		t.Fatal("repaired cache file not reported")
 	}
 }

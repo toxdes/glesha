@@ -38,14 +38,13 @@ func (s *Service) ResolveAuthority(ctx context.Context, remote string) error {
 	if selectedID == "" {
 		return fmt.Errorf("backup: selected remote is not a discovered catalog authority")
 	}
-	peer := *s
-	peer.Set.CatalogTo = remote
-	peer.Config.Catalog.Prefix = selected.Prefix
-	peer.Directory, err = os.MkdirTemp(s.Directory, ".glesha-authority-")
+	peer, remove, err := s.scratch("authority")
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(peer.Directory)
+	defer remove()
+	peer.Set.CatalogTo = remote
+	peer.Config.Catalog.Prefix = selected.Prefix
 	if err = peer.loadDescriptor(ctx); err != nil {
 		return err
 	}

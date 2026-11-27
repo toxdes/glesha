@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -17,6 +18,21 @@ import (
 	"glesha/internal/fsutil"
 	"glesha/internal/logger"
 )
+
+// conflictsWith reports whether an option given for this run differs from the
+// pending run it would resume.
+func (o RunOptions) conflictsWith(r runRequest) bool {
+	return o.Chunked != nil && *o.Chunked != r.Chunked ||
+		o.SpoolMax > 0 && o.SpoolMax != r.SpoolMax ||
+		len(o.To) > 0 && !slices.Equal(o.To, r.To) ||
+		o.Incremental && !r.Incremental ||
+		o.Full && r.Incremental ||
+		o.Compression != "" && o.Compression != r.Compression ||
+		o.Level > 0 && o.Level != r.Level ||
+		o.Class != "" && o.Class != r.Class ||
+		o.Mode != "" && o.Mode != r.Mode ||
+		o.Prefix != "" && o.Prefix != r.Prefix
+}
 
 func (s *Service) resumeRun(ctx context.Context, o RunOptions) (model.Snapshot, error) {
 	p, err := repository.NewCatalogRepository(ctx, s.pending())
@@ -39,7 +55,7 @@ func (s *Service) resumeRun(ctx context.Context, o RunOptions) (model.Snapshot, 
 	if err = json.Unmarshal([]byte(b), &r); err != nil {
 		return model.Snapshot{}, err
 	}
-	if (o.ChunkedSet || o.Chunked) && o.Chunked != r.Chunked || o.SpoolMax > 0 && o.SpoolMax != r.SpoolMax || len(o.To) > 0 && strings.Join(o.To, ",") != strings.Join(r.To, ",") || o.Incremental && !r.Incremental || o.Full && r.Incremental || o.Compression != "" && o.Compression != r.Compression || o.Level > 0 && o.Level != r.Level || o.Class != "" && o.Class != r.Class || o.Mode != "" && o.Mode != r.Mode || o.Prefix != "" && o.Prefix != r.Prefix {
+	if o.conflictsWith(r) {
 		return model.Snapshot{}, fmt.Errorf("backup: options conflict with pending run")
 	}
 	id, err := p.GetMeta(ctx, "pending_snapshot")
@@ -81,7 +97,19 @@ func (s *Service) resumeRun(ctx context.Context, o RunOptions) (model.Snapshot, 
 		if err = os.Rename(s.pending(), filepath.Join(s.Directory, "interrupted-"+newID()+".db")); err != nil {
 			return v, err
 		}
-		return s.Run(ctx, RunOptions{To: r.To, Incremental: r.Incremental, Output: v.File, autoCleanup: r.AutoCleanup, Compression: r.Compression, Class: r.Class, Mode: r.Mode, Level: r.Level, Prefix: r.Prefix, Password: o.Password, Confirm: o.Confirm})
+		return s.Run(ctx, RunOptions{
+			To:          r.To,
+			Incremental: r.Incremental,
+			Output:      v.File,
+			autoCleanup: r.AutoCleanup,
+			Compression: r.Compression,
+			Class:       r.Class,
+			Mode:        r.Mode,
+			Level:       r.Level,
+			Prefix:      r.Prefix,
+			Password:    o.Password,
+			Confirm:     o.Confirm,
+		})
 	}
 	if v.ReadyFile != "" {
 		hash, size, err := archive.Hash(ctx, v.ReadyFile)
@@ -245,7 +273,22 @@ func uploadedLocation(snapshot, remote string, h cloud.Object) model.Location {
 }
 func Location(snapshot, remote string, h cloud.Object) model.Location {
 	t := now()
-	return model.Location{Snapshot: snapshot, Provider: remote, Key: h.Key, Version: h.Version, ETag: h.ETag, CurrentClass: h.Class, ObservedClass: h.Class, InitialClass: h.Class, Status: model.STATUS_COMPLETED, Verification: "sha256", ObservedAt: &t, Cold: h.Cold, Restore: h.Restore, ArchiveStatus: h.ArchiveStatus}
+	return model.Location{
+		Snapshot:      snapshot,
+		Provider:      remote,
+		Key:           h.Key,
+		Version:       h.Version,
+		ETag:          h.ETag,
+		CurrentClass:  h.Class,
+		ObservedClass: h.Class,
+		InitialClass:  h.Class,
+		Status:        model.STATUS_COMPLETED,
+		Verification:  "sha256",
+		ObservedAt:    &t,
+		Cold:          h.Cold,
+		Restore:       h.Restore,
+		ArchiveStatus: h.ArchiveStatus,
+	}
 }
 
 func (s *Service) NeedsArchive(ctx context.Context) (bool, error) {

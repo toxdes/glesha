@@ -18,7 +18,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"glesha/internal/archive"
 	"glesha/internal/cloud"
 	"glesha/internal/database/model"
 	"glesha/internal/database/repository"
@@ -205,7 +204,12 @@ func (s *Service) DiscoverState(ctx context.Context, remote string) error {
 		if known {
 			continue
 		}
-		if err = s.rememberLocator(ctx, model.Locator{Version: model.DiscoveryVersionInitial, Set: id, Authority: authority, Prefix: strings.TrimSuffix(s.Config.Catalog.Prefix, "/")}); err != nil {
+		if err = s.rememberLocator(ctx, model.Locator{
+			Version:   model.DiscoveryVersionInitial,
+			Set:       id,
+			Authority: authority,
+			Prefix:    strings.TrimSuffix(s.Config.Catalog.Prefix, "/"),
+		}); err != nil {
 			return err
 		}
 	}
@@ -228,62 +232,6 @@ func (s *Service) useLocator(ctx context.Context) error {
 	return nil
 }
 
-func (s *Service) cachedMetadata(ctx context.Context, store cloud.Store, key, expected string) (string, error) {
-	name := s.metadataCachePath(key)
-	if expected != "" {
-		if hash, _, err := archive.Hash(logger.WithProgressLabel(logger.WithProgress(ctx, nil), "Checking cached catalog"), name); err == nil && hash == expected {
-			return name, nil
-		}
-	}
-	r, _, err := store.Get(ctx, key, "")
-	if err != nil {
-		return "", err
-	}
-	defer r.Close()
-	f, err := fsutil.Temp(s.Directory)
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(f.Name())
-	defer f.Close()
-	if _, err = copyContext(ctx, f, r); err != nil {
-		return "", err
-	}
-	if err = f.Sync(); err != nil {
-		return "", err
-	}
-	if err = f.Close(); err != nil {
-		return "", err
-	}
-	if expected != "" {
-		hash, _, err := archive.Hash(logger.WithProgressLabel(ctx, "Checking downloaded catalog"), f.Name())
-		if err != nil || hash != expected {
-			return "", fmt.Errorf("backup: downloaded metadata checksum differs")
-		}
-	}
-	if err = os.Rename(f.Name(), name); err != nil {
-		return "", err
-	}
-	s.metadataDownloads++
-	return name, nil
-}
-
-func (s *Service) descriptorFile(ctx context.Context, store cloud.Store, rev revision) (string, string, error) {
-	if cached, err := s.downloadedState(); err == nil && cached.Authority == s.Set.CatalogTo && cached.Revisions[len(cached.Revisions)-1].ID == rev.ID && rev.DescriptorHash != "" {
-		file, err := s.cachedMetadata(ctx, store, cached.Descriptor, rev.DescriptorHash)
-		return file, cached.Descriptor, err
-	}
-
-	key := s.prefix() + "descriptors/" + fmt.Sprintf("%020d-%s.json.gz", rev.Number, rev.ID)
-	if _, err := store.Head(ctx, key+".gpg", ""); err == nil {
-		key += ".gpg"
-	} else if !cloud.NotFound(err) && !errors.Is(err, os.ErrNotExist) {
-		return "", "", err
-	}
-	file, err := s.cachedMetadata(ctx, store, key, rev.DescriptorHash)
-	return file, key, err
-}
-
 type CatalogCacheResult struct {
 	Updated bool
 }
@@ -304,48 +252,49 @@ func (s *Service) CacheCatalogWithResult(ctx context.Context) (CatalogCacheResul
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return CatalogCacheResult{}, err
 	}
-	downloads := s.metadataDownloads
-	if err = s.cacheCatalog(ctx, 0); err != nil {
+	downloaded, err := s.cacheCatalog(ctx, 0)
+	if err != nil {
 		return CatalogCacheResult{}, err
 	}
 	after, err := os.ReadFile(path)
-	return CatalogCacheResult{Updated: downloads != s.metadataDownloads || !bytes.Equal(before, after)}, err
+	return CatalogCacheResult{Updated: downloaded || !bytes.Equal(before, after)}, err
 }
 
-func (s *Service) cacheCatalog(ctx context.Context, hops int) error {
+// cacheCatalog reports whether any metadata had to be downloaded.
+func (s *Service) cacheCatalog(ctx context.Context, hops int) (bool, error) {
 	if err := s.useLocator(ctx); err != nil {
-		return err
+		return false, err
 	}
-	store, err := s.metadataStore()
-	if err != nil || store == nil {
-		return err
+	published, err := s.openRemoteCatalog()
+	if err != nil || published == nil {
+		return false, err
 	}
-	revisions, err := s.revisions(ctx, store)
+	revisions, err := published.revisions(ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if len(revisions) == 0 {
-		return ErrNoRemoteCatalog
+		return false, ErrNoRemoteCatalog
 	}
-	if err = s.refreshAuthority(ctx, store); err != nil {
-		return err
+	if err = s.refreshAuthority(ctx, published.store); err != nil {
+		return false, err
 	}
 	before := s.Set.CatalogTo
 	if err = s.useLocator(ctx); err != nil {
-		return err
+		return false, err
 	}
 	if before != s.Set.CatalogTo {
 		if s.Stores[s.Set.CatalogTo] == nil {
-			return ErrAuthorityMoved
+			return false, ErrAuthorityMoved
 		}
 		return s.cacheCatalog(ctx, hops+1)
 	}
 	if revisions[len(revisions)-1].Redirect != nil {
 		if err = s.followAuthority(ctx, revisions[len(revisions)-1], hops); err != nil {
-			return err
+			return false, err
 		}
 		if s.Stores[s.Set.CatalogTo] == nil {
-			return ErrAuthorityMoved
+			return false, ErrAuthorityMoved
 		}
 		return s.cacheCatalog(ctx, hops+1)
 	}
@@ -355,17 +304,20 @@ func (s *Service) cacheCatalog(ctx context.Context, hops int) error {
 			start = i
 		}
 	}
+	fetched := false
 	for _, rev := range revisions[start:] {
-		if _, err = s.cachedMetadata(ctx, store, rev.Key, rev.Hash); err != nil {
-			return err
+		_, downloaded, err := published.cachedMetadata(ctx, rev.Key, rev.Hash)
+		if err != nil {
+			return false, err
 		}
+		fetched = fetched || downloaded
 	}
 	last := revisions[len(revisions)-1]
-	_, key, err := s.descriptorFile(ctx, store, last)
+	_, key, downloaded, err := published.descriptorFile(ctx, last)
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.saveJob(filepath.Join(s.Directory, "downloaded-state.json"), downloadedState{
+	return fetched || downloaded, s.saveJob(filepath.Join(s.Directory, "downloaded-state.json"), downloadedState{
 		Version: model.DiscoveryVersionInitial, Revisions: revisions[start:], Descriptor: key, Authority: s.Set.CatalogTo,
 	})
 }
@@ -378,15 +330,15 @@ func (s *Service) LoadDescriptor(ctx context.Context) error {
 }
 
 func (s *Service) loadDescriptor(ctx context.Context) error {
-	store, err := s.metadataStore()
-	if err != nil || store == nil {
+	published, err := s.openRemoteCatalog()
+	if err != nil || published == nil {
 		return err
 	}
-	revisions, err := s.revisions(ctx, store)
+	revisions, err := published.revisions(ctx)
 	if err != nil || len(revisions) == 0 {
 		return err
 	}
-	file, key, err := s.descriptorFile(ctx, store, revisions[len(revisions)-1])
+	file, key, _, err := published.descriptorFile(ctx, revisions[len(revisions)-1])
 	if err != nil {
 		return err
 	}
@@ -396,7 +348,7 @@ func (s *Service) loadDescriptor(ctx context.Context) error {
 		return err
 	}
 	defer f.Close()
-	r, err := s.metadataReader(ctx, f, key)
+	r, err := metadataReader(ctx, f, key, s.CatalogPassword)
 	if err != nil {
 		return fmt.Errorf("backup: cannot unlock catalog %s: %w", s.Set.ID, err)
 	}
@@ -547,5 +499,11 @@ func (s *Service) rememberAuthority(ctx context.Context, previous string) error 
 		return err
 	}
 	authority.Name = authority.ID
-	return s.rememberLocator(ctx, model.Locator{Version: model.DiscoveryVersionInitial, Set: s.Set.ID, Authority: authority, Prefix: strings.TrimSuffix(s.Config.Catalog.Prefix, "/"), Parent: previous})
+	return s.rememberLocator(ctx, model.Locator{
+		Version:   model.DiscoveryVersionInitial,
+		Set:       s.Set.ID,
+		Authority: authority,
+		Prefix:    strings.TrimSuffix(s.Config.Catalog.Prefix, "/"),
+		Parent:    previous,
+	})
 }

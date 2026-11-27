@@ -62,9 +62,14 @@ func New(ctx context.Context, p cloud.Remote, workers int, limit chan struct{}) 
 		return nil, err
 	}
 	key, secret, token := provider.Credentials()
-	cfg := aws.Config{Region: p.Region, HTTPClient: progressHTTPClient{client: awshttp.NewBuildableClient()}, Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(key, secret, token)), Retryer: func() aws.Retryer {
-		return retry.NewStandard(func(o *retry.StandardOptions) { o.MaxAttempts = 5 })
-	}}
+	cfg := aws.Config{
+		Region:      p.Region,
+		HTTPClient:  progressHTTPClient{client: awshttp.NewBuildableClient()},
+		Credentials: aws.NewCredentialsCache(credentials.NewStaticCredentialsProvider(key, secret, token)),
+		Retryer: func() aws.Retryer {
+			return retry.NewStandard(func(o *retry.StandardOptions) { o.MaxAttempts = 5 })
+		},
+	}
 	client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if provider.S3.RelaxedChecksums {
 			o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
@@ -104,7 +109,21 @@ func (s *s3Store) head(ctx context.Context, key, version, etag string) (cloud.Ob
 	}
 	class := norm(h.StorageClass)
 	restore := aws.ToString(h.Restore)
-	return cloud.Object{Key: key, Version: aws.ToString(h.VersionId), ETag: aws.ToString(h.ETag), Size: aws.ToInt64(h.ContentLength), Class: class, Restore: restore, ArchiveStatus: string(h.ArchiveStatus), Cold: cold(class, restore, h.ArchiveStatus != ""), Hash: h.Metadata["sha256"], ObjectLockMode: string(h.ObjectLockMode), RetainUntil: h.ObjectLockRetainUntilDate, LegalHold: string(h.ObjectLockLegalHoldStatus), ModifiedAt: h.LastModified}, nil
+	return cloud.Object{
+		Key:            key,
+		Version:        aws.ToString(h.VersionId),
+		ETag:           aws.ToString(h.ETag),
+		Size:           aws.ToInt64(h.ContentLength),
+		Class:          class,
+		Restore:        restore,
+		ArchiveStatus:  string(h.ArchiveStatus),
+		Cold:           cold(class, restore, h.ArchiveStatus != ""),
+		Hash:           h.Metadata["sha256"],
+		ObjectLockMode: string(h.ObjectLockMode),
+		RetainUntil:    h.ObjectLockRetainUntilDate,
+		LegalHold:      string(h.ObjectLockLegalHoldStatus),
+		ModifiedAt:     h.LastModified,
+	}, nil
 }
 func (s *s3Store) Get(ctx context.Context, key, version string) (body io.ReadCloser, o cloud.Object, err error) {
 	defer classify(&err)
@@ -181,7 +200,16 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 		var response *s3.PutObjectOutput
 		digest, _ := hex.DecodeString(hash)
 		uploadCtx, body := trackUpload(ctx, f, logger.UploadProgress(ctx, progress))
-		response, e = s.client.PutObject(uploadCtx, &s3.PutObjectInput{Bucket: &s.bucket, Key: &key, Body: body, ContentLength: aws.Int64(info.Size()), StorageClass: types.StorageClass(class), Metadata: map[string]string{"sha256": hash}, ChecksumSHA256: aws.String(base64.StdEncoding.EncodeToString(digest)), IfNoneMatch: optional(condition)})
+		response, e = s.client.PutObject(uploadCtx, &s3.PutObjectInput{
+			Bucket:         &s.bucket,
+			Key:            &key,
+			Body:           body,
+			ContentLength:  aws.Int64(info.Size()),
+			StorageClass:   types.StorageClass(class),
+			Metadata:       map[string]string{"sha256": hash},
+			ChecksumSHA256: aws.String(base64.StdEncoding.EncodeToString(digest)),
+			IfNoneMatch:    optional(condition),
+		})
 		s.release()
 		if e == nil {
 			result = cloud.Object{Key: key, Version: aws.ToString(response.VersionId), ETag: aws.ToString(response.ETag)}
@@ -189,7 +217,14 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 	} else {
 		result, e = s.multipart(ctx, key, info.Size(), class, func(ctx context.Context, id string, n int32, start, end int64) (types.CompletedPart, error) {
 			uploadCtx, body := trackUpload(ctx, io.NewSectionReader(f, start, end-start), logger.UploadProgress(ctx, progress))
-			v, e := s.client.UploadPart(uploadCtx, &s3.UploadPartInput{Bucket: &s.bucket, Key: &key, UploadId: &id, PartNumber: &n, ContentLength: aws.Int64(end - start), Body: body})
+			v, e := s.client.UploadPart(uploadCtx, &s3.UploadPartInput{
+				Bucket:        &s.bucket,
+				Key:           &key,
+				UploadId:      &id,
+				PartNumber:    &n,
+				ContentLength: aws.Int64(end - start),
+				Body:          body,
+			})
 			if e != nil {
 				return types.CompletedPart{}, e
 			}
@@ -219,7 +254,16 @@ func (s *s3Store) put(ctx context.Context, key, file, class string, createOnly b
 	}
 	return h, nil
 }
-func (s *s3Store) multipart(ctx context.Context, key string, size int64, class string, part func(context.Context, string, int32, int64, int64) (types.CompletedPart, error), metadata map[string]string, extra *s3.CreateMultipartUploadInput, condition string) (result cloud.Object, err error) {
+func (s *s3Store) multipart(
+	ctx context.Context,
+	key string,
+	size int64,
+	class string,
+	part func(context.Context, string, int32, int64, int64) (types.CompletedPart, error),
+	metadata map[string]string,
+	extra *s3.CreateMultipartUploadInput,
+	condition string,
+) (result cloud.Object, err error) {
 	if s.workers < 1 || size < 1 {
 		return result, fmt.Errorf("cloud: invalid multipart workers or object size")
 	}
@@ -308,7 +352,13 @@ func (s *s3Store) multipart(ctx context.Context, key string, size int64, class s
 		return result, e
 	}
 	var response *s3.CompleteMultipartUploadOutput
-	response, e = s.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{Bucket: &s.bucket, Key: &key, UploadId: &id, MultipartUpload: &types.CompletedMultipartUpload{Parts: parts}, IfNoneMatch: optional(condition)})
+	response, e = s.client.CompleteMultipartUpload(ctx, &s3.CompleteMultipartUploadInput{
+		Bucket:          &s.bucket,
+		Key:             &key,
+		UploadId:        &id,
+		MultipartUpload: &types.CompletedMultipartUpload{Parts: parts},
+		IfNoneMatch:     optional(condition),
+	})
 	if e == nil {
 		result = cloud.Object{Key: key, Version: aws.ToString(response.VersionId), ETag: aws.ToString(response.ETag)}
 	}
@@ -376,7 +426,25 @@ func (s *s3Store) CopyClass(ctx context.Context, key, version, class string) (o 
 	var result cloud.Object
 	if h.Size <= 5<<30 {
 		var response *s3.CopyObjectOutput
-		response, e = s.client.CopyObject(ctx, &s3.CopyObjectInput{Bucket: &s.bucket, Key: &key, CopySource: &source, CopySourceIfMatch: &h.ETag, StorageClass: types.StorageClass(class), GrantFullControl: grants[types.PermissionFullControl], GrantRead: grants[types.PermissionRead], GrantReadACP: grants[types.PermissionReadAcp], GrantWriteACP: grants[types.PermissionWriteAcp], ObjectLockMode: head.ObjectLockMode, ObjectLockRetainUntilDate: head.ObjectLockRetainUntilDate, ObjectLockLegalHoldStatus: head.ObjectLockLegalHoldStatus, MetadataDirective: types.MetadataDirectiveCopy, TaggingDirective: types.TaggingDirectiveCopy, ServerSideEncryption: head.ServerSideEncryption, SSEKMSKeyId: head.SSEKMSKeyId, BucketKeyEnabled: head.BucketKeyEnabled})
+		response, e = s.client.CopyObject(ctx, &s3.CopyObjectInput{
+			Bucket:                    &s.bucket,
+			Key:                       &key,
+			CopySource:                &source,
+			CopySourceIfMatch:         &h.ETag,
+			StorageClass:              types.StorageClass(class),
+			GrantFullControl:          grants[types.PermissionFullControl],
+			GrantRead:                 grants[types.PermissionRead],
+			GrantReadACP:              grants[types.PermissionReadAcp],
+			GrantWriteACP:             grants[types.PermissionWriteAcp],
+			ObjectLockMode:            head.ObjectLockMode,
+			ObjectLockRetainUntilDate: head.ObjectLockRetainUntilDate,
+			ObjectLockLegalHoldStatus: head.ObjectLockLegalHoldStatus,
+			MetadataDirective:         types.MetadataDirectiveCopy,
+			TaggingDirective:          types.TaggingDirectiveCopy,
+			ServerSideEncryption:      head.ServerSideEncryption,
+			SSEKMSKeyId:               head.SSEKMSKeyId,
+			BucketKeyEnabled:          head.BucketKeyEnabled,
+		})
 		if e == nil {
 			if response.CopyObjectResult == nil {
 				return cloud.Object{}, fmt.Errorf("cloud: missing copy result")
@@ -392,10 +460,36 @@ func (s *s3Store) CopyClass(ctx context.Context, key, version, class string) (o 
 		for _, t := range tags.TagSet {
 			values.Add(aws.ToString(t.Key), aws.ToString(t.Value))
 		}
-		extra := &s3.CreateMultipartUploadInput{GrantFullControl: grants[types.PermissionFullControl], GrantRead: grants[types.PermissionRead], GrantReadACP: grants[types.PermissionReadAcp], GrantWriteACP: grants[types.PermissionWriteAcp], ObjectLockMode: head.ObjectLockMode, ObjectLockRetainUntilDate: head.ObjectLockRetainUntilDate, ObjectLockLegalHoldStatus: head.ObjectLockLegalHoldStatus, ContentType: head.ContentType, ContentEncoding: head.ContentEncoding, ContentLanguage: head.ContentLanguage, ContentDisposition: head.ContentDisposition, CacheControl: head.CacheControl, Expires: head.Expires, ServerSideEncryption: head.ServerSideEncryption, SSEKMSKeyId: head.SSEKMSKeyId, BucketKeyEnabled: head.BucketKeyEnabled, Tagging: aws.String(values.Encode())}
+		extra := &s3.CreateMultipartUploadInput{
+			GrantFullControl:          grants[types.PermissionFullControl],
+			GrantRead:                 grants[types.PermissionRead],
+			GrantReadACP:              grants[types.PermissionReadAcp],
+			GrantWriteACP:             grants[types.PermissionWriteAcp],
+			ObjectLockMode:            head.ObjectLockMode,
+			ObjectLockRetainUntilDate: head.ObjectLockRetainUntilDate,
+			ObjectLockLegalHoldStatus: head.ObjectLockLegalHoldStatus,
+			ContentType:               head.ContentType,
+			ContentEncoding:           head.ContentEncoding,
+			ContentLanguage:           head.ContentLanguage,
+			ContentDisposition:        head.ContentDisposition,
+			CacheControl:              head.CacheControl,
+			Expires:                   head.Expires,
+			ServerSideEncryption:      head.ServerSideEncryption,
+			SSEKMSKeyId:               head.SSEKMSKeyId,
+			BucketKeyEnabled:          head.BucketKeyEnabled,
+			Tagging:                   aws.String(values.Encode()),
+		}
 		result, e = s.multipart(ctx, key, h.Size, class, func(ctx context.Context, id string, n int32, start, end int64) (types.CompletedPart, error) {
 			rg := "bytes=" + strconv.FormatInt(start, 10) + "-" + strconv.FormatInt(end-1, 10)
-			v, e := s.client.UploadPartCopy(ctx, &s3.UploadPartCopyInput{Bucket: &s.bucket, Key: &key, UploadId: &id, PartNumber: &n, CopySource: &source, CopySourceIfMatch: &h.ETag, CopySourceRange: &rg})
+			v, e := s.client.UploadPartCopy(ctx, &s3.UploadPartCopyInput{
+				Bucket:            &s.bucket,
+				Key:               &key,
+				UploadId:          &id,
+				PartNumber:        &n,
+				CopySource:        &source,
+				CopySourceIfMatch: &h.ETag,
+				CopySourceRange:   &rg,
+			})
 			if e != nil {
 				return types.CompletedPart{}, e
 			}
@@ -443,13 +537,20 @@ func (s *s3Store) RestoreVersion(ctx context.Context, key, version string, days 
 	if head.Class == "INTELLIGENT_TIERING" {
 		restoreDays = nil
 	}
-	_, e = s.client.RestoreObject(ctx, &s3.RestoreObjectInput{Bucket: &s.bucket, Key: &key, VersionId: optional(head.Version), RestoreRequest: &types.RestoreRequest{Days: restoreDays, GlacierJobParameters: &types.GlacierJobParameters{Tier: types.Tier(tier)}}})
+	_, e = s.client.RestoreObject(ctx, &s3.RestoreObjectInput{
+		Bucket:         &s.bucket,
+		Key:            &key,
+		VersionId:      optional(head.Version),
+		RestoreRequest: &types.RestoreRequest{Days: restoreDays, GlacierJobParameters: &types.GlacierJobParameters{Tier: types.Tier(tier)}},
+	})
 	return e
 }
 
 func grantHeaders(acl *s3.GetObjectAclOutput) (map[types.Permission]*string, error) {
 	out := map[types.Permission]*string{}
-	if len(acl.Grants) == 1 && acl.Grants[0].Permission == types.PermissionFullControl && acl.Grants[0].Grantee != nil && acl.Owner != nil && aws.ToString(acl.Grants[0].Grantee.ID) == aws.ToString(acl.Owner.ID) {
+	if len(acl.Grants) == 1 && acl.Grants[0].Permission == types.PermissionFullControl &&
+		acl.Grants[0].Grantee != nil && acl.Owner != nil &&
+		aws.ToString(acl.Grants[0].Grantee.ID) == aws.ToString(acl.Owner.ID) {
 		return out, nil
 	}
 	values := map[types.Permission][]string{}

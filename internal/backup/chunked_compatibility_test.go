@@ -26,7 +26,7 @@ func TestChunkedRecoveryWithGPGAndTar(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(source, "file"), data, 0600); err != nil {
 				t.Fatal(err)
 			}
-			v, err := s.Run(context.Background(), RunOptions{Chunked: true, SpoolMax: 2 << 20, Compression: format, Password: []byte("interop")})
+			v, err := s.Run(context.Background(), RunOptions{Chunked: &chunkedOn, SpoolMax: 2 << 20, Compression: format, Password: []byte("interop")})
 			if err != nil {
 				t.Fatal(err)
 			}
