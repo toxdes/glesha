@@ -2,20 +2,16 @@
 
 ## Unreleased
 
-### Added
+## 0.5.3 - 2026-11-27
 
-- `delete SET...` moves sets to the trash for `[backup] trash_period`, 24 hours by default. The first command that connects to a remote after that period deletes every stored version of the set from every configured remote. `delete --now` deletes at once, after you type each set name. `undelete SET...` restores a set from the trash. The trash period is measured by the bucket's clock.
-- `status SET` names the other sets that use the same archives.
-
-### Changed
-
-- `import` fails when another set on this computer already uses the remote object.
-
-- Release publishing uses pinned Debian/Fedora helpers for APT/RPM tools, with signing keys kept on the host.
-- Release artifacts publish under `releases/` instead of `glesha/releases/`, matching the other toxdes projects. `packaging/migrate_release_prefix.py` copies existing objects to the new prefix while the originals keep serving old links.
-- Command help and manual pages use a compact Unix style. Help, `--help`, and `man/glesha-*.1` come from one source, and descriptions match behavior.
-- Plain-text results, such as `run`, `archive`, `state migrate`, and the `status` footers, use consistent wording. JSON output is unchanged.
-- User documentation lives in `docs/`, and `docs/cli-reference.md` replaces `cli_reference.md`.
+- `feat(backup):` `delete` moves backup sets to the trash for 24 hours by default. `undelete` recovers them before the trash period expires. `delete --now` purges all stored versions after confirmation.
+- `feat(status):` `status SET` names the other sets that use the same archives.
+- `fix(import):` Reject a remote object already used by another set on the same computer.
+- `fix(restore):` Keep staged files so an interrupted restore can resume.
+- `fix(backup):` Name the remote in transfer errors and report every failed destination in a backup run. `upload` reports an unknown storage class before checking whether a destination supports it.
+- `ui(cli):` Rewrite command help and manual pages in Unix style and make plain-text output consistent across commands.
+- `docs:` Move the user docs into `docs/`, split installation by operating system, and document configuration defaults and overrides.
+- `release:` Publish downloads under the shared `releases/` prefix and keep historical links working. Build APT and RPM repositories with pinned container images while signing on the host.
 
 ## 0.5.2 - 2026-10-31
 
