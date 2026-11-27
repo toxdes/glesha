@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `delete SET...` moves sets to the trash for `[backup] trash_period`, 24 hours by default. The first command that connects to a remote after that period deletes every stored version of the set from every configured remote. `delete --now` deletes at once, after you type each set name. `undelete SET...` restores a set from the trash. The trash period is measured by the bucket's clock.
+- `status SET` names the other sets that use the same archives.
+
 ### Changed
+
+- `import` fails when another set on this computer already uses the remote object.
 
 - Release publishing uses pinned Debian/Fedora helpers for APT/RPM tools, with signing keys kept on the host.
 - Release artifacts publish under `releases/` instead of `glesha/releases/`, matching the other toxdes projects. `packaging/migrate_release_prefix.py` copies existing objects to the new prefix while the originals keep serving old links.

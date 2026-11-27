@@ -1,0 +1,42 @@
+.TH "GLESHA-DELETE" "1" "" "glesha" "User Commands"
+.nh
+.ad l
+.SH NAME
+glesha\-delete \- move sets to the trash, or delete them permanently
+.SH SYNOPSIS
+\fBglesha delete\fR SET... [\-\-now] [options]
+.SH DESCRIPTION
+Move each SET to the trash. A set in the trash keeps its data and can be restored with undelete, but cannot be backed up, moved or changed. After [backup] trash_period, default 24h, the first glesha command that can reach the set's catalog remote deletes it. The period is measured by the bucket's clock. Storage is billed until then.
+.PP
+With \-\-now, or when trash_period is 0, delete each SET permanently: every stored version of its archives, catalog and registry records on every configured remote, and its local state. Imported archives are deleted too, unless another set on this computer uses them or may use them, or they changed after the import. Each set name must be typed to confirm.
+.PP
+The catalog of each SET must be open on this computer, so that imported archives can be found. A deletion that cannot reach every configured remote continues with the next glesha command that can.
+.SH OPTIONS
+.TP
+.B \-\-now
+Delete permanently now, without the trash period.
+.TP
+.B \-\-dry\-run
+List what would be deleted, and delete nothing.
+.TP
+.B \-\-assume\-yes
+Answer yes to all confirmations.
+.SS Remote options
+.TP
+.B \-\-to REMOTE...
+Limit bucket access to REMOTE.
+.TP
+.B \-\-from REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.PP
+The global options described in glesha(1) are also accepted.
+.SH EXAMPLES
+.nf
+glesha delete docs
+glesha delete docs photos \-\-now
+glesha delete docs \-\-now \-\-dry\-run
+.fi
+.SH SEE ALSO
+.BR glesha (1)

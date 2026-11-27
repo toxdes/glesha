@@ -33,6 +33,11 @@ func (s *Service) Import(ctx context.Context, o ImportOptions) (model.Snapshot, 
 	if s.Pending() {
 		return v, fmt.Errorf("%w: finish or abandon pending work before import", ErrPending)
 	}
+	if o.Remote != "" {
+		if err := s.checkImportUnused(ctx, o.Remote, o.Object.Key, o.Object.Version); err != nil {
+			return v, err
+		}
+	}
 	c, err := s.Catalog(ctx)
 	if err != nil {
 		return v, err

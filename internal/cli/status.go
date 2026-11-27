@@ -52,6 +52,8 @@ type statusData struct {
 	MetadataEstimateComplete bool                        `json:"metadata_estimate_complete"`
 	PricingDate              string                      `json:"pricing_date"`
 	Providers                map[string]string           `json:"provider_names,omitempty"`
+	// SharedWith counts archives that other sets also use, in single-set status
+	SharedWith map[string]int `json:"shared_with,omitempty"`
 }
 
 // collectStatus gathers the state, size and cost of one set. totals, when not nil,

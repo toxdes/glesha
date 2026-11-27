@@ -1,14 +1,15 @@
 // Command e2ecleanup deletes every stored version of one backup set's remote
-// data, so a run of tests/e2e.py leaves nothing billed behind. Discovery
-// records are replicated to every reachable remote, and any copy left behind
-// would bring the set back, so those are deleted from every configured remote.
+// data, so a run of tests/e2e.py leaves nothing billed behind. It runs after
+// glesha delete --now, to count what that left and to remove the deletion
+// marker glesha keeps, and alone when the test fails before that. Discovery
+// records and markers are on every configured remote, so it cleans them on
+// each one.
 //
 //	go run ./tests/e2ecleanup --env FILE --remote REMOTE --set SET_UUID [--dry-run]
 package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"maps"
@@ -65,7 +66,7 @@ func run() error {
 		if p.Bucket == "" {
 			continue
 		}
-		prefixes := []string{catalog + "/directory/v1/" + *set + "/"}
+		prefixes := []string{catalog + "/directory/v1/" + *set + "/", catalog + "/directory/tombstones/v1/" + *set + "/"}
 		if name == *remote {
 			prefixes = append([]string{"glesha/archives/" + *set + "/", catalog + "/sets/" + *set + "/"}, prefixes...)
 		}
@@ -87,28 +88,10 @@ func run() error {
 // deleteVersions deletes every version and delete marker under prefix and
 // returns how many there were.
 func deleteVersions(ctx context.Context, store cloud.Store, prefix string, dryRun bool) (int, error) {
-	versions, ok := store.(interface {
-		cloud.VersionLister
-		cloud.VersionDeleter
-	})
-	if !ok {
-		return 0, errors.New("remote cannot list and delete object versions")
+	if dryRun {
+		found, err := cloud.CountAll(ctx, store, prefix, nil)
+		return found.Objects, err
 	}
-	var found []cloud.Object
-	if err := versions.ListVersions(ctx, prefix, func(o cloud.Object) error {
-		found = append(found, o)
-		return nil
-	}); err != nil {
-		return 0, fmt.Errorf("list %s: %w", prefix, err)
-	}
-	for _, o := range found {
-		if dryRun {
-			fmt.Printf("would delete %s (%s)\n", o.Key, o.Version)
-			continue
-		}
-		if err := versions.DeleteVersion(ctx, o.Key, o.Version); err != nil {
-			return 0, fmt.Errorf("delete %s (%s): %w", o.Key, o.Version, err)
-		}
-	}
-	return len(found), nil
+	freed, err := cloud.DeleteAll(ctx, store, prefix, nil)
+	return freed.Objects, err
 }

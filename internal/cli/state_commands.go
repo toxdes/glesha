@@ -23,7 +23,12 @@ func (r *runtime) selectedSets(args []string) ([]model.Set, error) {
 		return []model.Set{set}, setError(args[0], err)
 	}
 	sets := []model.Set{}
-	err := r.registry.Each(r.ctx, func(set model.Set) error { sets = append(sets, set); return nil })
+	err := r.registry.Each(r.ctx, func(set model.Set) error {
+		if set.Trash == nil || allowedInTrash[r.command] {
+			sets = append(sets, set)
+		}
+		return nil
+	})
 	return sets, err
 }
 func catalogSync(r *runtime, args []string) error {
@@ -68,6 +73,12 @@ func catalogSync(r *runtime, args []string) error {
 				continue
 			}
 			if err := r.emit("catalog_state", catalogSyncResult{Set: set.ID, State: backup.CatalogStateSkipped}, fmt.Sprintf("%s  SKIPPED  Local-only set", logger.ASCII(set.Name))); err != nil {
+				return err
+			}
+			continue
+		}
+		if skip, err := r.skipDeleting(set, &summary); err != nil || skip {
+			if err != nil {
 				return err
 			}
 			continue

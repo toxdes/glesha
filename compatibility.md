@@ -202,3 +202,14 @@ Unchanged version 2 JSON records retain fields and types and never contain prose
 color or progress. The new catalog unlock command operates on cached metadata
 only and emits an additive catalog_unlocked record; existing sync behavior stays
 unchanged. Existing aliases and exit codes remain supported.
+
+Deletion markers live under `<catalog prefix>/directory/tombstones/v1/<set>/`:
+`trash.json` (`version`, `set`, `period_seconds`, optional `imported`, whose
+entries hold `remote`, `key`, optional `version_id` and `etag`) and
+`deleted.json` (`version`, `set`). A deletion writes `deleted.json` on a remote
+before it deletes data there, and from then on cannot be undone. A short-lived
+`clock.json` in the same folder reads the bucket's clock. Older versions list only `directory/v1/`, so
+they never read these markers, but they publish a deleted set's registry records
+again. Newer versions delete those records when they find a `deleted.json`.
+Registry sets gain an optional `trash` field; records without it are not in the
+trash.

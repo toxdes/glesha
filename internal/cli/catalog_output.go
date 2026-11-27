@@ -40,6 +40,7 @@ type catalogSyncSummary struct {
 	RegistryCopiesUpdated int `json:"registry_copies_updated"`
 	localOnly             int
 	outOfScope            int
+	deleting              int
 }
 
 // catalogSyncRun is the state of a running catalog sync; other commands leave it zero.
@@ -159,6 +160,9 @@ func (r *runtime) emitCatalogSummary(summary catalogSyncSummary) error {
 		}
 		if summary.outOfScope > 0 {
 			reasons = append(reasons, fmt.Sprintf("%d outside selection", summary.outOfScope))
+		}
+		if summary.deleting > 0 {
+			reasons = append(reasons, fmt.Sprintf("%d being deleted", summary.deleting))
 		}
 		if len(reasons) > 0 {
 			text += " (" + strings.Join(reasons, ", ") + ")"

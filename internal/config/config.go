@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -30,6 +31,8 @@ type Config struct {
 	Backup struct {
 		FullClass        string `toml:"full_storage_class"`
 		IncrementalClass string `toml:"incremental_storage_class"`
+		// TrashPeriod is a Go duration; "0" makes delete permanent at once
+		TrashPeriod string `toml:"trash_period"`
 	} `toml:"backup"`
 	AWS     Provider `toml:"aws"`
 	B2      Provider `toml:"b2"`
@@ -58,6 +61,17 @@ func DefaultPath() (string, error) {
 
 const DefaultRetrievalDays int32 = 3
 
+const DefaultTrashPeriod = "24h"
+
+// TrashPeriod is how long a deleted set stays in the trash.
+func (c Config) TrashPeriod() (time.Duration, error) {
+	d, err := time.ParseDuration(c.Backup.TrashPeriod)
+	if err != nil || d < 0 || (d > 0 && d < time.Second) {
+		return 0, fmt.Errorf("config: trash_period must be 0 or a duration of at least 1s, such as 24h")
+	}
+	return d, nil
+}
+
 func Defaults() Config {
 	var c Config
 	c.Archive.Prefix = "glesha"
@@ -72,6 +86,7 @@ func Defaults() Config {
 	c.Catalog.Prefix = "glesha/v2"
 	c.Cold.Days = DefaultRetrievalDays
 	c.Cold.Tier = "Bulk"
+	c.Backup.TrashPeriod = DefaultTrashPeriod
 	return c
 }
 func Load(p string) (Config, error) {
@@ -124,7 +139,8 @@ func (c Config) Validate() error {
 	if c.Cold.Days < 1 {
 		return fmt.Errorf("config: cold days must be positive")
 	}
-	return nil
+	_, err := c.TrashPeriod()
+	return err
 }
 func Env(p string) error {
 	if p == "" {

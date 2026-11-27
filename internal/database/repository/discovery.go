@@ -64,3 +64,21 @@ func (r *registry) Locators(ctx context.Context, set string) (map[string]model.L
 	}
 	return values, rows.Err()
 }
+
+func (r *registry) Remove(ctx context.Context, id string) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		"DELETE FROM discovery_replicas WHERE locator IN (SELECT id FROM discovery WHERE set_id=?)",
+		"DELETE FROM discovery WHERE set_id=?",
+		"DELETE FROM sets WHERE id=?",
+	} {
+		if _, err = tx.ExecContext(ctx, statement, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

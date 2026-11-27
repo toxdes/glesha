@@ -19,6 +19,7 @@ storage_class = "STANDARD"
 [backup]
 # full_storage_class = "STANDARD_IA"
 # incremental_storage_class = "STANDARD_IA"
+# trash_period = "24h"
 
 [archive]
 prefix = "glesha"

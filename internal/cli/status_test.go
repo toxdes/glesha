@@ -193,6 +193,13 @@ func TestStatusChunkedCountsActualObjectsAndClasses(t *testing.T) {
 	}
 }
 
+func TestStatusDetailsNameSetsSharingArchives(t *testing.T) {
+	text := statusDetails(statusData{SharedWith: map[string]int{"photos": 1, "music": 2}})
+	if !strings.Contains(text, "2 archives are shared with set music.\n1 archive is shared with set photos.\n") {
+		t.Fatal(text)
+	}
+}
+
 func TestStatusFormatsAndDominantClass(t *testing.T) {
 	ctx := context.Background()
 	registry, err := repository.NewRegistryRepository(ctx, ":memory:")

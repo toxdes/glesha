@@ -349,6 +349,9 @@ func (s *Service) PrepareImport(ctx context.Context, from []string, key string, 
 			return "", "", job.Object, err
 		}
 	}
+	if err = s.checkImportUnused(ctx, job.Remote, key, job.Object.Version); err != nil {
+		return "", "", job.Object, err
+	}
 	cached, err := s.importCached(ctx, file, sidecar, job)
 	if err != nil {
 		return "", "", job.Object, err
