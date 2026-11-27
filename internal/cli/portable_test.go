@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"glesha/internal/config"
 	"glesha/internal/database/repository"
@@ -27,6 +28,7 @@ import (
 type testBucket struct {
 	mu              sync.Mutex
 	objects         map[string][]byte
+	modified        map[string]time.Time
 	requests        int
 	payloadReads    int
 	payloadWrites   int
@@ -37,7 +39,7 @@ type testBucket struct {
 
 func newTestBucket(t *testing.T) (*testBucket, *httptest.Server) {
 	t.Helper()
-	bucket := &testBucket{objects: map[string][]byte{}}
+	bucket := &testBucket{objects: map[string][]byte{}, modified: map[string]time.Time{}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		bucket.mu.Lock()
 		defer bucket.mu.Unlock()
@@ -65,6 +67,34 @@ func newTestBucket(t *testing.T) (*testBucket, *httptest.Server) {
 			}
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Query().Has("versions") {
+			type versionXML struct {
+				Key       string
+				VersionId string
+				Size      int
+			}
+			listing := struct {
+				XMLName     xml.Name `xml:"ListVersionsResult"`
+				Version     []versionXML
+				IsTruncated bool
+			}{}
+			for key, data := range bucket.objects {
+				if strings.HasPrefix(key, r.URL.Query().Get("prefix")) {
+					listing.Version = append(listing.Version, versionXML{key, "version", len(data)})
+				}
+			}
+			sort.Slice(listing.Version, func(i, j int) bool { return listing.Version[i].Key < listing.Version[j].Key })
+			w.Header().Set("Content-Type", "application/xml")
+			if err := xml.NewEncoder(w).Encode(listing); err != nil {
+				t.Error(err)
+			}
+			return
+		}
+		if r.Method == http.MethodDelete {
+			delete(bucket.objects, key)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
 		payload := strings.HasSuffix(key, ".gpg") && !strings.Contains(key, "/batches/") && !strings.Contains(key, "/descriptors/")
 		switch r.Method {
 		case http.MethodPut:
@@ -83,6 +113,7 @@ func newTestBucket(t *testing.T) (*testBucket, *httptest.Server) {
 				return
 			}
 			bucket.objects[key] = body
+			bucket.modified[key] = time.Now()
 			if payload {
 				bucket.payloadWrites++
 			} else {
@@ -107,6 +138,9 @@ func newTestBucket(t *testing.T) (*testBucket, *httptest.Server) {
 		digest := sha256.Sum256(body)
 		w.Header().Set("ETag", `"`+hex.EncodeToString(digest[:])+`"`)
 		w.Header().Set("x-amz-version-id", "version")
+		if modified, ok := bucket.modified[key]; ok {
+			w.Header().Set("Last-Modified", modified.UTC().Format(http.TimeFormat))
+		}
 		w.Header().Set("x-amz-meta-sha256", hex.EncodeToString(digest[:]))
 		if r.Method == http.MethodPut {
 			return

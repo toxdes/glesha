@@ -65,6 +65,9 @@ func create(r *runtime, args []string) error {
 			return err
 		}
 	}
+	if existing, err := r.registry.Set(r.ctx, set.Name); err == nil && existing.Trash != nil {
+		return fmt.Errorf("cli: set %s is in trash; run glesha undelete %s or glesha delete --now %s", set.Name, set.Name, set.Name)
+	}
 	if err = r.registry.Create(r.ctx, set); err != nil {
 		return fmt.Errorf("cli: set already exists or cannot be registered: %w", err)
 	}

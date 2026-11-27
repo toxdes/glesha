@@ -80,6 +80,11 @@ func status(r *runtime, args []string) error {
 		for _, id := range details.Set.To {
 			details.Providers[id] = r.remoteLabel(id)
 		}
+		if details.CatalogAvailable {
+			if details.SharedWith, err = r.service.SharedArchives(r.ctx); err != nil {
+				return err
+			}
+		}
 		if _, err := fmt.Fprint(r.out, statusDetails(details)); err != nil {
 			return err
 		}
@@ -304,6 +309,18 @@ func statusDetails(d statusData) string {
 		rows = append(rows, []string{"Source " + root.Name, root.Path})
 	}
 	fmt.Fprint(&out, "\n", renderColumns(rows, "plain", false))
+	others := make([]string, 0, len(d.SharedWith))
+	for set := range d.SharedWith {
+		others = append(others, set)
+	}
+	sort.Strings(others)
+	for _, set := range others {
+		verb := "archives are"
+		if d.SharedWith[set] == 1 {
+			verb = "archive is"
+		}
+		fmt.Fprintf(&out, "%d %s shared with set %s.\n", d.SharedWith[set], verb, logger.ASCII(set))
+	}
 	if len(d.Classes) > 0 {
 		classes := make([]string, 0, len(d.Classes))
 		for class := range d.Classes {
@@ -386,9 +403,9 @@ func stateColor(state backup.SetState) string {
 	switch state {
 	case backup.STATE_SYNCED, backup.SetState(backup.RETRIEVAL_READY):
 		return "32"
-	case backup.STATE_PAUSED, backup.STATE_LOCAL, backup.STATE_WAITING, backup.STATE_STALE, backup.STATE_LOCKED, backup.STATE_NEW, backup.SetState(backup.RETRIEVAL_QUEUED), backup.SetState(backup.RETRIEVAL_PARTIAL):
+	case backup.STATE_PAUSED, backup.STATE_LOCAL, backup.STATE_WAITING, backup.STATE_STALE, backup.STATE_LOCKED, backup.STATE_NEW, backup.STATE_TRASH, backup.SetState(backup.RETRIEVAL_QUEUED), backup.SetState(backup.RETRIEVAL_PARTIAL):
 		return "33"
-	case backup.STATE_CONFLICT, backup.STATE_FAILED, backup.SetState(backup.RETRIEVAL_EXPIRED):
+	case backup.STATE_CONFLICT, backup.STATE_FAILED, backup.STATE_DELETING, backup.SetState(backup.RETRIEVAL_EXPIRED):
 		return "31"
 	case backup.STATE_RUNNING, backup.STATE_PUBLISHING:
 		return "36"

@@ -1,0 +1,27 @@
+.TH "GLESHA-UNDELETE" "1" "" "glesha" "User Commands"
+.nh
+.ad l
+.SH NAME
+glesha\-undelete \- restore sets from the trash
+.SH SYNOPSIS
+\fBglesha undelete\fR SET... [options]
+.SH DESCRIPTION
+Take each SET out of the trash before its trash period ends and before its deletion starts. Nothing was deleted, so the set is restored exactly.
+.SH OPTIONS
+.SS Remote options
+.TP
+.B \-\-to REMOTE...
+Limit bucket access to REMOTE.
+.TP
+.B \-\-from REMOTE...
+Limit bucket access to REMOTE.
+.PP
+REMOTE... takes a comma\-separated list and may be repeated. If \-\-from or \-\-to is given, no other remote is accessed.
+.PP
+The global options described in glesha(1) are also accepted.
+.SH EXAMPLES
+.nf
+glesha undelete docs
+.fi
+.SH SEE ALSO
+.BR glesha (1)

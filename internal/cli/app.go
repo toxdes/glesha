@@ -129,6 +129,7 @@ type AppCmdEnv struct {
 	DeepVerify  bool
 	All         bool
 	DryRun      bool
+	Now         bool
 	Cancel      bool
 
 	// present records the flags given, by spelling; read it with given
@@ -321,6 +322,9 @@ func Execute(ctx context.Context, args []string, version, sha string) error {
 	logger.Debug(fmt.Sprintf("command=%s; memory=%s; hash-workers=%d; transfer-workers=%d", command, logger.Bytes(budget.Total), budget.HashWorkers, budget.TransferWorkers))
 	if err := r.selectCommandRemotes(); err != nil {
 		return err
+	}
+	if spec.setup == fullSetup {
+		r.finishDueDeletions()
 	}
 	err = spec.run(r, args)
 	if spec.recordsResult {
@@ -519,7 +523,13 @@ func (r *runtime) recordResult(err error) {
 }
 func (r *runtime) openSet(name string) error {
 	r.service = &backup.Service{Config: r.config, Budget: r.budget, Registry: r.registry, Stores: map[string]cloud.Store{}}
-	return setError(name, r.service.OpenSet(r.ctx, name, r.root))
+	if err := r.service.OpenSet(r.ctx, name, r.root); err != nil {
+		return setError(name, err)
+	}
+	if r.service.Set.Trash != nil && !allowedInTrash[r.command] {
+		return trashError(r.service.Set)
+	}
+	return nil
 }
 func (r *runtime) lock() (func(), error) {
 	lock := flock.New(filepath.Join(r.service.Directory, "writer.lock"))

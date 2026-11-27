@@ -45,3 +45,33 @@ func readConfirmation(ctx context.Context, in io.Reader, out io.Writer, terminal
 	}
 	return nil
 }
+
+// readTypedConfirmation asks the user to type name, for permanent deletion.
+// One reader serves every prompt, so a line typed ahead is not lost.
+func readTypedConfirmation(ctx context.Context, in *bufio.Reader, out io.Writer, terminal bool, label, name string, yes bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if yes {
+		return nil
+	}
+	if !terminal {
+		return fmt.Errorf("%w: type %s %q", backup.ErrConfirmationRequired, label, name)
+	}
+	resume := logger.PauseProgress(ctx)
+	defer resume()
+	if _, err := fmt.Fprintf(out, "Type %s %q to confirm deletion: ", label, logger.ASCII(name)); err != nil {
+		return err
+	}
+	answer, err := in.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if strings.TrimSpace(answer) != name {
+		return fmt.Errorf("%w: confirmation does not match; nothing was deleted", backup.ErrConfirmationRequired)
+	}
+	return nil
+}

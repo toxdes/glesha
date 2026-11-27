@@ -63,6 +63,8 @@ var options = []option{
 		bind: func(f *flag.FlagSet, e *AppCmdEnv, n string) { f.BoolVar(&e.Cancel, n, false, "") }},
 	{name: "dry-run", group: groupGeneral, usage: "list the files without deleting them",
 		bind: func(f *flag.FlagSet, e *AppCmdEnv, n string) { f.BoolVar(&e.DryRun, n, false, "") }},
+	{name: "now", group: groupGeneral, usage: "delete permanently now, without the trash period",
+		bind: func(f *flag.FlagSet, e *AppCmdEnv, n string) { f.BoolVar(&e.Now, n, false, "") }},
 	{name: "keep", value: "local|remote", group: groupGeneral, usage: "settle conflicts using local or remote values",
 		bind: func(f *flag.FlagSet, e *AppCmdEnv, n string) { f.StringVar(&e.Keep, n, "", "") }},
 	{name: "authority", value: "REMOTE", group: groupGeneral, usage: "make the catalog on REMOTE authoritative",

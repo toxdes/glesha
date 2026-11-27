@@ -184,6 +184,37 @@ func init() {
 			options: []string{"all", "dry-run", "assume-yes", "to", "from"},
 		},
 		{
+			name: "delete",
+			run:  deleteSets,
+			help: commandHelp{
+				synopsis: []string{"SET... [--now]"},
+				summary:  "move sets to the trash, or delete them permanently",
+				description: []string{
+					"Move each SET to the trash. A set in the trash keeps its data and can be restored with undelete, but cannot be backed up, moved or changed. After [backup] trash_period, default 24h, the first glesha command that can reach the set's catalog remote deletes it. The period is measured by the bucket's clock. Storage is billed until then.",
+					"With --now, or when trash_period is 0, delete each SET permanently: every stored version of its archives, catalog and registry records on every configured remote, and its local state. Imported archives are deleted too, unless another set on this computer uses them or may use them, or they changed after the import. Each set name must be typed to confirm.",
+					"The catalog of each SET must be open on this computer, so that imported archives can be found. A deletion that cannot reach every configured remote continues with the next glesha command that can.",
+				},
+				examples: []string{"glesha delete docs", "glesha delete docs photos --now", "glesha delete docs --now --dry-run"},
+			},
+			options: []string{"now", "dry-run", "assume-yes", "to", "from"},
+			overrides: map[string]optionHelp{
+				"dry-run": {usage: "list what would be deleted, and delete nothing"},
+			},
+		},
+		{
+			name: "undelete",
+			run:  undeleteSets,
+			help: commandHelp{
+				synopsis: []string{"SET..."},
+				summary:  "restore sets from the trash",
+				description: []string{
+					"Take each SET out of the trash before its trash period ends and before its deletion starts. Nothing was deleted, so the set is restored exactly.",
+				},
+				examples: []string{"glesha undelete docs"},
+			},
+			options: []string{"to", "from"},
+		},
+		{
 			name:         "history",
 			run:          history,
 			listsResults: true,

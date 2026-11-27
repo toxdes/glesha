@@ -266,6 +266,8 @@ func catalogDiscover(r *runtime) error {
 		}
 	}
 	stores := r.service.Stores
+	// discovery may have found deletions that other devices started
+	r.finishDueDeletions()
 	var sets []model.Set
 	if err := r.registry.Each(r.ctx, func(set model.Set) error { sets = append(sets, set); return nil }); err != nil {
 		return errors.Join(discoveryErr, err)
@@ -278,6 +280,12 @@ func catalogDiscover(r *runtime) error {
 				continue
 			}
 			if err := r.emit("catalog_state", catalogSyncResult{Set: set.ID, State: backup.CatalogStateSkipped}, fmt.Sprintf("%s  SKIPPED  Local-only set", logger.ASCII(set.Name))); err != nil {
+				return err
+			}
+			continue
+		}
+		if skip, err := r.skipDeleting(set, &summary); err != nil || skip {
+			if err != nil {
 				return err
 			}
 			continue
